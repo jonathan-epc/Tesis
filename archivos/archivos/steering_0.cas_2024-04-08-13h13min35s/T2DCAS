@@ -1,0 +1,9 @@
+GEOMETRY FILE               ='geometry/geometry_0.slf'
+
+STEERING FILE               ='steering_0.cas'
+
+BOUNDARY CONDITIONS FILE    ='boundary/boundary.cli'
+
+RESULTS FILE                ='results/results_0.slf'
+
+LAW OF BOTTOM FRICTION = 4
