@@ -6,13 +6,14 @@
 :Application              BlueKenue
 :Version                  3.3.4
 :WrittenBy                John
-:CreationDate             Thu, Mar 28, 2024 05:55 PM
+:CreationDate             Mon, Apr 08, 2024 10:15 PM
 #
 #------------------------------------------------------------------------
+#
 :Name  crossX
 #
 :AttributeUnits 1 cm
 :EndHeader
 2 0
-0 0.15
-12 0.15
+0.000000 0.150000
+12.000000 0.150000
