@@ -20,28 +20,28 @@ TITLE = 'Test0'
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 1000
-LISTING PRINTOUT PERIOD         = 1000
+GRAPHIC PRINTOUT PERIOD         = 600
+LISTING PRINTOUT PERIOD         = 1200
 /
-DURATION                        = 1200
-TIME STEP                       = 0.01
-/NUMBER OF TIME STEPS            = 2500
+DURATION                        = 300
+TIME STEP                       = 0.005
+/NUMBER OF TIME STEPS           = 2500
 MASS-BALANCE                    = YES
 /
 /----------------------------------------------
 /  INITIAL CONDITIONS
 /----------------------------------------------
 /
-INITIAL CONDITIONS              = 'CONSTANT DEPTH'
-INITIAL DEPTH               = 1
+INITIAL CONDITIONS               = 'CONSTANT DEPTH'
+INITIAL DEPTH                    = 0.1
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
 /----------------------------------------------
 /
-PRESCRIBED FLOWRATES            = 0.0;0.01
-PRESCRIBED ELEVATIONS           = 0.0;0.04
-VELOCITY PROFILES               = 1;4
+PRESCRIBED FLOWRATES            = 0.0 ; 0.01
+PRESCRIBED ELEVATIONS           = 0.0 ; 0.120 /min 0.122
+VELOCITY PROFILES               = 1 ; 4
 /
 /----------------------------------------------
 /  PHYSICAL PARAMETERS
@@ -50,7 +50,6 @@ VELOCITY PROFILES               = 1;4
 LAW OF BOTTOM FRICTION          = 4
 FRICTION COEFFICIENT            = 0.02
 TURBULENCE MODEL                = 1
-VELOCITY DIFFUSIVITY            = 0.
 /
 /----------------------------------------------
 /  NUMERICAL PARAMETERS
@@ -64,8 +63,6 @@ DISCRETIZATIONS IN SPACE        = 11;11
 /
 SOLVER                          = 1
 SOLVER ACCURACY                 = 1.E-5
-IMPLICITATION FOR DEPTH         = 0.6
-IMPLICITATION FOR VELOCITY      = 0.6
 /
 TIDAL FLATS                     = NO
 FREE SURFACE GRADIENT COMPATIBILITY = 0.9
