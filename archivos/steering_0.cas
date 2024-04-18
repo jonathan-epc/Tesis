@@ -20,27 +20,34 @@ TITLE = 'Test0'
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 600
-LISTING PRINTOUT PERIOD         = 1200
+GRAPHIC PRINTOUT PERIOD         = 1000
+LISTING PRINTOUT PERIOD         = 1000
 /
-DURATION                        = 300
-TIME STEP                       = 0.005
+DURATION                        = 2400
 /NUMBER OF TIME STEPS           = 2500
+/TIME STEP                       = 0.001
+VARIABLE TIME-STEP              = YES
+DESIRED COURANT NUMBER          = 0.9
 MASS-BALANCE                    = YES
 /
 /----------------------------------------------
 /  INITIAL CONDITIONS
 /----------------------------------------------
 /
-INITIAL CONDITIONS               = 'CONSTANT ELEVATION'
-INITIAL ELEVATION                = 0.15
+/INITIAL CONDITIONS               = 'CONSTANT DEPTH'
+/INITIAL DEPTH                    = 0.03
+COMPUTATION CONTINUED           = YES
+PREVIOUS COMPUTATION FILE       = 'steady.slf'
+STOP IF A STEADY STATE IS REACHED = YES
+STOP CRITERIA                   = 2e-6 ; 2e-6 ; 2e-6
+CONTINUITY CORRECTION           = YES
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            = 0.0 ; 0.01
-PRESCRIBED ELEVATIONS           = 0.0 ; 0.15
+PRESCRIBED ELEVATIONS           = 0.0 ; 0.05
 VELOCITY PROFILES               = 1 ; 1
 /
 /----------------------------------------------
@@ -58,12 +65,14 @@ TURBULENCE MODEL                = 1
 EQUATIONS                       = 'SAINT-VENANT FE'
 TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
 /
-TYPE OF ADVECTION               = 1;5
 DISCRETIZATIONS IN SPACE        = 11;11
 /
 SOLVER                          = 1
-SOLVER ACCURACY                 = 1.E-5
+SOLVER ACCURACY                 = 1.E-7
 /
 TIDAL FLATS                     = NO
 FREE SURFACE GRADIENT COMPATIBILITY = 0.9
-CONTINUITY CORRECTION           = YES
+
+SCHEME FOR ADVECTION OF VELOCITIES : 1 
+SCHEME FOR ADVECTION OF TRACERS : 5
+SCHEME FOR ADVECTION OF K-EPSILON : 4
