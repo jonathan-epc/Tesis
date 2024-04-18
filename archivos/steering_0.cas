@@ -32,16 +32,16 @@ MASS-BALANCE                    = YES
 /  INITIAL CONDITIONS
 /----------------------------------------------
 /
-INITIAL CONDITIONS               = 'CONSTANT DEPTH'
-INITIAL DEPTH                    = 0.1
+INITIAL CONDITIONS               = 'CONSTANT ELEVATION'
+INITIAL ELEVATION                = 0.15
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            = 0.0 ; 0.01
-PRESCRIBED ELEVATIONS           = 0.0 ; 0.120 /min 0.122
-VELOCITY PROFILES               = 1 ; 4
+PRESCRIBED ELEVATIONS           = 0.0 ; 0.15
+VELOCITY PROFILES               = 1 ; 1
 /
 /----------------------------------------------
 /  PHYSICAL PARAMETERS
