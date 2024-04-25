@@ -37,7 +37,7 @@ MASS-BALANCE                    = YES
 INITIAL CONDITIONS               = 'CONSTANT DEPTH'
 INITIAL DEPTH                    = 0.06
 /COMPUTATION CONTINUED           = YES
-PREVIOUS COMPUTATION FILE       = 'results/results_0.slf'
+/PREVIOUS COMPUTATION FILE       = 'results/results_0.slf'
 STOP IF A STEADY STATE IS REACHED = YES
 STOP CRITERIA                   = 2e-6 ; 2e-6 ; 2e-6
 CONTINUITY CORRECTION           = YES
@@ -47,7 +47,7 @@ CONTINUITY CORRECTION           = YES
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            =  0.0  ;  0.01
-PRESCRIBED ELEVATIONS           = -0.0638; 0.05
+PRESCRIBED ELEVATIONS           = -0.11 ; 0.0
 VELOCITY PROFILES               =  1    ;  1
 /
 /----------------------------------------------
@@ -55,7 +55,7 @@ VELOCITY PROFILES               =  1    ;  1
 /----------------------------------------------
 /
 LAW OF BOTTOM FRICTION          = 4
-FRICTION COEFFICIENT            = 0.02
+FRICTION COEFFICIENT            = 0.04
 TURBULENCE MODEL                = 1
 /
 /----------------------------------------------
