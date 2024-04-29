@@ -7,8 +7,8 @@
 /  COMPUTER INFORMATIONS
 /----------------------------------------------
 /
-GEOMETRY FILE                   = 'geometry/geometry_0.slf'
-BOUNDARY CONDITIONS FILE        = 'boundary/boundary3x3riv.cli'
+GEOMETRY FILE                   = 'geometry/geometry_3x3_0.slf'
+BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_riv.cli'
 RESULTS FILE                    = 'results/results_0.slf'
 /
 /----------------------------------------------
@@ -25,7 +25,7 @@ LISTING PRINTOUT PERIOD         = 100
 /
 DURATION                        = 240
 /NUMBER OF TIME STEPS           = 2500
-TIME STEP                       = 0.03
+TIME STEP                       = 0.02
 /VARIABLE TIME-STEP              = YES
 /DESIRED COURANT NUMBER          = 0.7
 MASS-BALANCE                    = YES
