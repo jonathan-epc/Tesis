@@ -1,6 +1,5 @@
 /-------------------------------------------------------------------/
 /                        TELEMAC-2D                                 /
-/              TRANSCRITICAL BUMP CASE WITH FRICTION                /
 /-------------------------------------------------------------------/
 /
 /----------------------------------------------
@@ -24,8 +23,7 @@ GRAPHIC PRINTOUT PERIOD         = 100
 LISTING PRINTOUT PERIOD         = 100
 /
 DURATION                        = 120
-/NUMBER OF TIME STEPS           = 2500
-/TIME STEP                       = 0.0001
+TIME STEP                       = 0.02
 VARIABLE TIME-STEP              = YES
 DESIRED COURANT NUMBER          = 0.7
 MASS-BALANCE                    = YES
@@ -36,18 +34,13 @@ MASS-BALANCE                    = YES
 /
 INITIAL CONDITIONS               = 'CONSTANT DEPTH'
 INITIAL DEPTH                    = 0.06
-CONTINUITY CORRECTION           = YES
-/COMPUTATION CONTINUED           = YES
-/PREVIOUS COMPUTATION FILE       = 'results/results_0.slf'
-/STOP IF A STEADY STATE IS REACHED = YES
-/STOP CRITERIA                   = 1e-7 ; 1e-7 ; 1e-7
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            =  0.0  ;  0.01
-PRESCRIBED ELEVATIONS           = -0.10 ; 0.0
+PRESCRIBED ELEVATIONS           = -0.1 ; 0.0
 VELOCITY PROFILES               =  1    ;  1
 /
 /----------------------------------------------
@@ -57,7 +50,6 @@ VELOCITY PROFILES               =  1    ;  1
 LAW OF BOTTOM FRICTION          = 4
 FRICTION COEFFICIENT            = 0.04
 LAW OF FRICTION ON LATERAL BOUNDARIES = 4
-ROUGHNESS COEFFICIENT OF BOUNDARIES = 0.04
 TURBULENCE MODEL                = 1
 /
 /----------------------------------------------
@@ -67,7 +59,7 @@ TURBULENCE MODEL                = 1
 EQUATIONS                       = 'SAINT-VENANT FV'
 TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
 /
-DISCRETIZATIONS IN SPACE        = 11;11
+DISCRETIZATIONS IN SPACE        = 1;1
 /
 SOLVER                          = 1
 SOLVER ACCURACY                 = 1.E-7

@@ -9,7 +9,7 @@
 /
 GEOMETRY FILE                   = 'geometry/geometry_3x3_0.slf'
 BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_riv.cli'
-RESULTS FILE                    = 'results/results_0.slf'
+RESULTS FILE                    = 'results/results_3.slf'
 /
 /----------------------------------------------
 /  GENERAL INFORMATIONS - OUTPUTS
@@ -38,7 +38,7 @@ INITIAL CONDITIONS               = 'CONSTANT DEPTH'
 INITIAL DEPTH                    = 0.06
 CONTINUITY CORRECTION           = YES
 /COMPUTATION CONTINUED           = YES
-/PREVIOUS COMPUTATION FILE       = 'results/results_0.slf'
+/PREVIOUS COMPUTATION FILE       = 'results/results_1.slf'
 /STOP IF A STEADY STATE IS REACHED = YES
 /STOP CRITERIA                   = 1e-7 ; 1e-7 ; 1e-7
 /
@@ -47,7 +47,7 @@ CONTINUITY CORRECTION           = YES
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            =  0.0  ;  0.01
-PRESCRIBED ELEVATIONS           = -0.10 ; 0.0
+PRESCRIBED ELEVATIONS           = -0.01 ; 0.0
 VELOCITY PROFILES               =  1    ;  1
 /
 /----------------------------------------------
