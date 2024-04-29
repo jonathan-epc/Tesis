@@ -23,11 +23,11 @@ NUMBER OF PRIVATE ARRAYS        = 6
 GRAPHIC PRINTOUT PERIOD         = 100
 LISTING PRINTOUT PERIOD         = 100
 /
-DURATION                        = 240
+DURATION                        = 120
 /NUMBER OF TIME STEPS           = 2500
-TIME STEP                       = 0.02
-/VARIABLE TIME-STEP              = YES
-/DESIRED COURANT NUMBER          = 0.7
+/TIME STEP                       = 0.0001
+VARIABLE TIME-STEP              = YES
+DESIRED COURANT NUMBER          = 0.7
 MASS-BALANCE                    = YES
 /
 /----------------------------------------------
@@ -36,11 +36,11 @@ MASS-BALANCE                    = YES
 /
 INITIAL CONDITIONS               = 'CONSTANT DEPTH'
 INITIAL DEPTH                    = 0.06
+CONTINUITY CORRECTION           = YES
 /COMPUTATION CONTINUED           = YES
 /PREVIOUS COMPUTATION FILE       = 'results/results_0.slf'
 /STOP IF A STEADY STATE IS REACHED = YES
-/STOP CRITERIA                   = 2e-6 ; 2e-6 ; 2e-6
-CONTINUITY CORRECTION           = YES
+/STOP CRITERIA                   = 1e-7 ; 1e-7 ; 1e-7
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
@@ -57,13 +57,14 @@ VELOCITY PROFILES               =  1    ;  1
 LAW OF BOTTOM FRICTION          = 4
 FRICTION COEFFICIENT            = 0.04
 LAW OF FRICTION ON LATERAL BOUNDARIES = 4
+ROUGHNESS COEFFICIENT OF BOUNDARIES = 0.04
 TURBULENCE MODEL                = 1
 /
 /----------------------------------------------
 /  NUMERICAL PARAMETERS
 /----------------------------------------------
 /SCHEMES
-EQUATIONS                       = 'SAINT-VENANT FE'
+EQUATIONS                       = 'SAINT-VENANT FV'
 TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
 /
 DISCRETIZATIONS IN SPACE        = 11;11
