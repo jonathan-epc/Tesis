@@ -20,22 +20,14 @@ TITLE = 'Test0'
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-<<<<<<< HEAD
 GRAPHIC PRINTOUT PERIOD         = 100
-=======
-GRAPHIC PRINTOUT PERIOD         = 1000
->>>>>>> d679ff0 (Tests de criticidad con distintos n y Q)
 LISTING PRINTOUT PERIOD         = 100
 /
-DURATION                        = 180
+DURATION                        = 240
 /NUMBER OF TIME STEPS           = 2500
-TIME STEP                       = 0.0055
-VARIABLE TIME-STEP              = YES
-<<<<<<< HEAD
-DESIRED COURANT NUMBER          = 0.7
-=======
-DESIRED COURANT NUMBER          = 0.5
->>>>>>> d679ff0 (Tests de criticidad con distintos n y Q)
+TIME STEP                       = 0.03
+/VARIABLE TIME-STEP              = YES
+/DESIRED COURANT NUMBER          = 0.7
 MASS-BALANCE                    = YES
 /
 /----------------------------------------------
@@ -43,59 +35,43 @@ MASS-BALANCE                    = YES
 /----------------------------------------------
 /
 INITIAL CONDITIONS               = 'CONSTANT DEPTH'
-<<<<<<< HEAD
 INITIAL DEPTH                    = 0.06
 /COMPUTATION CONTINUED           = YES
 /PREVIOUS COMPUTATION FILE       = 'results/results_0.slf'
-=======
-INITIAL DEPTH                    = 0.031
-/COMPUTATION CONTINUED           = YES
-/PREVIOUS COMPUTATION FILE       = 'steady.slf'
->>>>>>> d679ff0 (Tests de criticidad con distintos n y Q)
-STOP IF A STEADY STATE IS REACHED = YES
-STOP CRITERIA                   = 1e-7 ; 1e-7 ; 1e-7
+/STOP IF A STEADY STATE IS REACHED = YES
+/STOP CRITERIA                   = 2e-6 ; 2e-6 ; 2e-6
 CONTINUITY CORRECTION           = YES
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
 /----------------------------------------------
 /
-<<<<<<< HEAD
 PRESCRIBED FLOWRATES            =  0.0  ;  0.01
-PRESCRIBED ELEVATIONS           = -0.11 ; 0.0
+PRESCRIBED ELEVATIONS           = -0.10 ; 0.0
 VELOCITY PROFILES               =  1    ;  1
-=======
-PRESCRIBED FLOWRATES            = 0.0 ; 0.01
-PRESCRIBED ELEVATIONS           = -0.09 ; 0.03
-OPTION FOR LIQUID BOUNDARIES    = 1 ; 2
-/VELOCITY PROFILES               = 1 ; 1
->>>>>>> d679ff0 (Tests de criticidad con distintos n y Q)
 /
 /----------------------------------------------
 /  PHYSICAL PARAMETERS
 /----------------------------------------------
 /
 LAW OF BOTTOM FRICTION          = 4
-<<<<<<< HEAD
 FRICTION COEFFICIENT            = 0.04
-=======
-FRICTION COEFFICIENT            = 0.015
->>>>>>> d679ff0 (Tests de criticidad con distintos n y Q)
+LAW OF FRICTION ON LATERAL BOUNDARIES = 4
 TURBULENCE MODEL                = 1
 /
 /----------------------------------------------
 /  NUMERICAL PARAMETERS
 /----------------------------------------------
 /SCHEMES
-EQUATIONS                       = 'SAINT-VENANT FV'
+EQUATIONS                       = 'SAINT-VENANT FE'
 TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
 /
 DISCRETIZATIONS IN SPACE        = 11;11
 /
-SOLVER                          = 7
+SOLVER                          = 1
 SOLVER ACCURACY                 = 1.E-7
 /
-TIDAL FLATS                     = YES
+TIDAL FLATS                     = NO
 FREE SURFACE GRADIENT COMPATIBILITY = 0.9
 
 SCHEME FOR ADVECTION OF VELOCITIES : 1 
