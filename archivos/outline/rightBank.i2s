@@ -1,24 +1,18 @@
 #########################################################################
-:FileType t3c  ASCII  EnSim 1.0
+:FileType i2s  ASCII  EnSim 1.0
 # Canadian Hydraulics Centre/National Research Council (c) 1998-2012
-# DataType                 T3 Channel Mesh Generator
+# DataType                 2D Line Set
 #
 :Application              BlueKenue
 :Version                  3.3.4
-:WrittenBy                John
-:CreationDate             Wed, Apr 10, 2024 11:05 PM
+:WrittenBy                Jonathan
+:CreationDate             Thu, May 02, 2024 01:31 PM
 #
 #------------------------------------------------------------------------
+:Name  rightBank
 #
-:LongChannelInterval   0.030000
-:CrossChannelNodeCount 11
-#
+:AttributeUnits 1 m
 :EndHeader
-:LeftBank 2
-0.000000 0.300000
-12.000000 0.300000
-:EndLeftBank
-:RightBank 2
+2 0
 0.000000 0.000000
 12.000000 0.000000
-:EndRightBank
