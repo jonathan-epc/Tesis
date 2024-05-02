@@ -5,14 +5,14 @@
 #
 :Application              BlueKenue
 :Version                  3.3.4
-:WrittenBy                John
-:CreationDate             Thu, Mar 28, 2024 05:55 PM
+:WrittenBy                Jonathan
+:CreationDate             Thu, May 02, 2024 01:31 PM
 #
 #------------------------------------------------------------------------
-:Name  crossY
+:Name  leftBank
 #
-:AttributeUnits 1 cm
+:AttributeUnits 1 m
 :EndHeader
 2 0
-6 0
-6 0.3
+0.000000 0.300000
+12.000000 0.300000
