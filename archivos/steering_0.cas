@@ -1,6 +1,5 @@
 /-------------------------------------------------------------------/
 /                        TELEMAC-2D                                 /
-/              TRANSCRITICAL BUMP CASE WITH FRICTION                /
 /-------------------------------------------------------------------/
 /
 /----------------------------------------------
@@ -8,24 +7,23 @@
 /----------------------------------------------
 /
 GEOMETRY FILE                   = 'geometry/geometry_3x3_0.slf'
-BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_riv.cli'
+BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_tor.cli'
 RESULTS FILE                    = 'results/results_0.slf'
 /
 /----------------------------------------------
 /  GENERAL INFORMATIONS - OUTPUTS
 /----------------------------------------------
 /
-TITLE = 'Test0'
+TITLE = 'Caso 0'
 /
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 10
+GRAPHIC PRINTOUT PERIOD         = 100
 LISTING PRINTOUT PERIOD         = 100
 /
 DURATION                        = 120
-/NUMBER OF TIME STEPS           = 2500
-/TIME STEP                       = 0.0001
+TIME STEP                       = 0.02
 VARIABLE TIME-STEP              = YES
 DESIRED COURANT NUMBER          = 0.7
 MASS-BALANCE                    = YES
@@ -35,19 +33,14 @@ MASS-BALANCE                    = YES
 /----------------------------------------------
 /
 INITIAL CONDITIONS               = 'CONSTANT DEPTH'
-INITIAL DEPTH                    = 0.06
-CONTINUITY CORRECTION           = YES
-/COMPUTATION CONTINUED           = YES
-/PREVIOUS COMPUTATION FILE       = 'results/results_0.slf'
-/STOP IF A STEADY STATE IS REACHED = YES
-/STOP CRITERIA                   = 1e-7 ; 1e-7 ; 1e-7
+INITIAL DEPTH                    = 0.035
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            =  0.0  ;  0.01
-PRESCRIBED ELEVATIONS           = -0.10 ; 0.0
+PRESCRIBED ELEVATIONS           = 0.0 ; 0.155
 VELOCITY PROFILES               =  1    ;  1
 /
 /----------------------------------------------
@@ -55,9 +48,8 @@ VELOCITY PROFILES               =  1    ;  1
 /----------------------------------------------
 /
 LAW OF BOTTOM FRICTION          = 4
-FRICTION COEFFICIENT            = 0.04
-/LAW OF FRICTION ON LATERAL BOUNDARIES = 0
-/ROUGHNESS COEFFICIENT OF BOUNDARIES = 0.04
+FRICTION COEFFICIENT            = 0.02
+LAW OF FRICTION ON LATERAL BOUNDARIES = 4
 TURBULENCE MODEL                = 1
 /
 /----------------------------------------------
