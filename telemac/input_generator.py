@@ -2,6 +2,7 @@
 
 # Standard Library Imports
 import math
+from itertools import product
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -115,6 +116,8 @@ def critical_slope(flow_rate, bottom_width, roughness_coefficient):
         eq, x0=1e-10, args=(flow_rate, bottom_width, roughness_coefficient)
     )
     return solution
+
+
 def normal_depth_simple(flow_rate, bottom_width, slope, roughness_coefficient):
     """
     Calculate the normal depth of flow using a simplified form of Manning's equation.
@@ -164,6 +167,8 @@ def critical_slope_simple(flow_rate, bottom_width, roughness_coefficient):
         * 9.81 ** (10 / 9)
         * roughness_coefficient**2
     )
+
+
 def plot_critical_slope(x, y, slopes):
     """
     Plot the critical slope.
@@ -318,8 +323,8 @@ TITLE = '{title}'
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 100
-LISTING PRINTOUT PERIOD         = 100
+GRAPHIC PRINTOUT PERIOD         = 10000
+LISTING PRINTOUT PERIOD         = 10000
 /
 DURATION                        = {duration}
 TIME STEP                       = {time_step}
@@ -373,14 +378,19 @@ SCHEME FOR ADVECTION OF K-EPSILON : 4"""
     return steering_text
 
 
-parametros = pd.DataFrame(columns=["S", "n", "Q", "H0", "BOTTOM"])
+# Arrays for each column
+S_values = np.linspace(1e-3, 50e-3, 5)
+n_values = np.linspace(5e-3, 5e-1, 5)
+Q_values = np.linspace(0.010, 0.200, 5)
+H0_values = np.linspace(1, 30, 5)
+BOTTOM_values = ["FLAT"]
 
-parametros.loc[len(parametros)] = [2e-2, 0.020, 1e-2, 0.035, "FLAT"]
-parametros.loc[len(parametros)] = [2e-2, 0.020, 1e-2, 0.044, "FLAT"]
-parametros.loc[len(parametros)] = [2e-2, 0.020, 1e-2, 0.052, "FLAT"]
-parametros.loc[len(parametros)] = [2e-2, 0.035, 1e-2, 0.044, "FLAT"]
-parametros.loc[len(parametros)] = [2e-2, 0.035, 1e-2, 0.052, "FLAT"]
-parametros.loc[len(parametros)] = [2e-2, 0.035, 1e-2, 0.058, "FLAT"]
+# Generate all combinations of values
+combinations = list(product(S_values, n_values, Q_values, H0_values, BOTTOM_values))
+
+# Create DataFrame
+parametros = pd.DataFrame(combinations, columns=["S", "n", "Q", "H0", "BOTTOM"])
+
 
 parametros["yn"] = normal_depth_simple(
     parametros["Q"], 0.3, parametros["S"], parametros["n"]
@@ -388,6 +398,8 @@ parametros["yn"] = normal_depth_simple(
 parametros["yc"] = critical_depth_simple(parametros["Q"], 0.3)
 parametros["subcritical"] = parametros["yn"] > parametros["yc"]
 parametros["R2L"] = parametros["H0"] < parametros["yc"]
+
+parametros.to_csv('parametros.csv', index=False)
 
 for index, case in parametros.iterrows():
     if case["R2L"]:
@@ -420,22 +432,6 @@ for index, case in parametros.iterrows():
     # Write the steering file content to a file
     with open(f"steering_{index}.cas", "w") as f:
         f.write(steering_file_content)
-
-count = 0
-for i in range(2, 21, 2):
-    n = i / 100
-    for j in range(100, 121, 5):
-        Q = j / 10000
-        # for k in range(1,100):
-        # write_input_file(f"steerings/steering_{n}_{Q}_{k}.cas", f"geometria{k}.slf", n, [30, 0], [0, Q])
-        write_steering_file(
-            filename=count,
-            geometry=0,
-            friction_coefficient=n,
-            prescribed_elevations=[0.0, -0.03],
-            prescribed_flowrates=[Q, 0.0],
-        )
-        count += 1
 
 # ## Results reading
 

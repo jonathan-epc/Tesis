@@ -1,0 +1,72 @@
+/-------------------------------------------------------------------/
+/                        TELEMAC-2D                                 /
+/-------------------------------------------------------------------/
+/
+/----------------------------------------------
+/  COMPUTER INFORMATIONS
+/----------------------------------------------
+/
+GEOMETRY FILE                   = 'geometry/geometry_3x3_0.slf'
+BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_riv.cli'
+RESULTS FILE                    = 'results/results_507.slf'
+/
+/----------------------------------------------
+/  GENERAL INFORMATIONS - OUTPUTS
+/----------------------------------------------
+/
+TITLE = 'Caso 507'
+/
+VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
+NUMBER OF PRIVATE ARRAYS        = 6
+/
+GRAPHIC PRINTOUT PERIOD         = 10000
+LISTING PRINTOUT PERIOD         = 10000
+/
+DURATION                        = 120
+TIME STEP                       = 0.02
+VARIABLE TIME-STEP              = YES
+DESIRED COURANT NUMBER          = 0.7
+MASS-BALANCE                    = YES
+/
+/----------------------------------------------
+/  INITIAL CONDITIONS
+/----------------------------------------------
+/
+INITIAL CONDITIONS               = 'CONSTANT DEPTH'
+INITIAL DEPTH                    = 0.06
+/
+/----------------------------------------------
+/  BOUNDARY CONDITIONS
+/----------------------------------------------
+/
+PRESCRIBED FLOWRATES            =  0.0  ;  0.0575
+PRESCRIBED ELEVATIONS           = 15.5 ; 0.0
+VELOCITY PROFILES               =  1    ;  1
+/
+/----------------------------------------------
+/  PHYSICAL PARAMETERS
+/----------------------------------------------
+/
+LAW OF BOTTOM FRICTION          = 4
+FRICTION COEFFICIENT            = 0.005
+LAW OF FRICTION ON LATERAL BOUNDARIES = 4
+TURBULENCE MODEL                = 1
+/
+/----------------------------------------------
+/  NUMERICAL PARAMETERS
+/----------------------------------------------
+/SCHEMES
+EQUATIONS                       = 'SAINT-VENANT FV'
+TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
+/
+DISCRETIZATIONS IN SPACE        = 11;11
+/
+SOLVER                          = 1
+SOLVER ACCURACY                 = 1.E-7
+/
+TIDAL FLATS                     = NO
+FREE SURFACE GRADIENT COMPATIBILITY = 0.9
+
+SCHEME FOR ADVECTION OF VELOCITIES : 1 
+SCHEME FOR ADVECTION OF TRACERS : 5
+SCHEME FOR ADVECTION OF K-EPSILON : 4

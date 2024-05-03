@@ -19,8 +19,8 @@ TITLE = 'Caso 2'
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 100
-LISTING PRINTOUT PERIOD         = 100
+GRAPHIC PRINTOUT PERIOD         = 10000
+LISTING PRINTOUT PERIOD         = 10000
 /
 DURATION                        = 120
 TIME STEP                       = 0.02
@@ -40,7 +40,7 @@ INITIAL DEPTH                    = 0.06
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            =  0.0  ;  0.01
-PRESCRIBED ELEVATIONS           = 0.052 ; 0.0
+PRESCRIBED ELEVATIONS           = 15.5 ; 0.0
 VELOCITY PROFILES               =  1    ;  1
 /
 /----------------------------------------------
@@ -48,7 +48,7 @@ VELOCITY PROFILES               =  1    ;  1
 /----------------------------------------------
 /
 LAW OF BOTTOM FRICTION          = 4
-FRICTION COEFFICIENT            = 0.02
+FRICTION COEFFICIENT            = 0.005
 LAW OF FRICTION ON LATERAL BOUNDARIES = 4
 TURBULENCE MODEL                = 1
 /

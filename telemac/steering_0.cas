@@ -7,7 +7,7 @@
 /----------------------------------------------
 /
 GEOMETRY FILE                   = 'geometry/geometry_3x3_0.slf'
-BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_tor.cli'
+BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_riv.cli'
 RESULTS FILE                    = 'results/results_0.slf'
 /
 /----------------------------------------------
@@ -19,8 +19,8 @@ TITLE = 'Caso 0'
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 100
-LISTING PRINTOUT PERIOD         = 100
+GRAPHIC PRINTOUT PERIOD         = 10000
+LISTING PRINTOUT PERIOD         = 10000
 /
 DURATION                        = 120
 TIME STEP                       = 0.02
@@ -33,14 +33,14 @@ MASS-BALANCE                    = YES
 /----------------------------------------------
 /
 INITIAL CONDITIONS               = 'CONSTANT DEPTH'
-INITIAL DEPTH                    = 0.035
+INITIAL DEPTH                    = 0.06
 /
 /----------------------------------------------
 /  BOUNDARY CONDITIONS
 /----------------------------------------------
 /
 PRESCRIBED FLOWRATES            =  0.0  ;  0.01
-PRESCRIBED ELEVATIONS           = 0.0 ; 0.155
+PRESCRIBED ELEVATIONS           = 1.0 ; 0.0
 VELOCITY PROFILES               =  1    ;  1
 /
 /----------------------------------------------
@@ -48,7 +48,7 @@ VELOCITY PROFILES               =  1    ;  1
 /----------------------------------------------
 /
 LAW OF BOTTOM FRICTION          = 4
-FRICTION COEFFICIENT            = 0.02
+FRICTION COEFFICIENT            = 0.005
 LAW OF FRICTION ON LATERAL BOUNDARIES = 4
 TURBULENCE MODEL                = 1
 /
