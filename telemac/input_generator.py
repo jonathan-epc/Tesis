@@ -353,7 +353,6 @@ VELOCITY PROFILES               =  1    ;  1
 /
 LAW OF BOTTOM FRICTION          = 4
 FRICTION COEFFICIENT            = {friction_coefficient}
-LAW OF FRICTION ON LATERAL BOUNDARIES = 4
 TURBULENCE MODEL                = 1
 /
 /----------------------------------------------
@@ -382,7 +381,7 @@ SCHEME FOR ADVECTION OF K-EPSILON : 4"""
 S_values = np.linspace(1e-3, 50e-3, 5)
 n_values = np.linspace(5e-3, 5e-1, 5)
 Q_values = np.linspace(0.010, 0.200, 5)
-H0_values = np.linspace(1, 30, 5)
+H0_values = np.linspace(0.01, 0.30, 5)
 BOTTOM_values = ["FLAT"]
 
 # Generate all combinations of values
@@ -399,7 +398,7 @@ parametros["yc"] = critical_depth_simple(parametros["Q"], 0.3)
 parametros["subcritical"] = parametros["yn"] > parametros["yc"]
 parametros["R2L"] = parametros["H0"] < parametros["yc"]
 
-parametros.to_csv('parametros.csv', index=False)
+parametros.to_csv("parametros.csv", index=False)
 
 for index, case in parametros.iterrows():
     if case["R2L"]:
