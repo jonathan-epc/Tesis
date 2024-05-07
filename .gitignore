@@ -1,4 +1,12 @@
 *.cas
 *.slf
 *.txt
+*.jpg
+*.png
+*.pdf
+*.pptx
+*.indd
+*.ai
+*.7z
+*.zip
 *steering*/
