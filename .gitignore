@@ -1,4 +1,4 @@
-*/**/*.cas
-*/**/*.slf
-*/**/*.txt
-**/*steering*/**
+*.cas
+*.slf
+*.txt
+*steering*/
