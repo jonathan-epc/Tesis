@@ -20,6 +20,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from postel.plot1d import plot1d
 from scipy.ndimage import gaussian_filter
 from scipy.optimize import fsolve
+from tqdm.autonotebook import tqdm
 
 
 # ## Functions
@@ -205,7 +206,7 @@ def plot_critical_slope(x, y, slopes):
     # Set scientific notation for the x-axis
     formatter = ticker.ScalarFormatter(useMathText=True)
     formatter.set_scientific(True)
-    formatter.set_powerlimits([0.002, 0.02])
+    formatter.set_powerlimits([0.001, 0.04])
     ax.xaxis.set_major_formatter(formatter)
 
     # Set labels and grid
@@ -246,47 +247,25 @@ channel_length += 2 * wall_thickness
 num_points_y = 11  # Adjust as needed for resolution
 num_points_x = 401
 
-# Read original geometry file in selafin format
-ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
-plt.imshow(ds["B"].values.reshape(num_points_y, num_points_x))
-plt.show()
-plt.close()
-
 x = np.linspace(-wall_thickness * 0, channel_length + wall_thickness * 0, num_points_x)
 y = np.linspace(-wall_thickness * 0, channel_width + wall_thickness * 0, num_points_y)
 X, Y = np.meshgrid(x, y)
-Z_slope = -slope * X
+Z_slope = slope * channel_length - slope * X
 # Z_slope[X <= flat_zone] = -slope * x[x<=flat_zone][-1] + slope * x.max()
 plt.imshow(Z_slope)
 plt.show()
 plt.close()
 
-Z = Z_slope
-# Z[0,:] = np.linspace(channel_depth, channel_depth, num_points_x)  # bottom wall
-# Z[-1,:] = np.linspace(channel_depth, channel_depth, num_points_x)  # top wall
-ds["B"].values = Z.reshape(1, ds.y.shape[0])
-ds.selafin.write("geometry/geometry_0.slf")
-
-plt.imshow(Z)
-
+ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
 rng = np.random.default_rng()
 sigma = 3  # Standard deviation for Gaussian blur
+for i in tqdm(range(len(S_values))):
+    Z_slope = slope * channel_length - slope * ds["x"].values
+    # Z_blur = (gaussian_filter(rng.standard_normal(size=(1, ds.y.shape[0])), sigma=sigma)        * 0.15    )
+    Z = Z_slope  # + Z_blur
+    ds["B"].values = Z.reshape(1, ds.y.shape[0])
+    ds.selafin.write(f"geometry/geometry_3x3_{i}.slf")
 
-for i in range(1, 100):
-    Z_blur = (
-        gaussian_filter(
-            rng.standard_normal(size=(num_points_y, num_points_x)), sigma=sigma
-        )
-        * 0.15
-    )
-    Z = Z_slope + Z_blur
-    Z[0:2, :] = np.linspace(channel_depth, channel_depth, num_points_x)  # bottom wall
-    Z[-2 : Z.shape[0], :] = np.linspace(
-        channel_depth, channel_depth, num_points_x
-    )  # top wall
-    #     ds['B'].values = Z.reshape(1,ds.y.shape[0])
-    plt.imsave(f"imagenes/geometry_{i}.png", Z, cmap="inferno")
-#     ds.selafin.write(f"geometry/geometry_{i}.slf")
 
 # ## Steering file generation
 
@@ -302,7 +281,85 @@ def generate_steering_file(
     prescribed_elevations,
     friction_coefficient,
 ):
-    steering_text = f"""/-------------------------------------------------------------------/
+    steering_text = f"""
+/-------------------------------------------------------------------/
+/                        TELEMAC-2D                                 /
+/-------------------------------------------------------------------/
+/
+/----------------------------------------------
+/  COMPUTER INFORMATIONS
+/----------------------------------------------
+/
+GEOMETRY FILE                   = 'geometry/geometry_3x3_0.slf'
+BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_tor.cli'
+RESULTS FILE                    = 'results/results_0.slf'
+/
+/----------------------------------------------
+/  GENERAL INFORMATIONS - OUTPUTS
+/----------------------------------------------
+/
+TITLE = 'Caso 0'
+/
+VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
+NUMBER OF PRIVATE ARRAYS        = 6
+/
+GRAPHIC PRINTOUT PERIOD         = 60000
+LISTING PRINTOUT PERIOD         = 10000
+/
+DURATION                        = 90
+/TIME STEP                       = 5e-3
+VARIABLE TIME-STEP              = YES
+DESIRED COURANT NUMBER          = 0.9
+MASS-BALANCE                    = YES
+/STOP IF A STEADY STATE IS REACHED = YES
+/STOP CRITERIA                   = 1e-8; 1e-8; 1e-8
+/
+/----------------------------------------------
+/  INITIAL CONDITIONS
+/----------------------------------------------
+/
+INITIAL CONDITIONS               = 'CONSTANT DEPTH'
+INITIAL DEPTH                    = 0.01
+/
+/----------------------------------------------
+/  BOUNDARY CONDITIONS
+/----------------------------------------------
+/
+PRESCRIBED FLOWRATES            =  0.0  ;  0.001
+PRESCRIBED ELEVATIONS           = 0.0 ; 0.13
+VELOCITY PROFILES               =  1    ;  1
+/
+/----------------------------------------------
+/  PHYSICAL PARAMETERS
+/----------------------------------------------
+/
+LAW OF BOTTOM FRICTION          = 4
+FRICTION COEFFICIENT            = 0.005
+TURBULENCE MODEL                = 1
+/
+/----------------------------------------------
+/  NUMERICAL PARAMETERS
+/----------------------------------------------
+/SCHEMES
+EQUATIONS                       = 'SAINT-VENANT FV'
+TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
+/
+DISCRETIZATIONS IN SPACE        = 11;11
+/
+SOLVER                          = 1
+SOLVER ACCURACY                 = 1.E-7
+/
+TIDAL FLATS                     = NO
+FREE SURFACE GRADIENT COMPATIBILITY = 0.9
+
+SCHEME FOR ADVECTION OF VELOCITIES : 1 
+SCHEME FOR ADVECTION OF TRACERS : 5
+SCHEME FOR ADVECTION OF K-EPSILON : 4
+
+    
+    
+    
+    /-------------------------------------------------------------------/
 /                        TELEMAC-2D                                 /
 /-------------------------------------------------------------------/
 /
@@ -323,14 +380,16 @@ TITLE = '{title}'
 VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 10000
-LISTING PRINTOUT PERIOD         = 10000
+GRAPHIC PRINTOUT PERIOD         = 100000
+LISTING PRINTOUT PERIOD         = 100000
 /
 DURATION                        = {duration}
 TIME STEP                       = {time_step}
 VARIABLE TIME-STEP              = YES
 DESIRED COURANT NUMBER          = 0.7
 MASS-BALANCE                    = YES
+/STOP IF A STEADY STATE IS REACHED = YES
+/STOP CRITERIA                   = 1e-8; 1e-8; 1e-8
 /
 /----------------------------------------------
 /  INITIAL CONDITIONS
@@ -379,35 +438,37 @@ SCHEME FOR ADVECTION OF K-EPSILON : 4"""
 
 # Arrays for each column
 S_values = np.linspace(1e-3, 50e-3, 5)
+S_indices = range(len(S_values))
 n_values = np.linspace(5e-3, 5e-1, 5)
-Q_values = np.linspace(0.010, 0.200, 5)
+Q_values = np.linspace(0.001, 0.040, 5)
 H0_values = np.linspace(0.01, 0.30, 5)
 BOTTOM_values = ["FLAT"]
 
 # Generate all combinations of values
-combinations = list(product(S_values, n_values, Q_values, H0_values, BOTTOM_values))
+combinations = list(product(S_indices, n_values, Q_values, H0_values, BOTTOM_values))
 
 # Create DataFrame
-parametros = pd.DataFrame(combinations, columns=["S", "n", "Q", "H0", "BOTTOM"])
+parameters = pd.DataFrame(combinations, columns=["S_i", "n", "Q", "H0", "BOTTOM"])
 
 
-parametros["yn"] = normal_depth_simple(
-    parametros["Q"], 0.3, parametros["S"], parametros["n"]
+parameters["S"] = S_values[parameters["S_i"]]
+parameters["yn"] = normal_depth_simple(
+    parameters["Q"], 0.3, parameters["S"], parameters["n"]
 )
-parametros["yc"] = critical_depth_simple(parametros["Q"], 0.3)
-parametros["subcritical"] = parametros["yn"] > parametros["yc"]
-parametros["R2L"] = parametros["H0"] < parametros["yc"]
+parameters["yc"] = critical_depth_simple(parameters["Q"], 0.3)
+parameters["subcritical"] = parameters["yn"] > parameters["yc"]
+parameters["R2L"] = parameters["H0"] < parameters["yc"]
 
-parametros.to_csv("parametros.csv", index=False)
+parameters.to_csv("parameters.csv", index=True, index_label="id")
 
-for index, case in parametros.iterrows():
+for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
     if case["R2L"]:
         steering_file_content = generate_steering_file(
-            geometry_file="geometry/geometry_3x3_0.slf",
+            geometry_file=f"geometry/geometry_3x3_{case['S_i']}.slf",
             boundary_file="boundary/boundary_3x3_tor.cli",
             results_file=f"results/results_{index}.slf",
             title=f"Caso {index}",
-            duration=120,
+            duration=600,
             time_step=0.02,
             initial_depth=case["H0"],
             prescribed_flowrates=(0.0, case["Q"]),
@@ -420,7 +481,7 @@ for index, case in parametros.iterrows():
             boundary_file="boundary/boundary_3x3_riv.cli",
             results_file=f"results/results_{index}.slf",
             title=f"Caso {index}",
-            duration=120,
+            duration=600,
             time_step=0.02,
             initial_depth=0.06,
             prescribed_flowrates=(0.0, case["Q"]),
@@ -439,47 +500,47 @@ poly_points = [[0.0, 0.15], [12.0, 0.15]]
 
 # List of number of discretized points for each polyline segment
 poly_number = [1000]
-
 yn = normal_depth(
     flow_rate=0.01, bottom_width=0.3, slope=1 / 100, roughness_coefficient=0.04
 )
 yc = critical_depth(flow_rate=0.01, bottom_width=0.3)
 
-res1 = TelemacFile("results/results_0.slf")
-# Getting water depth values over time for each discretized points of the polyline
-poly_coord1, abs_curv1, values_polylines1 = res1.get_timeseries_on_polyline(
-    "WATER DEPTH", poly_points, poly_number
-)
-res1.close()
+parameters = pd.read_csv("parameters.csv", index_col="id")
 
-# Create a figure and axis objects
-fig, ax = plt.subplots()
 
-# Plot the lines
-ax.plot(abs_curv1[:], values_polylines1[:, -1], label="$h_{outlet}=0.02$ / m")
+def plot_ith(i):
+    res1 = TelemacFile(f"results/results_{i}.slf")
+    poly_coord1, abs_curv1, values_polylines1 = res1.get_timeseries_on_polyline(
+        "WATER DEPTH", poly_points, poly_number
+    )
+    res1.close()
 
-ax.axhline(
-    y=yn, linestyle="--", color="tab:orange", label=f"$y_{{normal}} = {yn:.3f}$ / m"
-)
-ax.axhline(
-    y=yc, linestyle="--", color="tab:red", label=f"$y_{{critical}} = {yc:.3f}$ / m"
-)
+    # Determine yn and yc based on the ith row of parametros DataFrame
+    yn = parameters.loc[i, "yn"]
+    yc = parameters.loc[i, "yc"]
 
-# Add labels and title
-ax.set_xlabel("x / m")
-ax.set_ylabel("Water depth / m")
-ax.set_title("Test")
+    fig, ax = plt.subplots()
+    ax.plot(
+        abs_curv1[:],
+        values_polylines1[:, -1],
+        color="tab:blue",
+        label="$h_{outlet}=0.02$ / m",
+    )
+    ax.axhline(
+        y=yn, linestyle="--", color="tab:green", label=f"$y_{{normal}} = {yn:.3f}$ / m"
+    )
+    ax.axhline(
+        y=yc, linestyle="--", color="tab:red", label=f"$y_{{critical}} = {yc:.3f}$ / m"
+    )
+    ax.set_xlabel("x / m")
+    ax.set_ylabel("Water depth / m")
+    ax.set_title(f"Case {i}")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.125), ncol=3)
+    ax.grid(True, which="both", linestyle="-", linewidth=0.5)
+    ax.minorticks_on()
+    # plt.savefig(f"test_plot_{i}.png")
+    plt.show()
 
-# Add legend
-ax.legend()
-ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.05), ncol=3)
-ax.grid(
-    True, which="both", linestyle="-", linewidth=0.5
-)  # Turn on gridlines for both major and minor ticks
-ax.minorticks_on()  # Turn on minor ticks
-plt.savefig("test_plot.png")
-# Show the plot
-plt.show()
 
 res0 = TelemacFile("results/results_0.slf")
 res1 = TelemacFile("results/results_1.slf")
@@ -526,13 +587,13 @@ ax.plot(abs_curv4[:], values_polylines4[:, -1], label="$h_{outlet}=0.01$ / m")
 ax.plot(abs_curv5[:], values_polylines5[:, -1], label="$h_{outlet}=0.01$ / m")
 
 ax.axhline(
-    y=parametros.iloc[0]["yn"],
+    y=parameters.iloc[0]["yn"],
     linestyle="--",
     color="tab:orange",
     label=f"$y_{{normal}} = {yn:.3f}$ / m",
 )
 ax.axhline(
-    y=parametros.iloc[0]["yc"],
+    y=parameters.iloc[0]["yc"],
     linestyle="--",
     color="tab:red",
     label=f"$y_{{critical}} = {yc:.3f}$ / m",
