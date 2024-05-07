@@ -10,13 +10,10 @@ from tqdm import tqdm
 
 def run_on_all_cas_files():
     cas_files = glob.glob("steering*.cas")
-    progress_bar = tqdm(total=len(cas_files), desc="Running")
 
-    for filename in cas_files:
+    for filename in tqdm(cas_files):
         run_telemac2d(filename)
-        progress_bar.update(1)  # Update progress bar
 
-    progress_bar.close()
     # Shutdown the computer
     # os.system("shutdown /s /t 1")
 

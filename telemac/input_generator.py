@@ -257,6 +257,7 @@ plt.show()
 plt.close()
 
 ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
+S_values = np.linspace(1e-3, 50e-3, 5)
 rng = np.random.default_rng()
 sigma = 3  # Standard deviation for Gaussian blur
 for i in tqdm(range(len(S_values))):
@@ -281,85 +282,7 @@ def generate_steering_file(
     prescribed_elevations,
     friction_coefficient,
 ):
-    steering_text = f"""
-/-------------------------------------------------------------------/
-/                        TELEMAC-2D                                 /
-/-------------------------------------------------------------------/
-/
-/----------------------------------------------
-/  COMPUTER INFORMATIONS
-/----------------------------------------------
-/
-GEOMETRY FILE                   = 'geometry/geometry_3x3_0.slf'
-BOUNDARY CONDITIONS FILE        = 'boundary/boundary_3x3_tor.cli'
-RESULTS FILE                    = 'results/results_0.slf'
-/
-/----------------------------------------------
-/  GENERAL INFORMATIONS - OUTPUTS
-/----------------------------------------------
-/
-TITLE = 'Caso 0'
-/
-VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
-NUMBER OF PRIVATE ARRAYS        = 6
-/
-GRAPHIC PRINTOUT PERIOD         = 60000
-LISTING PRINTOUT PERIOD         = 10000
-/
-DURATION                        = 90
-/TIME STEP                       = 5e-3
-VARIABLE TIME-STEP              = YES
-DESIRED COURANT NUMBER          = 0.9
-MASS-BALANCE                    = YES
-/STOP IF A STEADY STATE IS REACHED = YES
-/STOP CRITERIA                   = 1e-8; 1e-8; 1e-8
-/
-/----------------------------------------------
-/  INITIAL CONDITIONS
-/----------------------------------------------
-/
-INITIAL CONDITIONS               = 'CONSTANT DEPTH'
-INITIAL DEPTH                    = 0.01
-/
-/----------------------------------------------
-/  BOUNDARY CONDITIONS
-/----------------------------------------------
-/
-PRESCRIBED FLOWRATES            =  0.0  ;  0.001
-PRESCRIBED ELEVATIONS           = 0.0 ; 0.13
-VELOCITY PROFILES               =  1    ;  1
-/
-/----------------------------------------------
-/  PHYSICAL PARAMETERS
-/----------------------------------------------
-/
-LAW OF BOTTOM FRICTION          = 4
-FRICTION COEFFICIENT            = 0.005
-TURBULENCE MODEL                = 1
-/
-/----------------------------------------------
-/  NUMERICAL PARAMETERS
-/----------------------------------------------
-/SCHEMES
-EQUATIONS                       = 'SAINT-VENANT FV'
-TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
-/
-DISCRETIZATIONS IN SPACE        = 11;11
-/
-SOLVER                          = 1
-SOLVER ACCURACY                 = 1.E-7
-/
-TIDAL FLATS                     = NO
-FREE SURFACE GRADIENT COMPATIBILITY = 0.9
-
-SCHEME FOR ADVECTION OF VELOCITIES : 1 
-SCHEME FOR ADVECTION OF TRACERS : 5
-SCHEME FOR ADVECTION OF K-EPSILON : 4
-
-    
-    
-    
-    /-------------------------------------------------------------------/
+    steering_text = f"""/-------------------------------------------------------------------/
 /                        TELEMAC-2D                                 /
 /-------------------------------------------------------------------/
 /
@@ -437,7 +360,6 @@ SCHEME FOR ADVECTION OF K-EPSILON : 4"""
 
 
 # Arrays for each column
-S_values = np.linspace(1e-3, 50e-3, 5)
 S_indices = range(len(S_values))
 n_values = np.linspace(5e-3, 5e-1, 5)
 Q_values = np.linspace(0.001, 0.040, 5)
