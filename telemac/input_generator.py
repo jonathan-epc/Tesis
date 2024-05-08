@@ -256,6 +256,8 @@ plt.imshow(Z_slope)
 plt.show()
 plt.close()
 
+S_values = np.linspace(1e-3, 50e-3, 5)
+
 ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
 S_values = np.linspace(1e-3, 50e-3, 5)
 rng = np.random.default_rng()
@@ -307,9 +309,9 @@ GRAPHIC PRINTOUT PERIOD         = 100000
 LISTING PRINTOUT PERIOD         = 100000
 /
 DURATION                        = {duration}
-TIME STEP                       = {time_step}
+/TIME STEP                       = {time_step}
 VARIABLE TIME-STEP              = YES
-DESIRED COURANT NUMBER          = 0.7
+DESIRED COURANT NUMBER          = 0.8
 MASS-BALANCE                    = YES
 /STOP IF A STEADY STATE IS REACHED = YES
 /STOP CRITERIA                   = 1e-8; 1e-8; 1e-8
@@ -327,7 +329,7 @@ INITIAL DEPTH                    = {initial_depth}
 /
 PRESCRIBED FLOWRATES            =  {prescribed_flowrates[0]}  ;  {prescribed_flowrates[1]}
 PRESCRIBED ELEVATIONS           = {prescribed_elevations[0]} ; {prescribed_elevations[1]}
-VELOCITY PROFILES               =  1    ;  1
+VELOCITY PROFILES               =  1    ;  4
 /
 /----------------------------------------------
 /  PHYSICAL PARAMETERS
@@ -344,7 +346,7 @@ TURBULENCE MODEL                = 1
 EQUATIONS                       = 'SAINT-VENANT FV'
 TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
 /
-DISCRETIZATIONS IN SPACE        = 11;11
+DISCRETIZATIONS IN SPACE        = 11 ; 11
 /
 SOLVER                          = 1
 SOLVER ACCURACY                 = 1.E-7
@@ -390,7 +392,7 @@ for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
             boundary_file="boundary/boundary_3x3_tor.cli",
             results_file=f"results/results_{index}.slf",
             title=f"Caso {index}",
-            duration=600,
+            duration=1200,
             time_step=0.02,
             initial_depth=case["H0"],
             prescribed_flowrates=(0.0, case["Q"]),
@@ -417,11 +419,6 @@ for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
 
 # ## Results reading
 
-# List of points defining the polyline
-poly_points = [[0.0, 0.15], [12.0, 0.15]]
-
-# List of number of discretized points for each polyline segment
-poly_number = [1000]
 yn = normal_depth(
     flow_rate=0.01, bottom_width=0.3, slope=1 / 100, roughness_coefficient=0.04
 )
@@ -431,6 +428,10 @@ parameters = pd.read_csv("parameters.csv", index_col="id")
 
 
 def plot_ith(i):
+    # List of points defining the polyline
+    poly_points = [[0.0, 0.15], [12.0, 0.15]]
+    # List of number of discretized points for each polyline segment
+    poly_number = [1000]    
     res1 = TelemacFile(f"results/results_{i}.slf")
     poly_coord1, abs_curv1, values_polylines1 = res1.get_timeseries_on_polyline(
         "WATER DEPTH", poly_points, poly_number
@@ -463,6 +464,8 @@ def plot_ith(i):
     # plt.savefig(f"test_plot_{i}.png")
     plt.show()
 
+
+plot_ith(527)
 
 res0 = TelemacFile("results/results_0.slf")
 res1 = TelemacFile("results/results_1.slf")
