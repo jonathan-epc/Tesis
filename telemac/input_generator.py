@@ -259,11 +259,10 @@ plt.close()
 S_values = np.linspace(1e-3, 50e-3, 5)
 
 ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
-S_values = np.linspace(1e-3, 50e-3, 5)
 rng = np.random.default_rng()
 sigma = 3  # Standard deviation for Gaussian blur
 for i in tqdm(range(len(S_values))):
-    Z_slope = slope * channel_length - slope * ds["x"].values
+    Z_slope = S_values[i] * channel_length - slope * ds["x"].values
     # Z_blur = (gaussian_filter(rng.standard_normal(size=(1, ds.y.shape[0])), sigma=sigma)        * 0.15    )
     Z = Z_slope  # + Z_blur
     ds["B"].values = Z.reshape(1, ds.y.shape[0])
@@ -396,7 +395,7 @@ for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
             time_step=0.02,
             initial_depth=case["H0"],
             prescribed_flowrates=(0.0, case["Q"]),
-            prescribed_elevations=(0.0, 0.12 + case["H0"]),
+            prescribed_elevations=(0.0, case["S"] * channel_length + case["H0"]),
             friction_coefficient=case["n"],
         )
     else:
