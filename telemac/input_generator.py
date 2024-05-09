@@ -221,14 +221,19 @@ def plot_critical_slope(x, y, slopes):
     plt.show()
 
 
-# Define parameters
-x = np.linspace(1 / 1000, 50 / 1000, 128)
-y = np.linspace(0.010, 0.200, 128)
-slopes = [5e-3, 1e-2, 2e-2, 3e-2, 4e-2, 5e-2, 1e-1, 2e-1, 3e-1, 4e-1, 5e-1]
-
-# Plot the critical slope
-plot_critical_slope(x, y, slopes)
-
+# Define dimensions
+channel_width = 0.3  # in m
+channel_length = 12  # in m
+channel_depth = 0.3  # in m
+slope = 5 / 100  # 1% slope
+wall_thickness = 0.00  # in m
+flat_zone = 0
+# Adjusting channel dimensions for walls
+channel_width += 2 * wall_thickness
+channel_length += 2 * wall_thickness
+# Generate base mesh for the channel
+num_points_y = 11  # Adjust as needed for resolution
+num_points_x = 401
 S_values = np.linspace(1e-3, 50e-3, 5)
 
 
