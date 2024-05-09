@@ -69,11 +69,6 @@ if __name__ == "__main__":
         default="output_dir",
         help="Output directory for the simulations (default: output_dir)",
     )
-    parser.add_argument(
-        "--linux",
-        action="store_true",
-        help="Flag to indicate running on Linux (default: False)",
-    )
     args = parser.parse_args()
 
     # Process all .cas files in the folder if start_file and end_file are both 0
@@ -95,8 +90,7 @@ if __name__ == "__main__":
                 start_index,
                 end_index,
                 args.output_dir,
-                parameters,
-                linux=args.linux,
+                parameters
             )
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
