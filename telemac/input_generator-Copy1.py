@@ -221,6 +221,8 @@ def plot_critical_slope(x, y, slopes):
     plt.show()
 
 
+# ## Parameter exploration and sensitivity analysis
+
 # Define parameters
 x = np.linspace(1 / 1000, 50 / 1000, 128)
 y = np.linspace(0.010, 0.200, 128)
@@ -229,7 +231,42 @@ slopes = [5e-3, 1e-2, 2e-2, 3e-2, 4e-2, 5e-2, 1e-1, 2e-1, 3e-1, 4e-1, 5e-1]
 # Plot the critical slope
 plot_critical_slope(x, y, slopes)
 
+# ## Bathymetry creation
+
+# Define dimensions
+channel_width = 0.3  # in m
+channel_length = 12  # in m
+channel_depth = 0.3  # in m
+slope = 5 / 100  # 1% slope
+wall_thickness = 0.00  # in m
+flat_zone = 0
+# Adjusting channel dimensions for walls
+channel_width += 2 * wall_thickness
+channel_length += 2 * wall_thickness
+# Generate base mesh for the channel
+num_points_y = 11  # Adjust as needed for resolution
+num_points_x = 401
+
+x = np.linspace(-wall_thickness * 0, channel_length + wall_thickness * 0, num_points_x)
+y = np.linspace(-wall_thickness * 0, channel_width + wall_thickness * 0, num_points_y)
+X, Y = np.meshgrid(x, y)
+Z_slope = slope * channel_length - slope * X
+# Z_slope[X <= flat_zone] = -slope * x[x<=flat_zone][-1] + slope * x.max()
+plt.imshow(Z_slope)
+plt.show()
+plt.close()
+
 S_values = np.linspace(1e-3, 50e-3, 5)
+
+ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
+rng = np.random.default_rng()
+sigma = 3  # Standard deviation for Gaussian blur
+for i in tqdm(range(len(S_values))):
+    Z_slope = S_values[i] * channel_length - slope * ds["x"].values
+    # Z_blur = (gaussian_filter(rng.standard_normal(size=(1, ds.y.shape[0])), sigma=sigma)        * 0.15    )
+    Z = Z_slope  # + Z_blur
+    ds["B"].values = Z.reshape(1, ds.y.shape[0])
+    ds.selafin.write(f"geometry/geometry_3x3_{i}.slf")
 
 
 # ## Steering file generation
@@ -378,3 +415,121 @@ for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
     # Write the steering file content to a file
     with open(f"steering_{index}.cas", "w") as f:
         f.write(steering_file_content)
+
+# ## Results reading
+
+parameters = pd.read_csv("parameters.csv", index_col="id")
+
+
+def plot_ith(i):
+    # List of points defining the polyline
+    poly_points = [[0.0, 0.15], [12.0, 0.15]]
+    # List of number of discretized points for each polyline segment
+    poly_number = [1000]
+    res1 = TelemacFile(f"results/results_{i}.slf")
+    poly_coord1, abs_curv1, values_polylines1 = res1.get_timeseries_on_polyline(
+        "WATER DEPTH", poly_points, poly_number
+    )
+    res1.close()
+
+    # Determine yn and yc based on the ith row of parametros DataFrame
+    yn = parameters.loc[i, "yn"]
+    yc = parameters.loc[i, "yc"]
+
+    fig, ax = plt.subplots()
+    ax.plot(
+        abs_curv1[:],
+        values_polylines1[:, -1],
+        color="tab:blue",
+        label="$h_{outlet}=0.02$ / m",
+    )
+    ax.axhline(
+        y=yn, linestyle="--", color="tab:green", label=f"$y_{{normal}} = {yn:.3f}$ / m"
+    )
+    ax.axhline(
+        y=yc, linestyle="--", color="tab:red", label=f"$y_{{critical}} = {yc:.3f}$ / m"
+    )
+    ax.set_xlabel("x / m")
+    ax.set_ylabel("Water depth / m")
+    ax.set_title(f"Case {i}")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.125), ncol=3)
+    ax.grid(True, which="both", linestyle="-", linewidth=0.5)
+    ax.minorticks_on()
+    # plt.savefig(f"test_plot_{i}.png")
+    plt.show()
+
+
+plot_ith(5)
+
+res0 = TelemacFile("results/results_0.slf")
+res1 = TelemacFile("results/results_1.slf")
+res2 = TelemacFile("results/results_2.slf")
+res3 = TelemacFile("results/results_3.slf")
+res4 = TelemacFile("results/results_4.slf")
+res5 = TelemacFile("results/results_5.slf")
+# Getting water depth values over time for each discretized points of the polyline
+poly_coord0, abs_curv0, values_polylines0 = res0.get_timeseries_on_polyline(
+    "WATER DEPTH", poly_points, poly_number
+)
+poly_coord1, abs_curv1, values_polylines1 = res1.get_timeseries_on_polyline(
+    "WATER DEPTH", poly_points, poly_number
+)
+poly_coord2, abs_curv2, values_polylines2 = res2.get_timeseries_on_polyline(
+    "WATER DEPTH", poly_points, poly_number
+)
+poly_coord3, abs_curv3, values_polylines3 = res3.get_timeseries_on_polyline(
+    "WATER DEPTH", poly_points, poly_number
+)
+poly_coord4, abs_curv4, values_polylines4 = res4.get_timeseries_on_polyline(
+    "WATER DEPTH", poly_points, poly_number
+)
+poly_coord5, abs_curv5, values_polylines5 = res5.get_timeseries_on_polyline(
+    "WATER DEPTH", poly_points, poly_number
+)
+
+res0.close()
+res1.close()
+res2.close()
+res3.close()
+res4.close()
+res5.close()
+
+# Create a figure and axis objects
+fig, ax = plt.subplots()
+
+# Plot the lines
+ax.plot(abs_curv0[:], values_polylines0[:, -1], label="$h_{outlet}=0.01$ / m")
+ax.plot(abs_curv1[:], values_polylines1[:, -1], label="$h_{outlet}=0.01$ / m")
+ax.plot(abs_curv2[:], values_polylines2[:, -1], label="$h_{outlet}=0.06$ / m")
+ax.plot(abs_curv3[:], values_polylines3[:, -1], label="$h_{outlet}=0.11$ / m")
+ax.plot(abs_curv4[:], values_polylines4[:, -1], label="$h_{outlet}=0.01$ / m")
+ax.plot(abs_curv5[:], values_polylines5[:, -1], label="$h_{outlet}=0.01$ / m")
+
+ax.axhline(
+    y=parameters.iloc[0]["yn"],
+    linestyle="--",
+    color="tab:orange",
+    label=f"$y_{{normal}} = {yn:.3f}$ / m",
+)
+ax.axhline(
+    y=parameters.iloc[0]["yc"],
+    linestyle="--",
+    color="tab:red",
+    label=f"$y_{{critical}} = {yc:.3f}$ / m",
+)
+
+# Add labels and title
+ax.set_xlabel("x / m")
+ax.set_ylabel("Water depth / m")
+ax.set_title("Test")
+
+# Add legend
+ax.legend()
+ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+ax.grid(
+    True, which="both", linestyle="-", linewidth=0.5
+)  # Turn on gridlines for both major and minor ticks
+ax.minorticks_on()  # Turn on minor ticks
+plt.savefig("test_plot.png")
+# Show the plot
+plt.show()
