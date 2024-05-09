@@ -418,11 +418,6 @@ for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
 
 # ## Results reading
 
-yn = normal_depth(
-    flow_rate=0.01, bottom_width=0.3, slope=1 / 100, roughness_coefficient=0.04
-)
-yc = critical_depth(flow_rate=0.01, bottom_width=0.3)
-
 parameters = pd.read_csv("parameters.csv", index_col="id")
 
 
@@ -464,7 +459,7 @@ def plot_ith(i):
     plt.show()
 
 
-plot_ith(527)
+plot_ith(5)
 
 res0 = TelemacFile("results/results_0.slf")
 res1 = TelemacFile("results/results_1.slf")

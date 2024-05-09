@@ -1,29 +1,86 @@
 import glob
+import multiprocessing
 import os
+import shlex
+import signal
 import subprocess
-from tqdm import tqdm
+import sys
+
+import pandas as pd
+
+from loguru import logger
+from tqdm.autonotebook import tqdm
+
+import platform
+
+platform.system()
 
 
-def run_on_all_cas_files(linux = False):
-    cas_files = glob.glob("steering*.cas")
+def run_telemac2d(filename, output_dir="outputs"):
+    """
+    Run telemac2d simulation on a specific file.
 
-    for filename in tqdm(cas_files, total = len(cas_files), desc="Running"):
-        run_telemac2d(filename, linux)
-
-    # Shutdown the computer
-    # os.system("shutdown /s /t 1")
-
-
-def run_telemac2d(filename, linux):
-    if linux:
-        command = f"telemac2d.py --ncsize=4 {filename} >> outputs/{filename}.txt"
-    else:python -m telemac2d steering_0.cas
-        command = f"python -m telemac2d --ncsize=4 {filename} >> outputs/{filename}.txt"
-    subprocess.run(
-        command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True
-    )
+    Args:
+        filename (str): The name of the input file.
+        output_dir (str, optional): The directory to store output files. Defaults to "outputs".
+        linux (bool, optional): Indicates if running on Linux. Defaults to False.
+    """
+    if platform.system == "Linux":
+        command = f"telemac2d.py --ncsize=4 {filename} >> {os.path.join(output_dir, filename)}.txt"
+    else:
+        command = f"python -m telemac2d --ncsize=4 {filename} >> {os.path.join(output_dir, filename)}.txt"
+    subprocess.run(shlex.split(command), check=True, capture_output=True)
 
 
-# run_telemac2d("steering_0.cas", linux = False)
+def run_telemac2d_on_files(start, end, output_dir, parameters):
+    """
+    Run telemac2d simulation on a range of files.
 
-run_on_all_cas_files(linux = False)
+    Args:
+        start (int): The starting index of the files.
+        end (int): The ending index of the files.
+        output_dir (str): The directory to store output files.
+        linux (bool, optional): Indicates if running on Linux. Defaults to False.
+    """
+    total_files = end - start + 1
+    with tqdm(total=total_files) as pbar:
+        for i in range(start, end + 1):
+            filename = f"steering_{i}.cas"
+            case_parameters = parameters.iloc[i]
+            tqdm_desc = f"Running case {i}: S={case_parameters['S']} | n = {case_parameters['n']:.4f} | Q={case_parameters['Q']:.4f} | H0={case_parameters['H0']:.4f} | {'subcritical' if case_parameters['subcritical'] else 'supercritical'} | B: {case_parameters['BOTTOM']}"
+            pbar.set_description(tqdm_desc)
+            run_telemac2d(filename, output_dir)
+            pbar.update(1)
+
+
+if __name__ == "__main__":
+    # Set up logger configuration
+    logger.add("logfile.log", rotation="500 MB", level="INFO")  # Output log to file
+    logger.add(sys.stderr, level="WARNING")  # Output log to console
+    logger.info("Starting Telemac2D simulations...")
+
+    # Read parameters DataFrame once
+    parameters = pd.read_csv("parameters.csv", index_col="id")
+
+    # Ask for start and end files if the script is run directly
+    start_file = input("Enter the start file (0 for all files): ")
+    end_file = input("Enter the end file (0 for all files): ")
+
+    # Process all .cas files in the folder if start_file and end_file are both 0
+    if start_file == "0" and end_file == "0":
+        cas_files = [file for file in os.listdir() if file.endswith(".cas")]
+        start_index = 1
+        end_index = len(cas_files)
+    else:
+        start_index = int(start_file)
+        end_index = int(end_file)
+
+    # Check if start index is less than or equal to end index
+    if start_index > end_index:
+        logger.error("Start index cannot be greater than end index.")
+    else:
+        # Example usage
+        try:
+            run_telemac2d_on_files(start_index, end_index, "output_dir", parameters)
+        except Exception as e:
+            logger.error(f"An unexpected error occurred: {e}")
