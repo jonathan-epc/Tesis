@@ -1,19 +1,16 @@
+import argparse
 import glob
 import multiprocessing
 import os
+import platform
 import shlex
 import signal
 import subprocess
 import sys
 
 import pandas as pd
-
 from loguru import logger
 from tqdm.autonotebook import tqdm
-
-import platform
-
-platform.system()
 
 
 def run_telemac2d(filename, output_dir="outputs"):
@@ -25,7 +22,7 @@ def run_telemac2d(filename, output_dir="outputs"):
         output_dir (str, optional): The directory to store output files. Defaults to "outputs".
         linux (bool, optional): Indicates if running on Linux. Defaults to False.
     """
-    if platform.system == "Linux":
+    if platform.system() == "Linux":
         command = f"telemac2d.py --ncsize=4 {filename} >> {os.path.join(output_dir, filename)}.txt"
     else:
         command = f"python -m telemac2d --ncsize=4 {filename} >> {os.path.join(output_dir, filename)}.txt"
@@ -62,18 +59,31 @@ if __name__ == "__main__":
     # Read parameters DataFrame once
     parameters = pd.read_csv("parameters.csv", index_col="id")
 
-    # Ask for start and end files if the script is run directly
-    start_file = input("Enter the start file (0 for all files): ")
-    end_file = input("Enter the end file (0 for all files): ")
+    # Set up argparse for command-line arguments
+    parser = argparse.ArgumentParser(description="Run Telemac2D simulations.")
+    parser.add_argument("start", type=int, help="Start file index (0 for all files)")
+    parser.add_argument("end", type=int, help="End file index (0 for all files)")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="output_dir",
+        help="Output directory for the simulations (default: output_dir)",
+    )
+    parser.add_argument(
+        "--linux",
+        action="store_true",
+        help="Flag to indicate running on Linux (default: False)",
+    )
+    args = parser.parse_args()
 
     # Process all .cas files in the folder if start_file and end_file are both 0
-    if start_file == "0" and end_file == "0":
+    if args.start == 0 and args.end == 0:
         cas_files = [file for file in os.listdir() if file.endswith(".cas")]
         start_index = 1
         end_index = len(cas_files)
     else:
-        start_index = int(start_file)
-        end_index = int(end_file)
+        start_index = args.start
+        end_index = args.end
 
     # Check if start index is less than or equal to end index
     if start_index > end_index:
@@ -81,6 +91,12 @@ if __name__ == "__main__":
     else:
         # Example usage
         try:
-            run_telemac2d_on_files(start_index, end_index, "output_dir", parameters)
+            run_telemac2d_on_files(
+                start_index,
+                end_index,
+                args.output_dir,
+                parameters,
+                linux=args.linux,
+            )
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
