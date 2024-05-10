@@ -15,46 +15,64 @@ from tqdm.autonotebook import tqdm
 
 def run_telemac2d(filename, output_dir="outputs"):
     """
-    Run telemac2d simulation on a specific file.
+    Run Telemac2D simulation for a given case file.
 
     Args:
-        filename (str): The name of the input file.
-        output_dir (str, optional): The directory to store output files. Defaults to "outputs".
-        linux (bool, optional): Indicates if running on Linux. Defaults to False.
+        filename (str): Name of the case file.
+        output_dir (str, optional): Directory to save the output. Defaults to "outputs".
     """
-    if platform.system() == "Linux":
-        command = f"telemac2d.py --ncsize=4 {filename} >> {os.path.join(output_dir, filename)}.txt"
+    logger.info(f"Running Telemac2D simulation for {filename}")
+
+    # Existing code...
+
+    try:
+        subprocess.run(command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running Telemac2D simulation for {filename}: {e}")
     else:
-        command = f"python -m telemac2d --ncsize=4 {filename} >> {os.path.join(output_dir, filename)}.txt"
-    subprocess.run(shlex.split(command), check=True, capture_output=True)
+        logger.info(f"Completed Telemac2D simulation for {filename}")
 
 
 def run_telemac2d_on_files(start, end, output_dir, parameters):
     """
-    Run telemac2d simulation on a range of files.
+    Run Telemac2D simulations for a range of case files with given parameters.
 
     Args:
-        start (int): The starting index of the files.
-        end (int): The ending index of the files.
-        output_dir (str): The directory to store output files.
-        linux (bool, optional): Indicates if running on Linux. Defaults to False.
+        start (int): Starting index of the case files.
+        end (int): Ending index of the case files.
+        output_dir (str): Directory to save the outputs.
+        parameters (pandas.DataFrame): DataFrame containing parameters for each case.
     """
     total_files = end - start + 1
-    with tqdm(total=total_files) as pbar:
+    logger.info(f"Running {total_files} Telemac2D simulations from {start} to {end}")
+
+    with tqdm(total=total_files, unit="case", dynamic_ncols=True) as pbar:
         for i in range(start, end + 1):
             filename = f"steering_{i}.cas"
-            case_parameters = parameters.iloc[i]
-            tqdm_desc = f"Running case {i}: S={case_parameters['S']} | n = {case_parameters['n']:.4f} | Q={case_parameters['Q']:.4f} | H0={case_parameters['H0']:.4f} | {'subcritical' if case_parameters['subcritical'] else 'supercritical'} | B: {case_parameters['BOTTOM']}"
+            case_parameters = parameters.loc[i]
+            tqdm_desc = (
+                f"Case {i}: S={case_parameters['S']} | "
+                f"n={case_parameters['n']:.4f} | Q={case_parameters['Q']:.4f} | "
+                f"H0={case_parameters['H0']:.4f} | "
+                f"{'subcritical' if case_parameters['subcritical'] else 'supercritical'} | "
+                f"B: {case_parameters['BOTTOM']}"
+            )
             pbar.set_description(tqdm_desc)
             run_telemac2d(filename, output_dir)
             pbar.update(1)
 
+    logger.info("All Telemac2D simulations completed")
 
-if __name__ == "__main__":
-    # Set up logger configuration
+
+def setup_logging():
+    """Set up logger configuration."""
     logger.add("logfile.log", rotation="500 MB", level="INFO")  # Output log to file
     logger.add(sys.stderr, level="WARNING")  # Output log to console
-    logger.info("Starting Telemac2D simulations...")
+    logger.info("Logger setup completed.")
+
+
+if __name__ == "__main__":
+    setup_logging()
 
     # Read parameters DataFrame once
     parameters = pd.read_csv("parameters.csv", index_col="id")
@@ -86,11 +104,6 @@ if __name__ == "__main__":
     else:
         # Example usage
         try:
-            run_telemac2d_on_files(
-                start_index,
-                end_index,
-                args.output_dir,
-                parameters
-            )
+            run_telemac2d_on_files(start_index, end_index, args.output_dir, parameters)
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
