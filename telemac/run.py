@@ -23,7 +23,15 @@ def run_telemac2d(filename, output_dir="outputs"):
     """
     logger.info(f"Running Telemac2D simulation for {filename}")
 
-    # Existing code...
+    # Determine the command based on the operating system
+    if platform.system() == "Linux":
+        command = ["telemac2d.py"]
+    else:
+        command = ["python", "-m", "telemac2d"]
+
+    # Add case file and output redirection to the command
+    command += ["--ncsize=4", filename, ">>", os.path.join(output_dir, filename)]
+
 
     try:
         subprocess.run(command, shell=True, check=True)
@@ -31,7 +39,6 @@ def run_telemac2d(filename, output_dir="outputs"):
         logger.error(f"Error running Telemac2D simulation for {filename}: {e}")
     else:
         logger.info(f"Completed Telemac2D simulation for {filename}")
-
 
 def run_telemac2d_on_files(start, end, output_dir, parameters):
     """
@@ -62,7 +69,6 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
             pbar.update(1)
 
     logger.info("All Telemac2D simulations completed")
-
 
 def setup_logging():
     """Set up logger configuration."""

@@ -349,3 +349,8 @@
 2024-05-09 16:25:08.115 | INFO     | __main__:<module>:57 - Starting Telemac2D simulations...
 2024-05-09 16:25:48.434 | INFO     | __main__:<module>:57 - Starting Telemac2D simulations...
 2024-05-09 16:31:36.436 | ERROR    | __main__:<module>:96 - An unexpected error occurred: Command '['python', '-m', 'telemac2d', '--ncsize=4', 'steering_313.cas', '>>', 'output_dirsteering_313.cas.txt']' returned non-zero exit status 1.
+2024-05-10 18:49:28.431 | INFO     | __main__:setup_logging:62 - Logger setup completed.
+2024-05-10 18:50:17.834 | INFO     | __main__:setup_logging:77 - Logger setup completed.
+2024-05-10 18:50:39.446 | INFO     | __main__:setup_logging:77 - Logger setup completed.
+2024-05-10 18:50:39.489 | INFO     | __main__:run_telemac2d_on_files:54 - Running 313 Telemac2D simulations from 0 to 312
+2024-05-10 18:50:39.530 | INFO     | __main__:run_telemac2d:24 - Running Telemac2D simulation for steering_0.cas
