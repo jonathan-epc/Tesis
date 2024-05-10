@@ -66,8 +66,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="output_dir",
-        help="Output directory for the simulations (default: output_dir)",
+        default="outputs",
+        help="Output directory for the simulations (default: outputs)",
     )
     args = parser.parse_args()
 
