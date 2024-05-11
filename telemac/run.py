@@ -29,16 +29,22 @@ def run_telemac2d(filename, output_dir="outputs"):
     else:
         command = ["python", "-m", "telemac2d"]
 
-    # Add case file and output redirection to the command
-    command += ["--ncsize=4", filename, ">>", os.path.join(output_dir, filename)]
-
+    # Define the file path for the output
+    output_file = os.path.join(output_dir, filename + ".txt")
 
     try:
-        subprocess.run(command, shell=True, check=True)
+        with open(output_file, "w") as output_fh:
+            subprocess.run(
+                command + ["--ncsize=4", filename],
+                check=True,
+                stdout=output_fh,
+                stderr=subprocess.STDOUT
+            )
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running Telemac2D simulation for {filename}: {e}")
     else:
         logger.info(f"Completed Telemac2D simulation for {filename}")
+
 
 def run_telemac2d_on_files(start, end, output_dir, parameters):
     """
@@ -70,10 +76,13 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
 
     logger.info("All Telemac2D simulations completed")
 
+
 def setup_logging():
     """Set up logger configuration."""
-    logger.add("logfile.log", rotation="500 MB", level="INFO")  # Output log to file
-    logger.add(sys.stderr, level="WARNING")  # Output log to console
+    logger.add(
+        "logs/logfile.log", rotation="500 MB", level="INFO", enqueue=True
+    )  # Output log to file only
+    logger.remove()  # Remove default logger
     logger.info("Logger setup completed.")
 
 
@@ -85,8 +94,12 @@ if __name__ == "__main__":
 
     # Set up argparse for command-line arguments
     parser = argparse.ArgumentParser(description="Run Telemac2D simulations.")
-    parser.add_argument("start", type=int, help="Start file index (0 for all files)")
-    parser.add_argument("end", type=int, help="End file index (0 for all files)")
+    parser.add_argument(
+        "start", type=int, default=0, help="Start file index (default: 0 for all files)"
+    )
+    parser.add_argument(
+        "end", type=int, default=0, help="End file index (default: 0 for all files)"
+    )
     parser.add_argument(
         "--output-dir",
         type=str,

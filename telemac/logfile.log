@@ -354,3 +354,15 @@
 2024-05-10 18:50:39.446 | INFO     | __main__:setup_logging:77 - Logger setup completed.
 2024-05-10 18:50:39.489 | INFO     | __main__:run_telemac2d_on_files:54 - Running 313 Telemac2D simulations from 0 to 312
 2024-05-10 18:50:39.530 | INFO     | __main__:run_telemac2d:24 - Running Telemac2D simulation for steering_0.cas
+2024-05-10 21:30:50.838 | INFO     | __main__:setup_logging:78 - Logger setup completed.
+2024-05-10 21:30:50.884 | INFO     | __main__:run_telemac2d_on_files:54 - Running 313 Telemac2D simulations from 0 to 312
+2024-05-10 21:30:50.893 | INFO     | __main__:run_telemac2d:24 - Running Telemac2D simulation for steering_0.cas
+2024-05-10 21:30:55.422 | ERROR    | __main__:run_telemac2d:38 - Error running Telemac2D simulation for steering_0.cas: Command '['python', '-m', 'telemac2d', '--ncsize=4', 'steering_0.cas', '>>', 'outputs\\steering_0.cas']' returned non-zero exit status 1.
+2024-05-10 21:30:55.425 | INFO     | __main__:run_telemac2d:24 - Running Telemac2D simulation for steering_1.cas
+2024-05-10 21:30:57.885 | ERROR    | __main__:run_telemac2d:38 - Error running Telemac2D simulation for steering_1.cas: Command '['python', '-m', 'telemac2d', '--ncsize=4', 'steering_1.cas', '>>', 'outputs\\steering_1.cas']' returned non-zero exit status 1.
+2024-05-10 21:30:57.887 | INFO     | __main__:run_telemac2d:24 - Running Telemac2D simulation for steering_2.cas
+2024-05-10 21:31:00.362 | ERROR    | __main__:run_telemac2d:38 - Error running Telemac2D simulation for steering_2.cas: Command '['python', '-m', 'telemac2d', '--ncsize=4', 'steering_2.cas', '>>', 'outputs\\steering_2.cas']' returned non-zero exit status 1.
+2024-05-10 21:31:00.364 | INFO     | __main__:run_telemac2d:24 - Running Telemac2D simulation for steering_3.cas
+2024-05-10 21:31:33.832 | INFO     | __main__:setup_logging:78 - Logger setup completed.
+2024-05-10 21:31:33.889 | INFO     | __main__:run_telemac2d_on_files:54 - Running 313 Telemac2D simulations from 0 to 312
+2024-05-10 21:31:33.898 | INFO     | __main__:run_telemac2d:24 - Running Telemac2D simulation for steering_0.cas
