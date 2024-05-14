@@ -1,25 +1,13 @@
 # ## Imports
 
 # Standard Library Imports
-import math
 from itertools import product
-
-import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 
 # Third-party Library Imports
 import numpy as np
 import pandas as pd
-import xarray as xr
 
 # Local Imports
-from data_manip.extraction.telemac_file import TelemacFile
-from matplotlib import cm, ticker
-from matplotlib.ticker import FuncFormatter
-from mpl_toolkits.mplot3d import Axes3D
-from postel.plot1d import plot1d
-from scipy.ndimage import gaussian_filter
-from scipy.optimize import fsolve
 from tqdm.autonotebook import tqdm
 
 
@@ -170,75 +158,6 @@ def critical_slope_simple(flow_rate, bottom_width, roughness_coefficient):
     )
 
 
-def plot_critical_slope(x, y, slopes):
-    """
-    Plot the critical slope.
-
-    Parameters:
-        x (ndarray): Array of x values.
-        y (ndarray): Array of y values.
-        slopes (ndarray): Array of slope values.
-    """
-    # Create a grid of x, y values
-    X, Y = np.meshgrid(x, y)
-
-    # Calculate the critical slope
-    F = critical_slope_simple(X, 0.3, Y)
-
-    # Create a figure and axes object
-    fig, ax = plt.subplots()
-
-    # Plot the filled contour plot
-    cf = ax.pcolormesh(X, Y, F, cmap=cm.turbo, antialiased=True)
-
-    # Plot the contour lines
-    cl = ax.contour(X, Y, F, levels=slopes, linewidths=0.75, colors="black")
-
-    # Label each contour line with its corresponding slope value
-    ax.clabel(
-        cl, inline=True, fontsize=10, fmt=FuncFormatter(lambda x, _: f"{x*100:.1f}%")
-    )
-
-    # Add a colorbar
-    cbar = fig.colorbar(cf, extend="both")
-    cbar.set_label("Critical Slope")
-
-    # Set scientific notation for the x-axis
-    formatter = ticker.ScalarFormatter(useMathText=True)
-    formatter.set_scientific(True)
-    formatter.set_powerlimits([0.001, 0.04])
-    ax.xaxis.set_major_formatter(formatter)
-
-    # Set labels and grid
-    ax.set_xlabel("Flow Rate / $(m^3s^{-1})$")
-    ax.set_ylabel("Roughness coefficient / $(sm^{-1/3})$")
-    ax.grid(
-        True, which="both", linestyle="-", linewidth=0.25, alpha=0.25, color="white"
-    )
-    ax.minorticks_on()
-
-    # Show the plot
-    plt.show()
-
-
-# Define dimensions
-channel_width = 0.3  # in m
-channel_length = 12  # in m
-channel_depth = 0.3  # in m
-slope = 5 / 100  # 1% slope
-wall_thickness = 0.00  # in m
-flat_zone = 0
-# Adjusting channel dimensions for walls
-channel_width += 2 * wall_thickness
-channel_length += 2 * wall_thickness
-# Generate base mesh for the channel
-num_points_y = 11  # Adjust as needed for resolution
-num_points_x = 401
-S_values = np.linspace(1e-3, 50e-3, 5)
-
-
-# ## Steering file generation
-
 def generate_steering_file(
     geometry_file,
     boundary_file,
@@ -328,57 +247,114 @@ SCHEME FOR ADVECTION OF K-EPSILON : 4"""
     return steering_text
 
 
+# Define dimensions
+channel_width = 0.3  # in m
+channel_length = 12  # in m
+channel_depth = 0.3  # in m
+slope = 5 / 100  # 1% slope
+wall_thickness = 0.00  # in m
+flat_zone = 0
+# Adjusting channel dimensions for walls
+channel_width += 2 * wall_thickness
+channel_length += 2 * wall_thickness
+# Generate base mesh for the channel
+num_points_y = 11  # Adjust as needed for resolution
+num_points_x = 401
+
+# ## Steering file generation
+
 # Arrays for each column
+S_values = np.linspace(1e-3, 50e-3, 5)
 S_indices = range(len(S_values))
 n_values = np.linspace(5e-3, 5e-1, 5)
 Q_values = np.linspace(0.001, 0.040, 5)
 H0_values = np.linspace(0.01, 0.30, 5)
 BOTTOM_values = ["FLAT"]
 
-# Generate all combinations of values
-combinations = list(product(S_indices, n_values, Q_values, H0_values, BOTTOM_values))
+# Load old parameters from CSV if it exists
+try:
+    old_parameters_df = pd.read_csv("parameters.csv")
+    max_id = old_parameters_df["id"].max() + 1
+except FileNotFoundError:
+    old_parameters_df = pd.DataFrame(
+        columns=[
+            "id",
+            "S_index",
+            "n",
+            "Q",
+            "H0",
+            "BOTTOM",
+            "S",
+            "yn",
+            "yc",
+            "subcritical",
+            "R2L",
+        ]
+    )
+    max_id = 0
 
-# Create DataFrame
-parameters = pd.DataFrame(combinations, columns=["S_i", "n", "Q", "H0", "BOTTOM"])
+# Generate new parameter combinations
+new_parameter_combinations = [
+    (max_id + index, S_i, n, Q, H0, BOTTOM)
+    for index, (S_i, n, Q, H0, BOTTOM) in enumerate(
+        product(range(len(S_values)), n_values, Q_values, H0_values, BOTTOM_values)
+    )
+]
 
-
-parameters["S"] = S_values[parameters["S_i"]]
-parameters["yn"] = normal_depth_simple(
-    parameters["Q"], 0.3, parameters["S"], parameters["n"]
+# Create DataFrame for new parameters
+new_parameters_df = pd.DataFrame(
+    new_parameter_combinations, columns=["id", "S_index", "n", "Q", "H0", "BOTTOM"]
 )
-parameters["yc"] = critical_depth_simple(parameters["Q"], 0.3)
-parameters["subcritical"] = parameters["yn"] > parameters["yc"]
-parameters["R2L"] = parameters["H0"] < parameters["yc"]
 
-parameters.to_csv("parameters.csv", index=True, index_label="id")
+# Calculate additional parameters for new entries
+new_parameters_df["S"] = S_values[new_parameters_df["S_index"]]
+new_parameters_df["yn"] = normal_depth_simple(
+    new_parameters_df["Q"], 0.3, new_parameters_df["S"], new_parameters_df["n"]
+)
+new_parameters_df["yc"] = critical_depth_simple(new_parameters_df["Q"], 0.3)
+new_parameters_df["subcritical"] = new_parameters_df["yn"] > new_parameters_df["yc"]
+new_parameters_df["R2L"] = new_parameters_df["H0"] < new_parameters_df["yc"]
 
-for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
-    if case["R2L"]:
-        steering_file_content = generate_steering_file(
-            geometry_file=f"geometry/geometry_3x3_{case['S_i']}.slf",
-            boundary_file="boundary/boundary_3x3_tor.cli",
-            results_file=f"results/results_{index}.slf",
-            title=f"Caso {index}",
-            duration=1200,
-            time_step=0.02,
-            initial_depth=case["H0"],
-            prescribed_flowrates=(0.0, case["Q"]),
-            prescribed_elevations=(0.0, case["S"] * channel_length + case["H0"]),
-            friction_coefficient=case["n"],
-        )
-    else:
-        steering_file_content = generate_steering_file(
-            geometry_file="geometry/geometry_3x3_0.slf",
-            boundary_file="boundary/boundary_3x3_riv.cli",
-            results_file=f"results/results_{index}.slf",
-            title=f"Caso {index}",
-            duration=600,
-            time_step=0.02,
-            initial_depth=0.06,
-            prescribed_flowrates=(0.0, case["Q"]),
-            prescribed_elevations=(case["H0"], 0.0),
-            friction_coefficient=case["n"],
-        )
+# Combine old and new parameters
+combined_parameters_df = pd.concat(
+    [old_parameters_df, new_parameters_df], ignore_index=True
+)
+
+# Write to CSV
+combined_parameters_df.to_csv("parameters.csv", index=False)
+
+parameters_df = pd.read_csv("parameters.csv", index_col="id")
+
+# Generate steering files
+for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
+    geometry_file = (
+        f"geometry/geometry_3x3_{case['S_index']}.slf"
+        if case["R2L"]
+        else "geometry/geometry_3x3_0.slf"
+    )
+    boundary_file = (
+        "boundary/boundary_3x3_tor.cli"
+        if case["R2L"]
+        else "boundary/boundary_3x3_riv.cli"
+    )
+    prescribed_elevations = (
+        (0.0, case["S"] * channel_length + case["H0"])
+        if case["R2L"]
+        else (case["H0"], 0.0)
+    )
+
+    steering_file_content = generate_steering_file(
+        geometry_file=geometry_file,
+        boundary_file=boundary_file,
+        results_file=f"results/results_{index}.slf",
+        title=f"Caso {index}",
+        duration=1200,
+        time_step=0.02,
+        initial_depth=case["H0"],
+        prescribed_flowrates=(0.0, case["Q"]),
+        prescribed_elevations=prescribed_elevations,
+        friction_coefficient=case["n"],
+    )
 
     # Write the steering file content to a file
     with open(f"steering_{index}.cas", "w") as f:
