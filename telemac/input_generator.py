@@ -291,7 +291,7 @@ except FileNotFoundError:
     )
     max_id = 0
 
-testing = True
+testing = False
 
 # Generate new parameter combinations
 if testing:
