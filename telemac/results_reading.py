@@ -158,4 +158,4 @@ def plot_results(indices, parameters_df):
 # Main entry point
 if __name__ == "__main__":
     parameters_df = read_parameters("parameters.csv")
-    plot_results([3], parameters_df)
+    plot_results([11], parameters_df)

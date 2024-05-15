@@ -60,7 +60,7 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
     print(f"Running {total_files} Telemac2D simulations from case {start} to case {end}")
 
     with tqdm(total=total_files, unit="case", dynamic_ncols=True) as pbar:
-        for i in range(start, end + 1):
+        for i in range(start, end):
             filename = f"steering_{i}.cas"
             case_parameters = parameters.loc[i]
             tqdm_desc = (
