@@ -21,8 +21,6 @@ def run_telemac2d(filename, output_dir="outputs"):
         filename (str): Name of the case file.
         output_dir (str, optional): Directory to save the output. Defaults to "outputs".
     """
-    logger.info(f"Running Telemac2D simulation for {filename}")
-
     # Determine the command based on the operating system
     if platform.system() == "Linux":
         command = ["telemac2d.py"]
@@ -35,15 +33,17 @@ def run_telemac2d(filename, output_dir="outputs"):
     try:
         with open(output_file, "w") as output_fh:
             subprocess.run(
-                command + ["--ncsize=4", filename],
+                command + ["--ncsize=8", filename],
                 check=True,
                 stdout=output_fh,
                 stderr=subprocess.STDOUT
             )
     except subprocess.CalledProcessError as e:
-        logger.error(f"Error running Telemac2D simulation for {filename}: {e}")
+        pass
+        #logger.error(f"Error running Telemac2D simulation for {filename}: {e}")
     else:
-        logger.info(f"Completed Telemac2D simulation for {filename}")
+        pass
+        #logger.info(f"Completed Telemac2D simulation for {filename}")
 
 
 def run_telemac2d_on_files(start, end, output_dir, parameters):
@@ -56,8 +56,8 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
         output_dir (str): Directory to save the outputs.
         parameters (pandas.DataFrame): DataFrame containing parameters for each case.
     """
-    total_files = end - start + 1
-    logger.info(f"Running {total_files} Telemac2D simulations from {start} to {end}")
+    total_files = end - start
+    print(f"Running {total_files} Telemac2D simulations from case {start} to case {end}")
 
     with tqdm(total=total_files, unit="case", dynamic_ncols=True) as pbar:
         for i in range(start, end + 1):
@@ -74,31 +74,20 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
             run_telemac2d(filename, output_dir)
             pbar.update(1)
 
-    logger.info("All Telemac2D simulations completed")
-
-
-def setup_logging():
-    """Set up logger configuration."""
-    logger.add(
-        "logs/logfile.log", rotation="500 MB", level="INFO", enqueue=True
-    )  # Output log to file only
-    logger.remove()  # Remove default logger
-    logger.info("Logger setup completed.")
+    print("All Telemac2D simulations completed")
 
 
 if __name__ == "__main__":
-    setup_logging()
-
     # Read parameters DataFrame once
     parameters = pd.read_csv("parameters.csv", index_col="id")
 
     # Set up argparse for command-line arguments
     parser = argparse.ArgumentParser(description="Run Telemac2D simulations.")
     parser.add_argument(
-        "start", type=int, default=0, help="Start file index (default: 0 for all files)"
+        "--start", type=int, default=0, help="Start file index (default: 0 for all files)"
     )
     parser.add_argument(
-        "end", type=int, default=0, help="End file index (default: 0 for all files)"
+        "--end", type=int, default=0, help="End file index (default: 0 for all files)"
     )
     parser.add_argument(
         "--output-dir",
@@ -111,7 +100,7 @@ if __name__ == "__main__":
     # Process all .cas files in the folder if start_file and end_file are both 0
     if args.start == 0 and args.end == 0:
         cas_files = [file for file in os.listdir() if file.endswith(".cas")]
-        start_index = 1
+        start_index = 0
         end_index = len(cas_files)
     else:
         start_index = args.start
@@ -119,10 +108,10 @@ if __name__ == "__main__":
 
     # Check if start index is less than or equal to end index
     if start_index > end_index:
-        logger.error("Start index cannot be greater than end index.")
+        print("Start index cannot be greater than end index.")
     else:
         # Example usage
         try:
             run_telemac2d_on_files(start_index, end_index, args.output_dir, parameters)
         except Exception as e:
-            logger.error(f"An unexpected error occurred: {e}")
+            print(f"An unexpected error occurred: {e}")

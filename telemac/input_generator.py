@@ -1,13 +1,13 @@
 # ## Imports
 
-# Standard Library Imports
 from itertools import product
 
-# Third-party Library Imports
 import numpy as np
 import pandas as pd
-
-# Local Imports
+import xarray as xr
+from scipy.interpolate import RegularGridInterpolator
+from scipy.ndimage import gaussian_filter
+from scipy.optimize import fsolve
 from tqdm.autonotebook import tqdm
 
 
@@ -188,11 +188,11 @@ RESULTS FILE                    = '{results_file}'
 /
 TITLE = '{title}'
 /
-VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,S,B,Q,F,H'
+VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,H,S,B,F,Q'
 NUMBER OF PRIVATE ARRAYS        = 6
 /
-GRAPHIC PRINTOUT PERIOD         = 100000
-LISTING PRINTOUT PERIOD         = 100000
+GRAPHIC PRINTOUT PERIOD         = 100
+LISTING PRINTOUT PERIOD         = 100
 /
 DURATION                        = {duration}
 /TIME STEP                       = {time_step}
@@ -215,7 +215,6 @@ INITIAL DEPTH                    = {initial_depth}
 /
 PRESCRIBED FLOWRATES            =  {prescribed_flowrates[0]}  ;  {prescribed_flowrates[1]}
 PRESCRIBED ELEVATIONS           = {prescribed_elevations[0]} ; {prescribed_elevations[1]}
-VELOCITY PROFILES               =  1    ;  4
 /
 /----------------------------------------------
 /  PHYSICAL PARAMETERS
@@ -230,14 +229,13 @@ TURBULENCE MODEL                = 1
 /----------------------------------------------
 /SCHEMES
 EQUATIONS                       = 'SAINT-VENANT FV'
-TREATMENT OF THE LINEAR SYSTEM  = 2 /1:PRIM 2:WAVE EQUATION
+TREATMENT OF THE LINEAR SYSTEM  = 2
 /
 DISCRETIZATIONS IN SPACE        = 11 ; 11
 /
 SOLVER                          = 1
-SOLVER ACCURACY                 = 1.E-7
+SOLVER ACCURACY                 = 1.E-8
 /
-TIDAL FLATS                     = NO
 FREE SURFACE GRADIENT COMPATIBILITY = 0.9
 
 SCHEME FOR ADVECTION OF VELOCITIES : 1 
@@ -269,7 +267,7 @@ S_indices = range(len(S_values))
 n_values = np.linspace(5e-3, 5e-1, 5)
 Q_values = np.linspace(0.001, 0.040, 5)
 H0_values = np.linspace(0.01, 0.30, 5)
-BOTTOM_values = ["FLAT"]
+BOTTOM_values = ["FLAT", "NOISE"]
 
 # Load old parameters from CSV if it exists
 try:
@@ -288,18 +286,36 @@ except FileNotFoundError:
             "yn",
             "yc",
             "subcritical",
-            "R2L",
+            "direction",
         ]
     )
     max_id = 0
 
+testing = True
+
 # Generate new parameter combinations
-new_parameter_combinations = [
-    (max_id + index, S_i, n, Q, H0, BOTTOM)
-    for index, (S_i, n, Q, H0, BOTTOM) in enumerate(
-        product(range(len(S_values)), n_values, Q_values, H0_values, BOTTOM_values)
-    )
-]
+if testing:
+    new_parameter_combinations = [
+        (0, 4, 0.055, 2e-2, 0.1, "FLAT"),
+        (1, 4, 0.055, 2e-2, 0.08, "FLAT"),
+        (2, 4, 0.055, 2e-2, 0.06, "FLAT"),
+        (3, 4, 0.035, 2e-2, 0.08, "FLAT"),
+        (4, 4, 0.035, 2e-2, 0.07, "FLAT"),
+        (5, 4, 0.035, 2e-2, 0.05, "FLAT"),
+        (6, 4, 0.055, 2e-2, 0.1, "NOISE"),
+        (7, 4, 0.055, 2e-2, 0.08, "NOISE"),
+        (8, 4, 0.055, 2e-2, 0.06, "NOISE"),
+        (9, 4, 0.035, 2e-2, 0.08, "NOISE"),
+        (10, 4, 0.035, 2e-2, 0.07, "NOISE"),
+        (11, 4, 0.035, 2e-2, 0.05, "NOISE"),
+    ]
+else:
+    new_parameter_combinations = [
+        (max_id + index, S_i, n, Q, H0, BOTTOM)
+        for index, (S_i, n, Q, H0, BOTTOM) in enumerate(
+            product(range(len(S_values)), n_values, Q_values, H0_values, BOTTOM_values)
+        )
+    ]
 
 # Create DataFrame for new parameters
 new_parameters_df = pd.DataFrame(
@@ -313,7 +329,10 @@ new_parameters_df["yn"] = normal_depth_simple(
 )
 new_parameters_df["yc"] = critical_depth_simple(new_parameters_df["Q"], 0.3)
 new_parameters_df["subcritical"] = new_parameters_df["yn"] > new_parameters_df["yc"]
-new_parameters_df["R2L"] = new_parameters_df["H0"] < new_parameters_df["yc"]
+new_parameters_df["direction"] = new_parameters_df["H0"] > new_parameters_df["yc"]
+new_parameters_df["direction"] = new_parameters_df["direction"].apply(
+    lambda x: "Right to left" if x else "Left to right"
+)
 
 # Combine old and new parameters
 combined_parameters_df = pd.concat(
@@ -327,28 +346,23 @@ parameters_df = pd.read_csv("parameters.csv", index_col="id")
 
 # Generate steering files
 for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
-    geometry_file = (
-        f"geometry/geometry_3x3_{case['S_index']}.slf"
-        if case["R2L"]
-        else "geometry/geometry_3x3_0.slf"
-    )
     boundary_file = (
         "boundary/boundary_3x3_tor.cli"
-        if case["R2L"]
+        if case["direction"] == "Left to right"
         else "boundary/boundary_3x3_riv.cli"
     )
     prescribed_elevations = (
         (0.0, case["S"] * channel_length + case["H0"])
-        if case["R2L"]
+        if case["direction"] == "Left to right"
         else (case["H0"], 0.0)
     )
 
     steering_file_content = generate_steering_file(
-        geometry_file=geometry_file,
+        geometry_file=f"geometry/geometry_3x3_{case['BOTTOM']}_{case['S_index']}.slf",
         boundary_file=boundary_file,
         results_file=f"results/results_{index}.slf",
         title=f"Caso {index}",
-        duration=1200,
+        duration=120,
         time_step=0.02,
         initial_depth=case["H0"],
         prescribed_flowrates=(0.0, case["Q"]),
@@ -359,3 +373,35 @@ for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
     # Write the steering file content to a file
     with open(f"steering_{index}.cas", "w") as f:
         f.write(steering_file_content)
+
+# ## Geometry generation
+
+min_value = 0
+max_value = 0.03
+sigma = 1.5
+ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
+x = ds["x"].values
+y = ds["y"].values
+xg = np.linspace(0, channel_length, num_points_x)
+yg = np.linspace(0, channel_width, num_points_y)
+
+for i in tqdm(range(len(S_values))):
+    random_noise = np.random.rand(num_points_y, num_points_x)
+    scaled_random_noise = min_value + (random_noise * (max_value - min_value))
+    smoothed_random_noise = gaussian_filter(scaled_random_noise, sigma=sigma)
+    interpolator = RegularGridInterpolator(
+        (
+            yg,
+            xg,
+        ),
+        smoothed_random_noise,
+        bounds_error=False,
+        fill_value=None,
+    )
+    z_slope = S_values[i] * (channel_length - ds["x"].values)
+    z_noise = interpolator((y, x))
+    z = z_slope + z_noise
+    ds["B"].values = z_slope.reshape(1, ds.y.shape[0])
+    ds.selafin.write(f"geometry/geometry_3x3_{'FLAT'}_{i}.slf")
+    ds["B"].values = z.reshape(1, ds.y.shape[0])
+    ds.selafin.write(f"geometry/geometry_3x3_{'NOISE'}_{i}.slf")

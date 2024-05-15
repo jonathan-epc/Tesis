@@ -424,7 +424,7 @@ parameters = pd.read_csv("parameters.csv", index_col="id")
 def plot_ith(i):
     # List of points defining the polyline
     poly_points = [[0.0, 0.15], [12.0, 0.15]]
-    # List of number of discretized points for each polyline segment
+    # List the number of discretized points for each polyline segment
     poly_number = [1000]
     res1 = TelemacFile(f"results/results_{i}.slf")
     poly_coord1, abs_curv1, values_polylines1 = res1.get_timeseries_on_polyline(
@@ -432,7 +432,7 @@ def plot_ith(i):
     )
     res1.close()
 
-    # Determine yn and yc based on the ith row of parametros DataFrame
+    # Determine yn and yc based on the ith row of parameters DataFrame
     yn = parameters.loc[i, "yn"]
     yc = parameters.loc[i, "yc"]
 
@@ -458,8 +458,6 @@ def plot_ith(i):
     # plt.savefig(f"test_plot_{i}.png")
     plt.show()
 
-
-plot_ith(5)
 
 res0 = TelemacFile("results/results_0.slf")
 res1 = TelemacFile("results/results_1.slf")

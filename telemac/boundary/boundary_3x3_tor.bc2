@@ -6,9 +6,10 @@
 :Application              BlueKenue
 :Version                  3.3.4
 :WrittenBy                Jonathan
-:CreationDate             Thu, May 02, 2024 01:54 PM
+:CreationDate             Wed, May 15, 2024 12:03 PM
 #
 #------------------------------------------------------------------------
+#
 #
 :NodeCount 4411
 :ElementCount 8000
@@ -20,8 +21,8 @@
 #
 # id  code  sectionCount startNode1 endNode1 startNode2 endNode2 tracerCode name
 #
-:BoundarySegment 1  555  2 811 820 1 1  5  "inlet"
-:BoundarySegment 2  444  1 401 411 1 1  5  "outlet"
+:BoundarySegment 1  555  2 811 820 1 1  5  " inlet "
+:BoundarySegment 2  444  1 401 411 1 1  4  " outlet "
 
 #-----------------------------------------------------------------------
 #
@@ -12846,17 +12847,17 @@
 2 2 2  0 0 0 0  2  0 0 0  4408 398 1  
 2 2 2  0 0 0 0  2  0 0 0  4409 399 1  
 2 2 2  0 0 0 0  2  0 0 0  4410 400 1  
-4 4 4  0 0 0 0  5  0 0 0  4411 401 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  4010 402 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  3609 403 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  3208 404 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  2807 405 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  2406 406 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  2005 407 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  1604 408 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  1203 409 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  802 410 1  outlet
-4 4 4  0 0 0 0  5  0 0 0  401 411 1  outlet
+4 4 4  0 0 0 0  4  0 0 0  4411 401 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  4010 402 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  3609 403 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  3208 404 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  2807 405 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  2406 406 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  2005 407 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  1604 408 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  1203 409 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  802 410 1   outlet 
+4 4 4  0 0 0 0  4  0 0 0  401 411 1   outlet 
 2 2 2  0 0 0 0  2  0 0 0  400 412 1  
 2 2 2  0 0 0 0  2  0 0 0  399 413 1  
 2 2 2  0 0 0 0  2  0 0 0  398 414 1  

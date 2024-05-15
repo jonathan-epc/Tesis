@@ -6,9 +6,10 @@
 :Application              BlueKenue
 :Version                  3.3.4
 :WrittenBy                Jonathan
-:CreationDate             Thu, May 02, 2024 01:51 PM
+:CreationDate             Wed, May 15, 2024 02:08 PM
 #
 #------------------------------------------------------------------------
+#
 #
 :NodeCount 4411
 :ElementCount 8000
@@ -20,8 +21,8 @@
 #
 # id  code  sectionCount startNode1 endNode1 startNode2 endNode2 tracerCode name
 #
-:BoundarySegment 1  455  2 811 820 1 1  5  "inlet"
-:BoundarySegment 2  544  1 401 411 1 1  5  "outlet"
+:BoundarySegment 1  455  2 811 820 1 1  5  " inlet "
+:BoundarySegment 2  544  1 401 411 1 1  5  " outlet "
 
 #-----------------------------------------------------------------------
 #
