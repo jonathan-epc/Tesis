@@ -12,5 +12,8 @@
 *.tar.gz
 *.log
 *.pyc
+*.psd
+*.indd
 *steering*/
+*checkpoint*
 *sync-conflict*
