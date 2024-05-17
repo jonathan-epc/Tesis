@@ -1,52 +1,39 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:nomarker
-#     text_representation:
-#       extension: .py
-#       format_name: nomarker
-#       format_version: '1.0'
-#       jupytext_version: 1.16.1
-#   kernelspec:
-#     display_name: Python 3 (ipykernel)
-#     language: python
-#     name: python3
-# ---
-
 # ## Results reading
 
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
+from matplotlib.colors import cm
+import numpy as np
 import pandas as pd
+import xarray as xr
 from data_manip.extraction.telemac_file import TelemacFile
-from IPython.display import display, clear_output
+from IPython.display import clear_output, display
+from scipy.interpolate import griddata
 
 
 def show_video(i):
     telemac_file = TelemacFile(f"results/results_{i}.slf")
-    poly_coord, abs_curv, values_polylines = (
-        telemac_file.get_timeseries_on_polyline(
-            "WATER DEPTH", poly_points, poly_number
-        )
+    poly_coord, abs_curv, values_polylines = telemac_file.get_timeseries_on_polyline(
+        "WATER DEPTH", poly_points, poly_number
     )
     telemac_file.close()
     x_length, y_length = values_polylines.shape
     fig, ax = plt.subplots()
-    line, = ax.plot([], [])
+    (line,) = ax.plot([], [])
     display(fig)
-    
-    x_data = np.linspace(0,12,x_length)
-    y_data = values_polylines[:,0]
-    
-    
+
+    x_data = np.linspace(0, 12, x_length)
+    y_data = values_polylines[:, 0]
+
     # Your data-generating loop
     for frame in range(y_length):
-        y_data = values_polylines[:,frame]
+        y_data = values_polylines[:, frame]
         line.set_data(x_data, y_data)
-        ax.relim() 
-        ax.autoscale_view(True,True,True)
+        ax.relim()
+        ax.autoscale_view(True, True, True)
         clear_output(wait=True)
         display(fig)
-    
+
     plt.close()
 
 
@@ -90,12 +77,10 @@ def plot_results(indices, parameters_df):
     for i in indices:
         # Read Telemac file
         telemac_file = TelemacFile(f"results/results_{i}.slf")
-        _, _, values_polylines = (
-            telemac_file.get_timeseries_on_polyline(
-                "FROUDE NUMBER", poly_points, poly_number
-            )
+        _, _, values_polylines = telemac_file.get_timeseries_on_polyline(
+            "FROUDE NUMBER", poly_points, poly_number
         )
-        froude_number = values_polylines.mean()                
+        froude_number = values_polylines.mean()
         poly_coord, abs_curv, values_polylines = (
             telemac_file.get_timeseries_on_polyline(
                 "WATER DEPTH", poly_points, poly_number
@@ -112,40 +97,39 @@ def plot_results(indices, parameters_df):
             y=yn,
             linestyle="--",
             color="tab:green",
-            linewidth= 0.75,
+            linewidth=0.75,
             label=f"Case {i}: $y_{{normal}} = {yn:.3f}$ / m",
         )
         ax.axhline(
             y=yc,
             linestyle="--",
             color="tab:red",
-            linewidth= 0.75,
+            linewidth=0.75,
             label=f"Case {i}: $y_{{critical}} = {yc:.3f}$ / m",
         )
         ax.plot(
             abs_curv[:],
             values_polylines[:, -1],
             color="tab:blue",
-            linewidth= 1,
+            linewidth=1,
             label=f"Case {i}: $h_{{outlet}}=0.02$ / m",
         )
         # Plot triangles based on conditions
-        if froude_number < 1:
+        if froude_number > 1:
             x_triangle = 12
         else:
             x_triangle = 0
         y_triangle = parameters_df.loc[i, "H0"]
-        
+
         ax.scatter(
             [x_triangle],  # x coordinates
             [y_triangle],  # y coordinates
             marker=7,  # triangle marker
-            color='tab:blue',  # color of the marker
+            color="tab:blue",  # color of the marker
             zorder=5,  # make sure it's on top of other elements
         )
-
-#    ax.set_xlim(0,12)
-#    ax.set_ylim(0,0.3)
+    #    ax.set_xlim(0,12)
+    #    ax.set_ylim(0,0.3)
     ax.set_xlabel("x / m")
     ax.set_ylabel("Water depth / m")
     ax.set_title("Results Comparison")
@@ -154,8 +138,45 @@ def plot_results(indices, parameters_df):
     ax.minorticks_on()
     plt.show()
 
-
 # Main entry point
 if __name__ == "__main__":
     parameters_df = read_parameters("parameters.csv")
-    plot_results([11], parameters_df)
+
+telemac_file = TelemacFile(f"results/results_{i}.slf")
+_, _, values_polylines = telemac_file.get_timeseries_on_polyline(
+    "FROUDE NUMBER", poly_points, poly_number
+)
+
+
+def plot_results_2d(i):
+    num_points_y = 11
+    num_points_x = 401
+    ds = xr.open_dataset(f"results/results_{i}.slf", engine="selafin")
+    x = ds["x"].values
+    y = ds["y"].values
+    u = ds["U"][-1].values
+    v = ds["V"][-1].values
+    b = ds["B"][-1].values
+    # xi = np.linspace(0, 12, num_points_x)
+    # yi = np.linspace(0, 0.3, num_points_y)
+    # ui = griddata((x, y), u, (xi[None, :], yi[:, None]), method="linear")
+    # vi = griddata((x, y), v, (xi[None, :], yi[:, None]), method="linear")
+    fig, ax = plt.subplots(figsize = (15, 3), dpi=200)
+    # cntr = ax.tricontourf(x, y, v, levels=128, cmap='viridis')
+    cntr = ax.tricontourf(x, y, b, levels=128, cmap='cividis')
+    fig.colorbar(cntr, anchor = (-0.3, 0.5), label = 'Elevación / m')
+    # fig.colorbar(cntr, anchor = (-0.3, 0.5), label = 'Velocidad en y / (m/s)')
+    # ax.tricontour(x, y, v, levels=4, linewidths=0.5, colors = 'k')
+    ax.tricontour(x, y, b, levels=32, linewidths=0.5, colors = 'k')
+    # ax.streamplot(xi, yi, ui, vi, density=0.4, color='white', linewidth=0.75, broken_streamlines=False)
+    ax.set(xlim=(0, 12), ylim=(0, 0.3))
+    ax.set_xlabel("x / m")
+    ax.set_ylabel("y / m")
+    plt.tight_layout()
+    plt.savefig("img/figb.png")
+    plt.show()    
+
+
+plot_results_2d(11)
+
+plot_results([0, 1, 2, 3, 4, 5], parameters_df)
