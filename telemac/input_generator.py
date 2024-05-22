@@ -8,6 +8,7 @@ import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 from scipy.ndimage import gaussian_filter
 from scipy.optimize import fsolve
+from scipy.stats import qmc
 from tqdm.autonotebook import tqdm
 
 
@@ -170,6 +171,27 @@ def generate_steering_file(
     prescribed_elevations,
     friction_coefficient,
 ):
+    """
+    Generates a TELEMAC-2D steering file with user-provided parameters.
+
+    Args:
+        geometry_file (str): Path to the geometry file.
+        boundary_file (str): Path to the boundary conditions file.
+        results_file (str): Path to the results file.
+        title (str): Title for the simulation.
+        duration (float): Simulation duration in seconds.
+        time_step (float): Time step for the simulation in seconds.
+        initial_depth (float): Initial water depth for the simulation.
+        prescribed_flowrates (list, optional): List of prescribed flow rates
+            at boundaries (default: None).
+        prescribed_elevations (list, optional): List of prescribed water
+            elevations at boundaries (default: None).
+        friction_coefficient (float, optional): Bottom friction coefficient
+            (default: 0.0025).
+
+    Returns:
+        str: The complete steering file content as a string.
+    """
     steering_text = f"""/-------------------------------------------------------------------/
 /                        TELEMAC-2D                                 /
 /-------------------------------------------------------------------/
@@ -245,6 +267,144 @@ SCHEME FOR ADVECTION OF K-EPSILON : 4"""
     return steering_text
 
 
+def all_combinations(n,
+    S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values
+):
+    """
+    Generates a DataFrame with all combinations of parameters within given ranges.
+
+    Parameters:
+    n (int): Number of linearly spaced values for each parameter.
+    S_min (float): Minimum value for S.
+    S_max (float): Maximum value for S.
+    n_min (float): Minimum value for n.
+    n_max (float): Maximum value for n.
+    Q_min (float): Minimum value for Q.
+    Q_max (float): Maximum value for Q.
+    H0_min (float): Minimum value for H0.
+    H0_max (float): Maximum value for H0.
+    BOTTOM_values (List[float]): List of specific BOTTOM values.
+
+    Returns:
+    pd.DataFrame: DataFrame containing all combinations of the parameters.
+    """
+    # Arrays for each column
+    S_values = np.linspace(S_min, S_max, n)
+    S_indices = range(len(S_values))
+    n_values = np.linspace(n_min, n_max, n)
+    Q_values = np.linspace(Q_min, Q_max, n)
+    H0_values = np.linspace(H0_min, H0_max, n)
+    
+    combinations = [
+        [S_i, n, Q, H0, BOTTOM]
+        for (S_i, n, Q, H0, BOTTOM) in product(
+            S_indices, n_values, Q_values, H0_values, BOTTOM_values
+        )
+    ]
+    column_names = ["S_index", "n", "Q", "H0", "BOTTOM"]
+    df = pd.DataFrame(
+        combinations,
+        columns=column_names,
+    )
+    return df
+
+
+def sample_combinations(n, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values):
+    """
+    Generate a DataFrame of sample combinations using Latin Hypercube Sampling (LHS).
+
+    Parameters:
+    - n (int): Number of samples to generate.
+    - S_min (float): Minimum value for S.
+    - S_max (float): Maximum value for S.
+    - n_min (float): Minimum value for n.
+    - n_max (float): Maximum value for n.
+    - Q_min (float): Minimum value for Q.
+    - Q_max (float): Maximum value for Q.
+    - H0_min (float): Minimum value for H0.
+    - H0_max (float): Maximum value for H0.
+    - BOTTOM_values (list): List of values for BOTTOM to be combined with each sample.
+
+    Returns:
+    - pd.DataFrame: DataFrame containing the sample combinations with columns ["S", "n", "Q", "H0", "BOTTOM"].
+    """
+    # Initialize Latin Hypercube sampler
+    sampler = qmc.LatinHypercube(d=4, strength=2)
+    sample = sampler.random(n=n)
+    
+    # Define lower and upper bounds
+    lower_bounds = [S_min, n_min, Q_min, H0_min]
+    upper_bounds = [S_max, n_max, Q_max, H0_max]
+    
+    # Scale the samples to the defined bounds
+    sample_scaled = qmc.scale(sample, lower_bounds, upper_bounds)
+    
+    # Generate combinations
+    combinations = []
+    for combination in sample_scaled:
+        for bottom in BOTTOM_values:
+            combinations.append(combination.tolist() + [bottom])
+    
+    # Create DataFrame
+    column_names = ["S", "n", "Q", "H0", "BOTTOM"]
+    df = pd.DataFrame(combinations, columns=column_names)
+    
+    return df
+
+
+def generate_geometry(idx, S, ds, x, y, xg, yg, num_points_x, num_points_y, channel_length):
+    """
+    Generate geometry with random noise and save it to a file.
+
+    Parameters:
+    - idx (int): Index to identify the geometry file.
+    - S (float): Slope value for the geometry.
+    - ds (xarray.Dataset): Dataset containing the geometry data.
+    - x (array-like): X-coordinates for interpolation.
+    - y (array-like): Y-coordinates for interpolation.
+    - xg (array-like): Grid X-coordinates for the random noise.
+    - yg (array-like): Grid Y-coordinates for the random noise.
+    - num_points_x (int): Number of points in the X direction for the random noise grid.
+    - num_points_y (int): Number of points in the Y direction for the random noise grid.
+    - channel_length (float): Length of the channel.
+
+    Returns:
+    - None: The function saves the generated geometry to a file and does not return a value.
+    """
+    # Define parameters for the random noise
+    min_value = 0
+    max_value = 0.03
+    sigma = 1.5
+    
+    # Generate random noise and scale it
+    random_noise = np.random.rand(num_points_y, num_points_x)
+    scaled_random_noise = min_value + (random_noise * (max_value - min_value))
+    
+    # Smooth the random noise using a Gaussian filter
+    smoothed_random_noise = gaussian_filter(scaled_random_noise, sigma=sigma)
+    
+    # Create an interpolator for the smoothed noise
+    interpolator = RegularGridInterpolator(
+        (yg, xg),
+        smoothed_random_noise,
+        bounds_error=False,
+        fill_value=None,
+    )
+    
+    # Compute the slope and noise values for the Z dimension
+    z_slope = S * (channel_length - ds["x"].values)
+    z_noise = interpolator((y, x))
+    
+    # Combine slope and noise to get the final Z values
+    z = z_slope + z_noise
+    
+    # Update the dataset with the new Z values
+    ds["B"].values = z.reshape(1, ds.y.shape[0])
+    
+    # Save the dataset to a file
+    ds.selafin.write(f"geometry/geometry_3x3_NOISE_{idx}.slf")
+
+
 # Define dimensions
 channel_width = 0.3  # in m
 channel_length = 12  # in m
@@ -261,35 +421,30 @@ num_points_x = 401
 
 # ## Steering file generation
 
-# Arrays for each column
-S_values = np.linspace(1e-3, 50e-3, 5)
-S_indices = range(len(S_values))
-n_values = np.linspace(5e-3, 5e-1, 5)
-Q_values = np.linspace(0.001, 0.040, 5)
-H0_values = np.linspace(0.01, 0.30, 5)
-BOTTOM_values = ["FLAT", "NOISE"]
+S_min, S_max = 3e-6, 1e-1
+n_min, n_max = 1e-3, 2e-1
+Q_min, Q_max = 5e-3, 2e-2
+H0_min, H0_max = 1e-2, 3e-2
+
+BOTTOM_values = ["NOISE"]
 
 # Load old parameters from CSV if it exists
 try:
     old_parameters_df = pd.read_csv("parameters.csv")
-    max_id = old_parameters_df["id"].max() + 1
 except FileNotFoundError:
     old_parameters_df = pd.DataFrame(
         columns=[
-            "id",
-            "S_index",
+            "S",
             "n",
             "Q",
             "H0",
             "BOTTOM",
-            "S",
             "yn",
             "yc",
             "subcritical",
             "direction",
         ]
     )
-    max_id = 0
 
 testing = False
 
@@ -309,21 +464,15 @@ if testing:
         (10, 4, 0.035, 2e-2, 0.07, "NOISE"),
         (11, 4, 0.035, 2e-2, 0.05, "NOISE"),
     ]
+    column_names = ["S", "n", "Q", "H0", "BOTTOM"]
+    new_parameters_df = pd.DataFrame(
+            combinations,
+            columns=column_names,
+    )
 else:
-    new_parameter_combinations = [
-        (max_id + index, S_i, n, Q, H0, BOTTOM)
-        for index, (S_i, n, Q, H0, BOTTOM) in enumerate(
-            product(range(len(S_values)), n_values, Q_values, H0_values, BOTTOM_values)
-        )
-    ]
-
-# Create DataFrame for new parameters
-new_parameters_df = pd.DataFrame(
-    new_parameter_combinations, columns=["id", "S_index", "n", "Q", "H0", "BOTTOM"]
-)
+    new_parameters_df = sample_combinations(5**2, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values)
 
 # Calculate additional parameters for new entries
-new_parameters_df["S"] = S_values[new_parameters_df["S_index"]]
 new_parameters_df["yn"] = normal_depth_simple(
     new_parameters_df["Q"], 0.3, new_parameters_df["S"], new_parameters_df["n"]
 )
@@ -335,14 +484,18 @@ new_parameters_df["direction"] = new_parameters_df["direction"].apply(
 )
 
 # Combine old and new parameters
-combined_parameters_df = pd.concat(
-    [old_parameters_df, new_parameters_df], ignore_index=True
-)
+combined_parameters_df = pd.concat([old_parameters_df,new_parameters_df], ignore_index=True)
 
 # Write to CSV
-combined_parameters_df.to_csv("parameters.csv", index=False)
+combined_parameters_df.to_csv("parameters.csv", index=True, index_label = "id")
 
 parameters_df = pd.read_csv("parameters.csv", index_col="id")
+
+ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
+x = ds["x"].values
+y = ds["y"].values
+xg = np.linspace(0, channel_length, num_points_x)
+yg = np.linspace(0, channel_width, num_points_y)
 
 # Generate steering files
 for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
@@ -356,9 +509,9 @@ for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
         if case["direction"] == "Left to right"
         else (case["H0"], 0.0)
     )
-
+    generate_geometry(index, case["S"], ds, x, y, xg, yg, num_points_x, num_points_y, channel_length)
     steering_file_content = generate_steering_file(
-        geometry_file=f"geometry/geometry_3x3_{case['BOTTOM']}_{case['S_index']}.slf",
+        geometry_file=f"geometry/geometry_3x3_{case['BOTTOM']}_{index}.slf",
         boundary_file=boundary_file,
         results_file=f"results/results_{index}.slf",
         title=f"Caso {index}",
@@ -373,35 +526,3 @@ for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
     # Write the steering file content to a file
     with open(f"steering_{index}.cas", "w") as f:
         f.write(steering_file_content)
-
-# ## Geometry generation
-
-min_value = 0
-max_value = 0.03
-sigma = 1.5
-ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
-x = ds["x"].values
-y = ds["y"].values
-xg = np.linspace(0, channel_length, num_points_x)
-yg = np.linspace(0, channel_width, num_points_y)
-
-for i in tqdm(range(len(S_values))):
-    random_noise = np.random.rand(num_points_y, num_points_x)
-    scaled_random_noise = min_value + (random_noise * (max_value - min_value))
-    smoothed_random_noise = gaussian_filter(scaled_random_noise, sigma=sigma)
-    interpolator = RegularGridInterpolator(
-        (
-            yg,
-            xg,
-        ),
-        smoothed_random_noise,
-        bounds_error=False,
-        fill_value=None,
-    )
-    z_slope = S_values[i] * (channel_length - ds["x"].values)
-    z_noise = interpolator((y, x))
-    z = z_slope + z_noise
-    ds["B"].values = z_slope.reshape(1, ds.y.shape[0])
-    ds.selafin.write(f"geometry/geometry_3x3_{'FLAT'}_{i}.slf")
-    ds["B"].values = z.reshape(1, ds.y.shape[0])
-    ds.selafin.write(f"geometry/geometry_3x3_{'NOISE'}_{i}.slf")
