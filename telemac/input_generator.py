@@ -329,8 +329,8 @@ def sample_combinations(n, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_
     - pd.DataFrame: DataFrame containing the sample combinations with columns ["S", "n", "Q", "H0", "BOTTOM"].
     """
     # Initialize Latin Hypercube sampler
-    sampler = qmc.LatinHypercube(d=4, strength=2)
-    sample = sampler.random(n=n)
+    sampler = qmc.LatinHypercube(d=4, strength=2, seed=1618)
+    sample = sampler.random(n=n, )
     
     # Define lower and upper bounds
     lower_bounds = [S_min, n_min, Q_min, H0_min]
@@ -373,8 +373,8 @@ def generate_geometry(idx, S, ds, x, y, xg, yg, num_points_x, num_points_y, chan
     """
     # Define parameters for the random noise
     min_value = 0
-    max_value = 0.03
-    sigma = 1.5
+    max_value = 0.15
+    sigma = 0.95
     
     # Generate random noise and scale it
     random_noise = np.random.rand(num_points_y, num_points_x)
@@ -397,19 +397,21 @@ def generate_geometry(idx, S, ds, x, y, xg, yg, num_points_x, num_points_y, chan
     
     # Combine slope and noise to get the final Z values
     z = z_slope + z_noise
-    
+    z_right = z[num_points_x-1::num_points_x].max()
+    z_left = z[0::num_points_x].max()
     # Update the dataset with the new Z values
     ds["B"].values = z.reshape(1, ds.y.shape[0])
     
     # Save the dataset to a file
     ds.selafin.write(f"geometry/geometry_3x3_NOISE_{idx}.slf")
+    return z_left, z_right
 
 
 # Define dimensions
 channel_width = 0.3  # in m
 channel_length = 12  # in m
 channel_depth = 0.3  # in m
-slope = 5 / 100  # 1% slope
+slope = 5 / 100  
 wall_thickness = 0.00  # in m
 flat_zone = 0
 # Adjusting channel dimensions for walls
@@ -470,7 +472,7 @@ if testing:
             columns=column_names,
     )
 else:
-    new_parameters_df = sample_combinations(5**2, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values)
+    new_parameters_df = sample_combinations(79**2, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values)
 
 # Calculate additional parameters for new entries
 new_parameters_df["yn"] = normal_depth_simple(
@@ -499,17 +501,17 @@ yg = np.linspace(0, channel_width, num_points_y)
 
 # Generate steering files
 for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
+    z_left, z_right = generate_geometry(index, case["S"], ds, x, y, xg, yg, num_points_x, num_points_y, channel_length)
     boundary_file = (
         "boundary/boundary_3x3_tor.cli"
         if case["direction"] == "Left to right"
         else "boundary/boundary_3x3_riv.cli"
     )
     prescribed_elevations = (
-        (0.0, case["S"] * channel_length + case["H0"])
+        (0.0, z_left + case["H0"])
         if case["direction"] == "Left to right"
-        else (case["H0"], 0.0)
+        else (z_right + case["H0"], 0.0)
     )
-    generate_geometry(index, case["S"], ds, x, y, xg, yg, num_points_x, num_points_y, channel_length)
     steering_file_content = generate_steering_file(
         geometry_file=f"geometry/geometry_3x3_{case['BOTTOM']}_{index}.slf",
         boundary_file=boundary_file,

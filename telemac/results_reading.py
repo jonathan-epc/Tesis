@@ -2,7 +2,6 @@
 
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
-from matplotlib.colors import cm
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -142,11 +141,6 @@ def plot_results(indices, parameters_df):
 if __name__ == "__main__":
     parameters_df = read_parameters("parameters.csv")
 
-telemac_file = TelemacFile(f"results/results_{i}.slf")
-_, _, values_polylines = telemac_file.get_timeseries_on_polyline(
-    "FROUDE NUMBER", poly_points, poly_number
-)
-
 
 def plot_results_2d(i):
     num_points_y = 11
@@ -179,4 +173,4 @@ def plot_results_2d(i):
 
 plot_results_2d(11)
 
-plot_results([0, 1, 2, 3, 4, 5], parameters_df)
+plot_results([100], parameters_df)
