@@ -16,6 +16,7 @@
 *.indd
 *.svg
 *.idlk
+*.hdf5
 *steering*/
 *checkpoint*
 *sync-conflict*
