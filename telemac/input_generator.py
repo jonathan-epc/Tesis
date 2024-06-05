@@ -472,7 +472,7 @@ if testing:
             columns=column_names,
     )
 else:
-    new_parameters_df = sample_combinations(79**2, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values)
+    new_parameters_df = sample_combinations(5**2, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values)
 
 # Calculate additional parameters for new entries
 new_parameters_df["yn"] = normal_depth_simple(
