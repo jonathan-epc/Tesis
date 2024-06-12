@@ -268,19 +268,19 @@ SCHEME FOR ADVECTION OF K-EPSILON : 4"""
 
 
 def all_combinations(n,
-    S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values
+    SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max, BOTTOM_values
 ):
     """
     Generates a DataFrame with all combinations of parameters within given ranges.
 
     Parameters:
     n (int): Number of linearly spaced values for each parameter.
-    S_min (float): Minimum value for S.
-    S_max (float): Maximum value for S.
+    SLOPE_min (float): Minimum value for S.
+    SLOPE_max (float): Maximum value for S.
     n_min (float): Minimum value for n.
     n_max (float): Maximum value for n.
-    Q_min (float): Minimum value for Q.
-    Q_max (float): Maximum value for Q.
+    Q0_min (float): Minimum value for Q.
+    Q0_max (float): Maximum value for Q.
     H0_min (float): Minimum value for H0.
     H0_max (float): Maximum value for H0.
     BOTTOM_values (List[float]): List of specific BOTTOM values.
@@ -289,19 +289,19 @@ def all_combinations(n,
     pd.DataFrame: DataFrame containing all combinations of the parameters.
     """
     # Arrays for each column
-    S_values = np.linspace(S_min, S_max, n)
-    S_indices = range(len(S_values))
+    SLOPE_values = np.linspace(SLOPE_min, SLOPE_max, n)
+    SLOPE_indices = range(len(SLOPE_values))
     n_values = np.linspace(n_min, n_max, n)
-    Q_values = np.linspace(Q_min, Q_max, n)
+    Q0_values = np.linspace(Q0_min, Q0_max, n)
     H0_values = np.linspace(H0_min, H0_max, n)
     
     combinations = [
-        [S_i, n, Q, H0, BOTTOM]
-        for (S_i, n, Q, H0, BOTTOM) in product(
-            S_indices, n_values, Q_values, H0_values, BOTTOM_values
+        [SLOPE_i, n, Q0, H0, BOTTOM]
+        for (SLOPE_i, n, Q0, H0, BOTTOM) in product(
+            SLOPE_indices, n_values, Q0_values, H0_values, BOTTOM_values
         )
     ]
-    column_names = ["S_index", "n", "Q", "H0", "BOTTOM"]
+    column_names = ["SLOPE_index", "n", "Q0", "H0", "BOTTOM"]
     df = pd.DataFrame(
         combinations,
         columns=column_names,
@@ -309,32 +309,32 @@ def all_combinations(n,
     return df
 
 
-def sample_combinations(n, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values):
+def sample_combinations(n, SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max, BOTTOM_values):
     """
     Generate a DataFrame of sample combinations using Latin Hypercube Sampling (LHS).
 
     Parameters:
     - n (int): Number of samples to generate.
-    - S_min (float): Minimum value for S.
-    - S_max (float): Maximum value for S.
+    - SLOPE_min (float): Minimum value for S.
+    - SLOPE_max (float): Maximum value for S.
     - n_min (float): Minimum value for n.
     - n_max (float): Maximum value for n.
-    - Q_min (float): Minimum value for Q.
-    - Q_max (float): Maximum value for Q.
+    - Q0_min (float): Minimum value for Q.
+    - Q0_max (float): Maximum value for Q.
     - H0_min (float): Minimum value for H0.
     - H0_max (float): Maximum value for H0.
     - BOTTOM_values (list): List of values for BOTTOM to be combined with each sample.
 
     Returns:
-    - pd.DataFrame: DataFrame containing the sample combinations with columns ["S", "n", "Q", "H0", "BOTTOM"].
+    - pd.DataFrame: DataFrame containing the sample combinations with columns ["SLOPE", "n", "Q0", "H0", "BOTTOM"].
     """
     # Initialize Latin Hypercube sampler
     sampler = qmc.LatinHypercube(d=4, strength=2, seed=1618)
     sample = sampler.random(n=n, )
     
     # Define lower and upper bounds
-    lower_bounds = [S_min, n_min, Q_min, H0_min]
-    upper_bounds = [S_max, n_max, Q_max, H0_max]
+    lower_bounds = [SLOPE_min, n_min, Q0_min, H0_min]
+    upper_bounds = [SLOPE_max, n_max, Q0_max, H0_max]
     
     # Scale the samples to the defined bounds
     sample_scaled = qmc.scale(sample, lower_bounds, upper_bounds)
@@ -346,19 +346,19 @@ def sample_combinations(n, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_
             combinations.append(combination.tolist() + [bottom])
     
     # Create DataFrame
-    column_names = ["S", "n", "Q", "H0", "BOTTOM"]
+    column_names = ["SLOPE", "n", "Q0", "H0", "BOTTOM"]
     df = pd.DataFrame(combinations, columns=column_names)
     
     return df
 
 
-def generate_geometry(idx, S, ds, x, y, xg, yg, num_points_x, num_points_y, channel_length):
+def generate_geometry(idx, SLOPE, ds, x, y, xg, yg, num_points_x, num_points_y, channel_length):
     """
     Generate geometry with random noise and save it to a file.
 
     Parameters:
     - idx (int): Index to identify the geometry file.
-    - S (float): Slope value for the geometry.
+    - SLOPE (float): Slope value for the geometry.
     - ds (xarray.Dataset): Dataset containing the geometry data.
     - x (array-like): X-coordinates for interpolation.
     - y (array-like): Y-coordinates for interpolation.
@@ -392,7 +392,7 @@ def generate_geometry(idx, S, ds, x, y, xg, yg, num_points_x, num_points_y, chan
     )
     
     # Compute the slope and noise values for the Z dimension
-    z_slope = S * (channel_length - ds["x"].values)
+    z_slope = SLOPE * (channel_length - ds["x"].values)
     z_noise = interpolator((y, x))
     
     # Combine slope and noise to get the final Z values
@@ -423,9 +423,9 @@ num_points_x = 401
 
 # ## Steering file generation
 
-S_min, S_max = 3e-6, 1e-1
+SLOPE_min, SLOPE_max = 3e-6, 1e-1
 n_min, n_max = 1e-3, 2e-1
-Q_min, Q_max = 5e-3, 2e-2
+Q0_min, Q0_max = 5e-3, 2e-2
 H0_min, H0_max = 1e-2, 3e-2
 
 BOTTOM_values = ["NOISE"]
@@ -436,9 +436,9 @@ try:
 except FileNotFoundError:
     old_parameters_df = pd.DataFrame(
         columns=[
-            "S",
+            "SLOPE",
             "n",
-            "Q",
+            "Q0",
             "H0",
             "BOTTOM",
             "yn",
@@ -466,19 +466,19 @@ if testing:
         (10, 4, 0.035, 2e-2, 0.07, "NOISE"),
         (11, 4, 0.035, 2e-2, 0.05, "NOISE"),
     ]
-    column_names = ["S", "n", "Q", "H0", "BOTTOM"]
+    column_names = ["SLOPE", "n", "Q0", "H0", "BOTTOM"]
     new_parameters_df = pd.DataFrame(
             combinations,
             columns=column_names,
     )
 else:
-    new_parameters_df = sample_combinations(5**2, S_min, S_max, n_min, n_max, Q_min, Q_max, H0_min, H0_max, BOTTOM_values)
+    new_parameters_df = sample_combinations(5**2, SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max, BOTTOM_values)
 
 # Calculate additional parameters for new entries
 new_parameters_df["yn"] = normal_depth_simple(
-    new_parameters_df["Q"], 0.3, new_parameters_df["S"], new_parameters_df["n"]
+    new_parameters_df["Q0"], 0.3, new_parameters_df["SLOPE"], new_parameters_df["n"]
 )
-new_parameters_df["yc"] = critical_depth_simple(new_parameters_df["Q"], 0.3)
+new_parameters_df["yc"] = critical_depth_simple(new_parameters_df["Q0"], 0.3)
 new_parameters_df["subcritical"] = new_parameters_df["yn"] > new_parameters_df["yc"]
 new_parameters_df["direction"] = new_parameters_df["H0"] > new_parameters_df["yc"]
 new_parameters_df["direction"] = new_parameters_df["direction"].apply(
@@ -501,7 +501,7 @@ yg = np.linspace(0, channel_width, num_points_y)
 
 # Generate steering files
 for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
-    z_left, z_right = generate_geometry(index, case["S"], ds, x, y, xg, yg, num_points_x, num_points_y, channel_length)
+    z_left, z_right = generate_geometry(index, case["SLOPE"], ds, x, y, xg, yg, num_points_x, num_points_y, channel_length)
     boundary_file = (
         "boundary/boundary_3x3_tor.cli"
         if case["direction"] == "Left to right"
@@ -520,7 +520,7 @@ for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
         duration=120,
         time_step=0.02,
         initial_depth=case["H0"],
-        prescribed_flowrates=(0.0, case["Q"]),
+        prescribed_flowrates=(0.0, case["Q0"]),
         prescribed_elevations=prescribed_elevations,
         friction_coefficient=case["n"],
     )

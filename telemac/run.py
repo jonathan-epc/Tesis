@@ -64,8 +64,8 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
             filename = f"steering_{i}.cas"
             case_parameters = parameters.loc[i]
             tqdm_desc = (
-                f"Case {i}: S={case_parameters['S']} | "
-                f"n={case_parameters['n']:.4f} | Q={case_parameters['Q']:.4f} | "
+                f"Case {i}: S={case_parameters['SLOPE']} | "
+                f"n={case_parameters['n']:.4f} | Q={case_parameters['Q0']:.4f} | "
                 f"H0={case_parameters['H0']:.4f} | "
                 f"{'subcritical' if case_parameters['subcritical'] else 'supercritical'} | "
                 f"B: {case_parameters['BOTTOM']}"
