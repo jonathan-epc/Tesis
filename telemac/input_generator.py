@@ -5,6 +5,8 @@ from itertools import product
 import numpy as np
 import pandas as pd
 import xarray as xr
+import yaml
+from loguru import logger
 from scipy.interpolate import RegularGridInterpolator
 from scipy.ndimage import gaussian_filter
 from scipy.optimize import fsolve
@@ -22,7 +24,7 @@ def manning_equation(depth, flow_rate, bottom_width, slope, roughness_coefficien
         depth (float): Depth of flow (meters).
         flow_rate (float): Flow rate (cubic meters per second).
         bottom_width (float): Bottom width of the channel (meters).
-        slope (float): Slope of the channel.
+        slope (float): Slope of the channel bed.
         roughness_coefficient (float): Manning's roughness coefficient.
 
     Returns:
@@ -97,6 +99,18 @@ def critical_depth(flow_rate, bottom_width):
 
 
 def critical_slope(flow_rate, bottom_width, roughness_coefficient):
+    """
+    Calculate the critical slope of flow using numerical methods.
+
+    Parameters:
+        flow_rate (float): Flow rate (cubic meters per second).
+        bottom_width (float): Bottom width of the channel (meters).
+        roughness_coefficient (float): Manning's roughness coefficient.
+
+    Returns:
+        float: Critical slope of flow.
+    """
+
     def eq(slope, flow_rate_bottom_width, roughness_coefficient):
         return normal_depth(
             flow_rate, bottom_width, slope, roughness_coefficient
@@ -167,9 +181,9 @@ def generate_steering_file(
     duration,
     time_step,
     initial_depth,
-    prescribed_flowrates,
-    prescribed_elevations,
-    friction_coefficient,
+    prescribed_flowrates=None,
+    prescribed_elevations=None,
+    friction_coefficient=0.0025,
 ):
     """
     Generates a TELEMAC-2D steering file with user-provided parameters.
@@ -192,124 +206,45 @@ def generate_steering_file(
     Returns:
         str: The complete steering file content as a string.
     """
-    steering_text = f"""/-------------------------------------------------------------------/
-/                        TELEMAC-2D                                 /
-/-------------------------------------------------------------------/
-/
-/----------------------------------------------
-/  COMPUTER INFORMATIONS
-/----------------------------------------------
-/
-GEOMETRY FILE                   = '{geometry_file}'
-BOUNDARY CONDITIONS FILE        = '{boundary_file}'
-RESULTS FILE                    = '{results_file}'
-/
-/----------------------------------------------
-/  GENERAL INFORMATIONS - OUTPUTS
-/----------------------------------------------
-/
-TITLE = '{title}'
-/
-VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,H,S,B,F,Q'
-NUMBER OF PRIVATE ARRAYS        = 6
-/
-GRAPHIC PRINTOUT PERIOD         = 100
-LISTING PRINTOUT PERIOD         = 100
-/
-DURATION                        = {duration}
-/TIME STEP                       = {time_step}
-VARIABLE TIME-STEP              = YES
-DESIRED COURANT NUMBER          = 0.8
-MASS-BALANCE                    = YES
-/STOP IF A STEADY STATE IS REACHED = YES
-/STOP CRITERIA                   = 1e-8; 1e-8; 1e-8
-/
-/----------------------------------------------
-/  INITIAL CONDITIONS
-/----------------------------------------------
-/
-INITIAL CONDITIONS               = 'CONSTANT DEPTH'
-INITIAL DEPTH                    = {initial_depth}
-/
-/----------------------------------------------
-/  BOUNDARY CONDITIONS
-/----------------------------------------------
-/
-PRESCRIBED FLOWRATES            =  {prescribed_flowrates[0]}  ;  {prescribed_flowrates[1]}
-PRESCRIBED ELEVATIONS           = {prescribed_elevations[0]} ; {prescribed_elevations[1]}
-/
-/----------------------------------------------
-/  PHYSICAL PARAMETERS
-/----------------------------------------------
-/
-LAW OF BOTTOM FRICTION          = 4
-FRICTION COEFFICIENT            = {friction_coefficient}
-TURBULENCE MODEL                = 1
-/
-/----------------------------------------------
-/  NUMERICAL PARAMETERS
-/----------------------------------------------
-/SCHEMES
-EQUATIONS                       = 'SAINT-VENANT FV'
-TREATMENT OF THE LINEAR SYSTEM  = 2
-/
-DISCRETIZATIONS IN SPACE        = 11 ; 11
-/
-SOLVER                          = 1
-SOLVER ACCURACY                 = 1.E-8
-/
-FREE SURFACE GRADIENT COMPATIBILITY = 0.9
+    if prescribed_flowrates is None:
+        prescribed_flowrates = [0.0, 0.0]
+    if prescribed_elevations is None:
+        prescribed_elevations = [0.0, 0.0]
 
-SCHEME FOR ADVECTION OF VELOCITIES : 1 
-SCHEME FOR ADVECTION OF TRACERS : 5
-SCHEME FOR ADVECTION OF K-EPSILON : 4"""
+    if len(prescribed_flowrates) < 2 or len(prescribed_elevations) < 2:
+        raise ValueError(
+            "prescribed_flowrates and prescribed_elevations must have at least two elements"
+        )
+
+    if duration < 0 or time_step < 0 or initial_depth < 0 or friction_coefficient < 0:
+        raise ValueError(
+            "duration, time_step, initial_depth, and friction_coefficient must be non-negative"
+        )
+
+    # Read the template text from the file
+    with open("steering_template.txt", "r") as f:
+        template_text = f.read()
+
+    # Use the template text to generate the steering file content
+    steering_text = template_text.format(
+        geometry_file=geometry_file,
+        boundary_file=boundary_file,
+        results_file=results_file,
+        title=title,
+        duration=duration,
+        time_step=time_step,
+        initial_depth=initial_depth,
+        prescribed_flowrates=prescribed_flowrates,
+        prescribed_elevations=prescribed_elevations,
+        friction_coefficient=friction_coefficient,
+    )
 
     return steering_text
 
 
-def all_combinations(n,
-    SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max, BOTTOM_values
+def sample_combinations(
+    n, SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max, BOTTOM_values
 ):
-    """
-    Generates a DataFrame with all combinations of parameters within given ranges.
-
-    Parameters:
-    n (int): Number of linearly spaced values for each parameter.
-    SLOPE_min (float): Minimum value for S.
-    SLOPE_max (float): Maximum value for S.
-    n_min (float): Minimum value for n.
-    n_max (float): Maximum value for n.
-    Q0_min (float): Minimum value for Q.
-    Q0_max (float): Maximum value for Q.
-    H0_min (float): Minimum value for H0.
-    H0_max (float): Maximum value for H0.
-    BOTTOM_values (List[float]): List of specific BOTTOM values.
-
-    Returns:
-    pd.DataFrame: DataFrame containing all combinations of the parameters.
-    """
-    # Arrays for each column
-    SLOPE_values = np.linspace(SLOPE_min, SLOPE_max, n)
-    SLOPE_indices = range(len(SLOPE_values))
-    n_values = np.linspace(n_min, n_max, n)
-    Q0_values = np.linspace(Q0_min, Q0_max, n)
-    H0_values = np.linspace(H0_min, H0_max, n)
-    
-    combinations = [
-        [SLOPE_i, n, Q0, H0, BOTTOM]
-        for (SLOPE_i, n, Q0, H0, BOTTOM) in product(
-            SLOPE_indices, n_values, Q0_values, H0_values, BOTTOM_values
-        )
-    ]
-    column_names = ["SLOPE_index", "n", "Q0", "H0", "BOTTOM"]
-    df = pd.DataFrame(
-        combinations,
-        columns=column_names,
-    )
-    return df
-
-
-def sample_combinations(n, SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max, BOTTOM_values):
     """
     Generate a DataFrame of sample combinations using Latin Hypercube Sampling (LHS).
 
@@ -330,40 +265,53 @@ def sample_combinations(n, SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H
     """
     # Initialize Latin Hypercube sampler
     sampler = qmc.LatinHypercube(d=4, strength=2, seed=1618)
-    sample = sampler.random(n=n, )
-    
+    sample = sampler.random(
+        n=n,
+    )
+
     # Define lower and upper bounds
     lower_bounds = [SLOPE_min, n_min, Q0_min, H0_min]
     upper_bounds = [SLOPE_max, n_max, Q0_max, H0_max]
-    
+
     # Scale the samples to the defined bounds
     sample_scaled = qmc.scale(sample, lower_bounds, upper_bounds)
-    
+
     # Generate combinations
     combinations = []
     for combination in sample_scaled:
         for bottom in BOTTOM_values:
             combinations.append(combination.tolist() + [bottom])
-    
+
     # Create DataFrame
     column_names = ["SLOPE", "n", "Q0", "H0", "BOTTOM"]
     df = pd.DataFrame(combinations, columns=column_names)
-    
+
     return df
 
 
-def generate_geometry(idx, SLOPE, ds, x, y, xg, yg, num_points_x, num_points_y, channel_length):
+def generate_geometry(
+    idx,
+    SLOPE,
+    flat_mesh,
+    x,
+    y,
+    noise_grid_x,
+    noise_grid_x,
+    num_points_x,
+    num_points_y,
+    channel_length,
+):
     """
     Generate geometry with random noise and save it to a file.
 
     Parameters:
     - idx (int): Index to identify the geometry file.
     - SLOPE (float): Slope value for the geometry.
-    - ds (xarray.Dataset): Dataset containing the geometry data.
+    - flat_mesh (xarray.Dataset): Dataset containing the geometry data.
     - x (array-like): X-coordinates for interpolation.
     - y (array-like): Y-coordinates for interpolation.
-    - xg (array-like): Grid X-coordinates for the random noise.
-    - yg (array-like): Grid Y-coordinates for the random noise.
+    - noise_grid_x (array-like): Grid X-coordinates for the random noise.
+    - noise_grid_x (array-like): Grid Y-coordinates for the random noise.
     - num_points_x (int): Number of points in the X direction for the random noise grid.
     - num_points_y (int): Number of points in the Y direction for the random noise grid.
     - channel_length (float): Length of the channel.
@@ -375,60 +323,51 @@ def generate_geometry(idx, SLOPE, ds, x, y, xg, yg, num_points_x, num_points_y, 
     min_value = 0
     max_value = 0.15
     sigma = 0.95
-    
+
     # Generate random noise and scale it
     random_noise = np.random.rand(num_points_y, num_points_x)
     scaled_random_noise = min_value + (random_noise * (max_value - min_value))
-    
+
     # Smooth the random noise using a Gaussian filter
     smoothed_random_noise = gaussian_filter(scaled_random_noise, sigma=sigma)
-    
+
     # Create an interpolator for the smoothed noise
     interpolator = RegularGridInterpolator(
-        (yg, xg),
+        (noise_grid_x, noise_grid_x),
         smoothed_random_noise,
         bounds_error=False,
         fill_value=None,
     )
-    
+
     # Compute the slope and noise values for the Z dimension
-    z_slope = SLOPE * (channel_length - ds["x"].values)
+    z_slope = SLOPE * (channel_length - flat_mesh["x"].values)
     z_noise = interpolator((y, x))
-    
+
     # Combine slope and noise to get the final Z values
     z = z_slope + z_noise
-    z_right = z[num_points_x-1::num_points_x].max()
+    z_right = z[num_points_x - 1 :: num_points_x].max()
     z_left = z[0::num_points_x].max()
     # Update the dataset with the new Z values
-    ds["B"].values = z.reshape(1, ds.y.shape[0])
-    
+    flat_mesh["B"].values = z.reshape(1, flat_mesh.y.shape[0])
+
     # Save the dataset to a file
-    ds.selafin.write(f"geometry/geometry_3x3_NOISE_{idx}.slf")
+    flat_mesh.selafin.write(f"geometry/geometry_3x3_NOISE_{idx}.slf")
     return z_left, z_right
 
 
-# Define dimensions
-channel_width = 0.3  # in m
-channel_length = 12  # in m
-channel_depth = 0.3  # in m
-slope = 5 / 100  
-wall_thickness = 0.00  # in m
-flat_zone = 0
+# Add logging configuration
+logger.add("logfile.log", format="{time} {level} {message}", level="INFO")
+
+with open("constants.yml") as f:
+    constants = yaml.safe_load(f)
+    logger.info("Loaded constants from constants.yml")
+
 # Adjusting channel dimensions for walls
-channel_width += 2 * wall_thickness
-channel_length += 2 * wall_thickness
-# Generate base mesh for the channel
-num_points_y = 11  # Adjust as needed for resolution
-num_points_x = 401
+if constants["channel"]["wall_thickness"] > 0:
+    constants["channel"]["width"] += 2 * constants["channel"]["wall_thickness"]
+    constants["channel"]["length"] += 2 * constants["channel"]["wall_thickness"]
 
 # ## Steering file generation
-
-SLOPE_min, SLOPE_max = 3e-6, 1e-1
-n_min, n_max = 1e-3, 2e-1
-Q0_min, Q0_max = 5e-3, 2e-2
-H0_min, H0_max = 1e-2, 3e-2
-
-BOTTOM_values = ["NOISE"]
 
 # Load old parameters from CSV if it exists
 try:
@@ -448,37 +387,29 @@ except FileNotFoundError:
         ]
     )
 
-testing = False
-
-# Generate new parameter combinations
-if testing:
-    new_parameter_combinations = [
-        (0, 4, 0.055, 2e-2, 0.1, "FLAT"),
-        (1, 4, 0.055, 2e-2, 0.08, "FLAT"),
-        (2, 4, 0.055, 2e-2, 0.06, "FLAT"),
-        (3, 4, 0.035, 2e-2, 0.08, "FLAT"),
-        (4, 4, 0.035, 2e-2, 0.07, "FLAT"),
-        (5, 4, 0.035, 2e-2, 0.05, "FLAT"),
-        (6, 4, 0.055, 2e-2, 0.1, "NOISE"),
-        (7, 4, 0.055, 2e-2, 0.08, "NOISE"),
-        (8, 4, 0.055, 2e-2, 0.06, "NOISE"),
-        (9, 4, 0.035, 2e-2, 0.08, "NOISE"),
-        (10, 4, 0.035, 2e-2, 0.07, "NOISE"),
-        (11, 4, 0.035, 2e-2, 0.05, "NOISE"),
-    ]
-    column_names = ["SLOPE", "n", "Q0", "H0", "BOTTOM"]
-    new_parameters_df = pd.DataFrame(
-            combinations,
-            columns=column_names,
-    )
-else:
-    new_parameters_df = sample_combinations(5**2, SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max, BOTTOM_values)
+new_parameters_df = sample_combinations(
+    79**2,
+    constants["parameters"]["slope_min"],
+    constants["parameters"]["slope_max"],
+    constants["parameters"]["n_min"],
+    constants["parameters"]["n_max"],
+    constants["parameters"]["q0_min"],
+    constants["parameters"]["q0_max"],
+    constants["parameters"]["h0_min"],
+    constants["parameters"]["h0_max"],
+    constants["parameters"]["bottom_values"],
+)
 
 # Calculate additional parameters for new entries
 new_parameters_df["yn"] = normal_depth_simple(
-    new_parameters_df["Q0"], 0.3, new_parameters_df["SLOPE"], new_parameters_df["n"]
+    new_parameters_df["Q0"],
+    constants["channel"]["width"],
+    new_parameters_df["SLOPE"],
+    new_parameters_df["n"],
 )
-new_parameters_df["yc"] = critical_depth_simple(new_parameters_df["Q0"], 0.3)
+new_parameters_df["yc"] = critical_depth_simple(
+    new_parameters_df["Q0"], constants["channel"]["width"]
+)
 new_parameters_df["subcritical"] = new_parameters_df["yn"] > new_parameters_df["yc"]
 new_parameters_df["direction"] = new_parameters_df["H0"] > new_parameters_df["yc"]
 new_parameters_df["direction"] = new_parameters_df["direction"].apply(
@@ -486,22 +417,43 @@ new_parameters_df["direction"] = new_parameters_df["direction"].apply(
 )
 
 # Combine old and new parameters
-combined_parameters_df = pd.concat([old_parameters_df,new_parameters_df], ignore_index=True)
+combined_parameters_df = pd.concat(
+    [old_parameters_df, new_parameters_df], ignore_index=True
+)
 
 # Write to CSV
-combined_parameters_df.to_csv("parameters.csv", index=True, index_label = "id")
+combined_parameters_df.to_csv("parameters.csv", index=True, index_label="id")
+logger.info("Wrote combined parameters to parameters.csv")
 
 parameters_df = pd.read_csv("parameters.csv", index_col="id")
+logger.info("Loaded parameters from parameters.csv")
 
-ds = xr.open_dataset("geometry/mesh_3x3.slf", engine="selafin")
-x = ds["x"].values
-y = ds["y"].values
-xg = np.linspace(0, channel_length, num_points_x)
-yg = np.linspace(0, channel_width, num_points_y)
+# Load geometry dataset
+flat_mesh_path = "geometry/mesh_3x3.slf"
+flat_mesh = xr.open_dataset(flat_mesh_path, engine="selafin")
+x = flat_mesh["x"].values
+y = flat_mesh["y"].values
+noise_grid_x = np.linspace(
+    0, constants["channel"]["length"], constants["mesh"]["num_points_x"]
+)
+noise_grid_x = np.linspace(
+    0, constants["channel"]["width"], constants["mesh"]["num_points_y"]
+)
 
 # Generate steering files
 for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
-    z_left, z_right = generate_geometry(index, case["SLOPE"], ds, x, y, xg, yg, num_points_x, num_points_y, channel_length)
+    z_left, z_right = generate_geometry(
+        index,
+        case["SLOPE"],
+        flat_mesh,
+        x,
+        y,
+        noise_grid_x,
+        noise_grid_x,
+        constants["mesh"]["num_points_x"],
+        constants["mesh"]["num_points_y"],
+        constants["channel"]["length"],
+    )
     boundary_file = (
         "boundary/boundary_3x3_tor.cli"
         if case["direction"] == "Left to right"
@@ -528,3 +480,4 @@ for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
     # Write the steering file content to a file
     with open(f"steering_{index}.cas", "w") as f:
         f.write(steering_file_content)
+    logger.info(f"Wrote steering file for case {index}")

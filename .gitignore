@@ -17,6 +17,7 @@
 *.svg
 *.idlk
 *.hdf5
+*.pth
 ML/runs/*
 *steering*/
 *checkpoint*

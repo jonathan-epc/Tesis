@@ -6,44 +6,59 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from tqdm.autonotebook import tqdm
+from loguru import logger
 
-result_files = [
-    f
-    for f in os.listdir("./telemac/results/")
-    if f.startswith("results_") and f.endswith(".slf")
-]
+
+def calculate_statistics(variable_data):
+    """Calculate statistics for a variable."""
+    variable_stats = variable_data.describe()
+    variable_stats.rename({"std": "var"}, inplace=True)
+    variable_stats["var"] = variable_stats["var"] ** 2
+    return variable_stats
+
+
+def combine_statistics(stats1, stats2):
+    """Combine statistics from two variables."""
+    count = stats1["count"] + stats2["count"]
+    mean = (stats1["count"] * stats1["mean"] + stats2["count"] * stats2["mean"]) / count
+    var = (
+        (stats1["count"] - 1) * stats1["var"] + (stats2["count"] - 1) * stats2["var"]
+    ) / (count - 1) + (
+        stats1["count"] * stats2["count"] * (stats1["mean"] - stats2["mean"]) ** 2
+    ) / (
+        count * (count - 1)
+    )
+    min_ = np.min([stats1["min"], stats2["min"]])
+    max_ = np.max([stats1["max"], stats2["max"]])
+    return pd.Series(
+        {"count": count, "mean": mean, "var": var, "min": min_, "max": max_}
+    )
+
+
+# Configure the logger
+logger.add("simulation.log", format="{time} {level} {message}", level="INFO")
 
 # Define the base directory
 base_dir = "telemac"
+
 # Load the parameters from the CSV file
 parameters = pd.read_csv(os.path.join(base_dir, "parameters.csv"))
 parameter_names = ["H0", "Q0", "SLOPE", "n"]
-stats = {parameter: parameters[parameter].describe() for parameter in parameter_names}
-table1 = pd.DataFrame(
-    {
-        "names": parameter_names,
-        "count": [stats[parameter]["count"] for parameter in parameter_names],
-        "min": [stats[parameter]["min"] for parameter in parameter_names],
-        "max": [stats[parameter]["max"] for parameter in parameter_names],
-        "var": [stats[parameter]["std"] ** 2 for parameter in parameter_names],
-        "mean": [stats[parameter]["mean"] for parameter in parameter_names],
-    }
-)
-
-variable_names = ["F", "B", "H", "Q", "S", "U", "V"]
-
-stats = {
-    variable: pd.Series(
-        {"count": 0, "var": 0.0, "min": 9999, "max": -9999, "mean": 9999}
-    )
-    for variable in variable_names
+parameter_stats = {
+    parameter: parameters[parameter].describe() for parameter in parameter_names
 }
+parameter_table = pd.DataFrame(parameter_stats).T
+parameter_table.reset_index(inplace=True)
+parameter_table.rename(columns={"index": "names", "std": "var"}, inplace=True)
+parameter_table["var"] = parameter_table["var"] ** 2
+
+# Define variable names
+variable_names = ["F", "B", "H", "Q", "S", "U", "V"]
 
 # Create a new HDF5 file
 hdf5_file = h5py.File("ML/simulation_data.hdf5", "w")
 
 # Get a list of all the files in the directory that match the pattern "result_i.slf"
-
 result_files = [
     f
     for f in os.listdir(os.path.join(base_dir, "results"))
@@ -69,54 +84,40 @@ for result_file in tqdm(result_files):
         simulation_group = hdf5_file.create_group(simulation_name)
 
         # Store the results in the group
+        variable_stats = {}
         for variable_name, variable_data in result.items():
             simulation_group.create_dataset(variable_name, data=variable_data[-1])
-            variable_stats = pd.Series(variable_data[-1].values).describe()
-            stats[variable_name]["min"] = np.min(
-                [stats[variable_name]["min"], variable_stats["min"]]
-            )
-            stats[variable_name]["max"] = np.max(
-                [stats[variable_name]["max"], variable_stats["max"]]
-            )
-            stats[variable_name]["var"] = (
-                (stats[variable_name]["count"] - 1) * stats[variable_name]["var"]
-                + (variable_stats["count"] - 1) * variable_stats["std"] ** 2
-            ) / (stats[variable_name]["count"] + variable_stats["count"] - 1) + (
-                (stats[variable_name]["count"] * variable_stats["count"])
-                * (stats[variable_name]["mean"] - variable_stats["mean"]) ** 2
-            ) / (
-                (stats[variable_name]["count"] + variable_stats["count"])
-                * (stats[variable_name]["count"] + variable_stats["count"] - 1)
-            )
-            stats[variable_name]["mean"] = (
-                stats[variable_name]["mean"] * stats[variable_name]["count"]
-                + variable_stats["mean"] * variable_stats["count"]
-            ) / (stats[variable_name]["count"] + variable_stats["count"])
-            stats[variable_name]["count"] = (
-                stats[variable_name]["count"] + variable_stats["count"]
+            variable_stats[variable_name] = calculate_statistics(
+                pd.Series(variable_data[-1].values)
             )
 
         # Store the parameters as attributes of the group
         for parameter_name, parameter_value in simulation_parameters.items():
             simulation_group.attrs[parameter_name] = parameter_value
 
+        # Combine statistics for this simulation with the overall statistics
+        if i == 0:
+            overall_stats = variable_stats
+        else:
+            overall_stats = {
+                variable_name: combine_statistics(
+                    overall_stats[variable_name], variable_stats[variable_name]
+                )
+                for variable_name in variable_names
+            }
+        logger.info("Processed file: {}", result_file)
+
     except Exception as e:
-        print(f"An error occurred when processing {result_file}: {e}")
+        logger.error("An error occurred when processing {}: {}", result_file, e)
 
-table2 = pd.DataFrame(
-    {
-        "names": variable_names,
-        "count": [stats[variable]["count"] for variable in variable_names],
-        "min": [stats[variable]["min"] for variable in variable_names],
-        "max": [stats[variable]["max"] for variable in variable_names],
-        "var": [stats[variable]["var"] for variable in variable_names],
-        "mean": [stats[variable]["mean"] for variable in variable_names],
-    }
-)
+# Create a table of overall statistics
+variable_table = pd.DataFrame(overall_stats).T
+variable_table.reset_index(inplace=True)
+variable_table.rename(columns={"index": "names"}, inplace=True)
 
-table = pd.concat([table1, table2])
+# Concatenate parameter and variable tables
+table = pd.concat([parameter_table, variable_table])
 
-# Create a new group for the statistics
 statistics_group = hdf5_file.create_group("statistics")
 for name in list(table["names"]):
     statistics_group.attrs[name + "_count"] = table.loc[table["names"] == name]["count"]
@@ -125,6 +126,7 @@ for name in list(table["names"]):
     statistics_group.attrs[name + "_var"] = table.loc[table["names"] == name]["var"]
     statistics_group.attrs[name + "_mean"] = table.loc[table["names"] == name]["mean"]
 
-
 # Close the HDF5 file
 hdf5_file.close()
+
+logger.success("Script completed successfully")

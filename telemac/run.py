@@ -36,14 +36,12 @@ def run_telemac2d(filename, output_dir="outputs"):
                 command + ["--ncsize=8", filename],
                 check=True,
                 stdout=output_fh,
-                stderr=subprocess.STDOUT
+                stderr=subprocess.STDOUT,
             )
     except subprocess.CalledProcessError as e:
-        pass
-        #logger.error(f"Error running Telemac2D simulation for {filename}: {e}")
+        logger.error(f"Error running Telemac2D simulation for {filename}: {e}")
     else:
-        pass
-        #logger.info(f"Completed Telemac2D simulation for {filename}")
+        logger.info(f"Completed Telemac2D simulation for {filename}")
 
 
 def run_telemac2d_on_files(start, end, output_dir, parameters):
@@ -57,7 +55,9 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
         parameters (pandas.DataFrame): DataFrame containing parameters for each case.
     """
     total_files = end - start
-    print(f"Running {total_files} Telemac2D simulations from case {start} to case {end}")
+    print(
+        f"Running {total_files} Telemac2D simulations from case {start} to case {end}"
+    )
 
     with tqdm(total=total_files, unit="case", dynamic_ncols=True) as pbar:
         for i in range(start, end):
@@ -84,7 +84,10 @@ if __name__ == "__main__":
     # Set up argparse for command-line arguments
     parser = argparse.ArgumentParser(description="Run Telemac2D simulations.")
     parser.add_argument(
-        "--start", type=int, default=0, help="Start file index (default: 0 for all files)"
+        "--start",
+        type=int,
+        default=0,
+        help="Start file index (default: 0 for all files)",
     )
     parser.add_argument(
         "--end", type=int, default=0, help="End file index (default: 0 for all files)"
