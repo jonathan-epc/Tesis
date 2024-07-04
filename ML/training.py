@@ -1,6 +1,5 @@
 import os
 from timeit import default_timer
-
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,10 +14,26 @@ from loguru import logger
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.interpolate import griddata
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import KFold
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
+from loguru import logger
+import numpy as np
+from time import sleep
+
+# Constants
+NUMPOINTS_X = 401
+NUMPOINTS_Y = 11
+VARIABLES = ["F", "H", "Q", "S", "U", "V"]
+PARAMETERS = ["H0", "Q0", "SLOPE", "n"]
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+BATCH_SIZE = 32
+NUM_EPOCHS = 256
+ACCUMULATION_STEPS = 4
+LEARNING_RATE = 0.001
+EARLY_STOPPING_PATIENCE = 20
 
 
 def compute_metrics(outputs, targets):
@@ -40,14 +55,6 @@ def compute_metrics(outputs, targets):
     return mse, mae, r2
 
 
-numpoints_x = 401
-numpoints_y = 11
-variables = ["F", "H", "Q", "S", "U", "V"]
-parameters = ["H0", "Q0", "SLOPE", "n"]
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
 class HDF5Dataset(Dataset):
     """
     Custom Dataset for loading HDF5 files.
@@ -67,8 +74,8 @@ class HDF5Dataset(Dataset):
     def __init__(
         self,
         file_path: str,
-        variables: list[str],
-        parameters: list[str],
+        variables: list,
+        parameters: list,
         numpoints_x: int,
         numpoints_y: int,
         normalized: bool = True,
@@ -154,133 +161,130 @@ class HDF5Dataset(Dataset):
         return data * std + mean
 
 
-class SimpleNN(nn.Module):
-    """
-    Simple Neural Network with batch normalization and dropout.
+def create_dataloaders(
+    file_path,
+    variables,
+    parameters,
+    numpoints_x,
+    numpoints_y,
+    batch_size,
+    do_cross_validation,
+):
+    dataset = HDF5Dataset(file_path, variables, parameters, numpoints_x, numpoints_y)
 
-    Args:
-        input_size (int): Size of input layer.
-        output_size (int): Size of output layer.
-    """
+    train_size = int(0.6 * len(dataset))
+    val_size = int(0.2 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = random_split(
+        dataset, [train_size, val_size, test_size]
+    )
 
-    def __init__(self, input_size, output_size):
-        super(SimpleNN, self).__init__()
-        self.fc1 = nn.Linear(input_size, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, output_size)
-        self.dropout = nn.Dropout(0.5)
-        self.batch_norm1 = nn.BatchNorm1d(128)
-        self.batch_norm2 = nn.BatchNorm1d(64)
-        self.batch_norm3 = nn.BatchNorm1d(32)
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        drop_last=True,
+    )
+    val_dataloader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True
+    )
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        drop_last=True,
+    )
 
-    def forward(self, x):
-        x = torch.cat([x[0], x[1].view(x[1].size(0), -1)], 1)
-        x = F.relu(self.batch_norm1(self.fc1(x)))
-        x = self.dropout(x)
-        x = F.relu(self.batch_norm2(self.fc2(x)))
-        x = self.dropout(x)
-        x = F.relu(self.batch_norm3(self.fc3(x)))
-        x = self.fc4(x)
-        return x
-
-
-class SimpleNN(nn.Module):
-    """
-    Simple Neural Network with batch normalization and dropout.
-
-    Args:
-        input_size (int): Size of input layer.
-        output_size (int): Size of output layer.
-    """
-
-    def __init__(self, input_size, output_size):
-        super(SimpleNN, self).__init__()
-        self.fc1 = nn.Linear(input_size, output_size)
-
-    def forward(self, x):
-        x = torch.cat([x[0], x[1].view(x[1].size(0), -1)], 1)
-        x = F.relu(self.fc1(x))
-        return x
+    return train_dataloader, val_dataloader, test_dataloader
 
 
-# Create an instance of the dataset and dataloaders
-dataset = HDF5Dataset(
-    "simulation_data_normalized.hdf5", variables, parameters, numpoints_x, numpoints_y
-)
-train_size = int(0.6 * len(dataset))
-val_size = int(0.2 * len(dataset))
-test_size = len(dataset) - train_size - val_size
-train_dataset, val_dataset, test_dataset = random_split(
-    dataset, [train_size, val_size, test_size]
-)
-batch_size = 32
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+def cross_validate(
+    model_class,
+    dataset,
+    k_folds,
+    num_epochs,
+    accumulation_steps,
+    criterion,
+    optimizer_class,
+    scheduler_class,
+    scaler,
+    writer,
+):
+    kfold = KFold(n_splits=k_folds, shuffle=True)
 
-# Create an instance of the model
-input_size = len(parameters) + numpoints_y * numpoints_x
-output_size = len(variables) * numpoints_y * numpoints_x
-model = SimpleNN(input_size, output_size).to(torch.double).to(device)
 
-# Training settings
-num_epochs = 256
-accumulation_steps = 4
-os.makedirs("models", exist_ok=True)
-learning_rate = 0.001
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    optimizer, max_lr=0.01, steps_per_epoch=len(train_dataloader), epochs=num_epochs
-)
-criterion = nn.MSELoss()
-scaler = GradScaler()
-best_val_loss = float("inf")
-early_stopping_patience = 20
-early_stopping_counter = 0
-writer = SummaryWriter()
-writer.add_text("Structure", "1 linear layers")
+    for fold, (train_idx, val_idx) in tqdm(enumerate(kfold.split(dataset)), total = k_folds):
+        logger.info(f"Starting fold {fold+1}/{k_folds}")
+        # Create a new writer for each fold
+        fold_writer = SummaryWriter(comment=f"- fold-{fold+1}")
+        train_subsampler = data_utils.SubsetRandomSampler(train_idx)
+        val_subsampler = data_utils.SubsetRandomSampler(val_idx)
 
-# Training loop
-for epoch in tqdm(range(num_epochs)):
-    model.train()
-    train_loss = 0
-    train_mse, train_mae, train_r2 = 0, 0, 0
-    optimizer.zero_grad(set_to_none=True)
-    for idx, (inputs, targets) in enumerate(train_dataloader):
-        with autocast(enabled=device == "CUDA"):
-            outputs = model(inputs)
-            outputs = outputs.view(targets.shape)
-            loss = criterion(outputs, targets)
-        scaler.scale(loss).backward()
+        train_dataloader = DataLoader(
+            dataset, batch_size=BATCH_SIZE, sampler=train_subsampler, num_workers=4
+        )
+        val_dataloader = DataLoader(
+            dataset, batch_size=BATCH_SIZE, sampler=val_subsampler, num_workers=4
+        )
 
-        if (idx + 1) % accumulation_steps == 0:
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none=True)
+        model = (
+            model_class(len(PARAMETERS), len(VARIABLES), NUMPOINTS_X, NUMPOINTS_Y)
+            .to(torch.double)
+            .to(DEVICE)
+        )
+        optimizer = optimizer_class(model.parameters(), lr=LEARNING_RATE)
+        scheduler = scheduler_class(
+            optimizer,
+            max_lr=0.01,
+            steps_per_epoch=len(train_dataloader),
+            epochs=num_epochs,
+        )
+        logger.info(f"Training model for fold {fold+1}")
+        train_model(
+            model,
+            train_dataloader,
+            val_dataloader,
+            num_epochs,
+            accumulation_steps,
+            criterion,
+            optimizer,
+            scheduler,
+            scaler,
+            fold_writer
+        )
 
-        train_loss += loss.item()
-        mse, mae, r2 = compute_metrics(outputs, targets)
-        train_mse += mse
-        train_mae += mae
-        train_r2 += r2
+        overall_progress.update(task_overall, advance=1, refresh=True)
+        val_loss, val_mse, val_mae, val_r2 = validate_model(
+            model, val_dataloader, criterion
+        )
+        fold_results.append((val_loss, val_mse, val_mae, val_r2))
 
-    train_loss /= len(train_dataloader)
-    train_mse /= len(train_dataloader)
-    train_mae /= len(train_dataloader)
-    train_r2 /= len(train_dataloader)
+        logger.info(
+            f"Fold {fold+1} results: Loss={val_loss:.4f}, MSE={val_mse:.4f}, MAE={val_mae:.4f}, R2={val_r2:.4f}"
+        )
 
-    writer.add_scalar("Loss/train", train_loss, epoch)
-    writer.add_scalar("MSE/train", train_mse, epoch)
-    writer.add_scalar("MAE/train", train_mae, epoch)
-    writer.add_scalar("R2/train", train_r2, epoch)
+        # Close the writer for the current fold
+        fold_writer.close()
 
-    # Validation loop
+    avg_results = np.mean(fold_results, axis=0)
+    # Add the avg_results to TensorBoard
+    writer.add_scalar("CrossVal/Loss", avg_results[0])
+    writer.add_scalar("CrossVal/MSE", avg_results[1])
+    writer.add_scalar("CrossVal/MAE", avg_results[2])
+    writer.add_scalar("CrossVal/R2", avg_results[3])
+    logger.info(
+        f"Cross-validation results: Loss={avg_results[0]:.4f}, MSE={avg_results[1]:.4f}, MAE={avg_results[2]:.4f}, R2={avg_results[3]:.4f}"
+    )
+    return avg_results
+
+
+def validate_model(model, dataloader, criterion):
     model.eval()
-    val_loss = 0
-    val_mse, val_mae, val_r2 = 0, 0, 0
+    val_loss, val_mse, val_mae, val_r2 = 0, 0, 0, 0
     with torch.no_grad():
-        for inputs, targets in val_dataloader:
+        for inputs, targets in dataloader:
             outputs = model(inputs)
             outputs = outputs.view(targets.shape)
             loss = criterion(outputs, targets)
@@ -288,74 +292,413 @@ for epoch in tqdm(range(num_epochs)):
             mse, mae, r2 = compute_metrics(outputs, targets)
             val_mse += mse
             val_mae += mae
-            val_r2 += r2
+            val_r2 += r2          
+    val_loss /= len(dataloader)
+    val_mse /= len(dataloader)
+    val_mae /= len(dataloader)
+    val_r2 /= len(dataloader)
+    return val_loss, val_mse, val_mae, val_r2
 
-    val_loss /= len(val_dataloader)
-    val_mse /= len(val_dataloader)
-    val_mae /= len(val_dataloader)
-    val_r2 /= len(val_dataloader)
 
-    writer.add_scalar("Loss/val", val_loss, epoch)
-    writer.add_scalar("MSE/val", val_mse, epoch)
-    writer.add_scalar("MAE/val", val_mae, epoch)
-    writer.add_scalar("R2/val", val_r2, epoch)
+def train_model(
+    model,
+    train_dataloader,
+    val_dataloader,
+    num_epochs,
+    accumulation_steps,
+    criterion,
+    optimizer,
+    scheduler,
+    scaler,
+    writer
+):
+    best_val_loss = float("inf")
+    early_stopping_counter = 0
 
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        torch.save(model.state_dict(), f"models/best_model.pth")
-        early_stopping_counter = 0
+    for epoch in tqdm(range(num_epochs), total = num_epochs):
+        model.train()
+        train_loss, train_mse, train_mae, train_r2 = 0, 0, 0, 0
+        optimizer.zero_grad(set_to_none=True)
+        for idx, (inputs, targets) in enumerate(train_dataloader):
+            with autocast(enabled=DEVICE == "cuda"):
+                outputs = model(inputs)
+                outputs = outputs.view(targets.shape)
+                loss = criterion(outputs, targets)
+            scaler.scale(loss).backward()
+
+            if (idx + 1) % accumulation_steps == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+
+            train_loss += loss.item()
+            mse, mae, r2 = compute_metrics(outputs, targets)
+            train_mse += mse
+            train_mae += mae
+            train_r2 += r2
+
+        train_loss /= len(train_dataloader)
+        train_mse /= len(train_dataloader)
+        train_mae /= len(train_dataloader)
+        train_r2 /= len(train_dataloader)
+
+        writer.add_scalar("Loss/train", train_loss, epoch)
+        writer.add_scalar("MSE/train", train_mse, epoch)
+        writer.add_scalar("MAE/train", train_mae, epoch)
+        writer.add_scalar("R2/train", train_r2, epoch)
+
+        val_loss, val_mse, val_mae, val_r2 = validate_model(
+            model, val_dataloader, criterion
+        )
+        writer.add_scalar("Loss/val", val_loss, epoch)
+        writer.add_scalar("MSE/val", val_mse, epoch)
+        writer.add_scalar("MAE/val", val_mae, epoch)
+        writer.add_scalar("R2/val", val_r2, epoch)
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), "models/best_model.pth")
+            early_stopping_counter = 0
+        else:
+            early_stopping_counter += 1
+
+        if early_stopping_counter >= EARLY_STOPPING_PATIENCE:
+            logger.info("Early stopping triggered")
+            break
+
+        scheduler.step()
+
+
+
+def test_model(model, dataloader, criterion, writer, hparams):
+    model.load_state_dict(torch.load("models/best_model.pth"))
+    model.eval()
+    test_loss, test_mse, test_mae, test_r2 = 0, 0, 0, 0
+    with torch.no_grad():
+        for inputs, targets in dataloader:
+            outputs = model(inputs)
+            outputs = outputs.view(targets.shape)
+            loss = criterion(outputs, targets)
+            test_loss += loss.item()
+            mse, mae, r2 = compute_metrics(outputs, targets)
+            test_mse += mse
+            test_mae += mae
+            test_r2 += r2
+
+    test_loss /= len(dataloader)
+    test_mse /= len(dataloader)
+    test_mae /= len(dataloader)
+    test_r2 /= len(dataloader)
+
+    logger.info(
+        f"Test Loss: {test_loss:.4f}\nTest MSE: {test_mse:.4f}\nTest MAE: {test_mae:.4f}\nTest R2: {test_r2:.4f}"
+    )
+
+    metrics = {
+        "test/Loss": test_loss,
+        "test/MSE": test_mse,
+        "test/MAE": test_mae,
+        "test/R2": test_r2,
+    }
+    writer.add_hparams(hparams, metrics, run_name=".")
+    inputs_for_plot = inputs.cpu().numpy()
+    targets_for_plot = targets.cpu().numpy()
+    outputs_for_plot = outputs.cpu().numpy()
+    return inputs_for_plot, targets_for_plot, outputs_for_plot
+
+
+def setup_writer_and_hparams(comment: str):
+    writer = SummaryWriter(comment=comment)
+    hparams = {
+        "learning_rate": LEARNING_RATE,
+        "batch_size": BATCH_SIZE,
+        "accumulation_steps": ACCUMULATION_STEPS,
+    }
+    return writer, hparams
+
+
+def cross_validation_procedure(name, neural_network):
+    logger.info("Starting cross-validation procedure")
+
+    # Load the complete dataset
+    logger.info("Loading dataset")
+    full_dataset = HDF5Dataset(
+        "simulation_data_normalized.hdf5",
+        VARIABLES,
+        PARAMETERS,
+        NUMPOINTS_X,
+        NUMPOINTS_Y,
+    )
+
+    # Split the dataset into training/validation (80%) and test (20%)
+    test_size = int(0.2 * len(full_dataset))
+    train_val_size = len(full_dataset) - test_size
+    train_val_dataset, test_dataset = random_split(
+        full_dataset, [train_val_size, test_size]
+    )
+
+    logger.info(
+        f"Dataset split into training/validation ({train_val_size} samples) and test ({test_size} samples)"
+    )
+
+    criterion = nn.MSELoss()
+    scaler = GradScaler()
+    writer, hparams = setup_writer_and_hparams(comment=name)
+
+    logger.info("Starting cross-validation")
+    avg_results = cross_validate(
+        neural_network,
+        train_val_dataset,
+        k_folds=5,
+        num_epochs=NUM_EPOCHS,
+        accumulation_steps=ACCUMULATION_STEPS,
+        criterion=criterion,
+        optimizer_class=torch.optim.AdamW,
+        scheduler_class=torch.optim.lr_scheduler.OneCycleLR,
+        scaler=scaler,
+        writer=writer,
+    )
+
+    logger.info(
+        f"Cross-validation completed.\n Avg results: Loss={avg_results[0]:.4f}, MSE={avg_results[1]:.4f}, MAE={avg_results[2]:.4f}, R2={avg_results[3]:.4f}"
+    )
+
+    test_dataloader = DataLoader(
+        test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4
+    )
+    model = (
+        neural_network(len(PARAMETERS), len(VARIABLES), NUMPOINTS_X, NUMPOINTS_Y)
+        .to(torch.double)
+        .to(DEVICE)
+    )
+
+    logger.info("Testing model on the test dataset")
+    inputs_for_plot, targets_for_plot, outputs_for_plot = test_model(
+        model, test_dataloader, criterion, writer, hparams
+    )
+    writer.close()
+
+    logger.info("Cross-validation procedure completed")
+    return inputs_for_plot, targets_for_plot, outputs_for_plot
+
+
+def standard_training_procedure(name, neural_network):
+    logger.info("Starting standard procedure")
+    logger.info("Loading dataset")
+    train_dataloader, val_dataloader, test_dataloader = create_dataloaders(
+        "simulation_data_normalized.hdf5",
+        VARIABLES,
+        PARAMETERS,
+        NUMPOINTS_X,
+        NUMPOINTS_Y,
+        BATCH_SIZE,
+    )
+
+    model = (
+        neural_network(len(PARAMETERS), len(VARIABLES), NUMPOINTS_X, NUMPOINTS_Y)
+        .to(torch.double)
+        .to(DEVICE)
+    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=0.01, steps_per_epoch=len(train_dataloader), epochs=NUM_EPOCHS
+    )
+    criterion = nn.MSELoss()
+    scaler = GradScaler()
+    writer, hparams = setup_writer_and_hparams(comment=name)
+
+    train_model(
+        model,
+        train_dataloader,
+        val_dataloader,
+        NUM_EPOCHS,
+        ACCUMULATION_STEPS,
+        criterion,
+        optimizer,
+        scheduler,
+        scaler,
+        writer,
+    )
+
+    logger.info("Testing model on the test dataset")
+    inputs_for_plot, targets_for_plot, outputs_for_plot = test_model(
+        model, test_dataloader, criterion, writer, hparams
+    )
+    logger.info("Procedure completed")
+    writer.close()
+    return inputs_for_plot, targets_for_plot, outputs_for_plot
+
+
+def main(name, neural_network, do_cross_validation: bool):
+    if do_cross_validation:
+        inputs_for_plot, targets_for_plot, outputs_for_plot = (
+            cross_validation_procedure(name, neural_network)
+        )
     else:
-        early_stopping_counter += 1
+        inputs_for_plot, targets_for_plot, outputs_for_plot = (
+            standard_training_procedure(name, neural_network)
+        )
+    return inputs_for_plot, targets_for_plot, outputs_for_plot
 
-    if early_stopping_counter >= early_stopping_patience:
-        print("Early stopping triggered")
-        break
 
-    scheduler.step()
-# Testing phase
-model.load_state_dict(torch.load(f"models/best_model.pth"))
-model.eval()
-test_loss = 0
-test_mse, test_mae, test_r2 = 0, 0, 0
-with torch.no_grad():
-    for inputs, targets in test_dataloader:
-        outputs = model(inputs)
-        outputs = outputs.view(targets.shape)
-        loss = criterion(outputs, targets)
-        test_loss += loss.item()
-        mse, mae, r2 = compute_metrics(outputs, targets)
-        test_mse += mse
-        test_mae += mae
-        test_r2 += r2
+class SimpleNN(nn.Module):
+    """
+    Simple Neural Network with batch normalization and dropout.
 
-test_loss /= len(test_dataloader)
-test_mse /= len(test_dataloader)
-test_mae /= len(test_dataloader)
-test_r2 /= len(test_dataloader)
+    Args:
+        input_size (int): Size of input layer.
+        output_size (int): Size of output layer.
+    """
 
-print(f"Test Loss: {test_loss:.4f}")
-print(f"Test MSE: {test_mse:.4f}")
-print(f"Test MAE: {test_mae:.4f}")
-print(f"Test R2: {test_r2:.4f}")
+    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y):
+        super(SimpleNN, self).__init__()
+        self.fc1 = nn.Linear(parameters_n + numpoints_x * numpoints_y, 2)
+        self.fc2 = nn.Linear(2, variables_n * numpoints_x * numpoints_y)
+        self.batch_norm1 = nn.BatchNorm1d(2)
 
-writer.add_scalar("Loss/test", test_loss, epoch)
-writer.add_scalar("MSE/test", test_mse, epoch)
-writer.add_scalar("MAE/test", test_mae, epoch)
-writer.add_scalar("R2/test", test_r2, epoch)
-hparams = {"learning_rate": learning_rate, "batch_size": batch_size, "accumulation_steps": accumulation_steps}
-metrics = {"Loss": test_loss, "MSE": test_mse, "MAE": test_mae, "R2": test_r2}
-writer.add_hparams(hparams, metrics)
-writer.close()
+    def forward(self, x):
+        x = torch.cat([x[0], x[1].view(x[1].size(0), -1)], 1)
+        x = F.relu(self.batch_norm1(self.fc1(x)))
+        x = self.fc2(x)
+        return x
 
-# Load the best model
-model = SimpleNN(input_size, output_size).to(torch.double).to(device)
-model.load_state_dict(torch.load("models/best_model.pth"))
-model.eval()
 
-input0, target0 = next(iter(test_dataloader))
+class SimpleNN(nn.Module):
+    """
+    Simple Neural Network with batch normalization and dropout.
 
-output0 = model(input0)
+    Args:
+        input_size (int): Size of input layer.
+        output_size (int): Size of output layer.
+    """
 
-plt.imshow(target0[0].reshape(numpoints_y * 6, numpoints_x))
+    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y):
+        super(SimpleNN, self).__init__()
+        self.conv1 = nn.Conv2d(1, variables_n, 3)
+        self.fc1 = nn.Linear(
+            6 * (numpoints_x - 3 + 1) * (numpoints_y - 3 + 1) + parameters_n, 32
+        )
+        self.fc2 = nn.Linear(32, variables_n * numpoints_x * numpoints_y)
 
-plt.imshow(output0[0].reshape(numpoints_y * 6, numpoints_x).detach().numpy())
+    def forward(self, x):
+        x0, x1 = x
+        x1 = self.conv1(x1.unsqueeze(1))
+        x1 = F.relu(x1)
+        x1 = x1.view(x1.size(0), -1)
+        x = torch.cat([x0, x1], 1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return x
+
+
+class ComplexNN(nn.Module):
+    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y):
+        super(ComplexNN, self).__init__()
+
+        # Branch 1: Fully Connected layers for parameters
+        self.fc1_params = nn.Linear(parameters_n, 64)
+        self.fc2_params = nn.Linear(64, 128)
+
+        # Branch 2: Convolutional layers for 2D field
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        # Fully Connected layers for the combined output
+        self.fc1_combined = nn.Linear(
+            64 * (numpoints_x // 2 // 2) * (numpoints_y // 2 // 2) + 128, 256
+        )
+        self.fc2_combined = nn.Linear(256, variables_n * numpoints_x * numpoints_y)
+
+        # Batch normalization layers
+        self.batch_norm_fc = nn.BatchNorm1d(128)
+        self.batch_norm_conv = nn.BatchNorm2d(64)
+        self.batch_norm_combined = nn.BatchNorm1d(256)
+
+    def forward(self, x):
+        x_params, x_field = x
+
+        # Forward pass for parameters branch
+        x_params = F.relu(self.fc1_params(x_params))
+        x_params = F.relu(self.batch_norm_fc(self.fc2_params(x_params)))
+
+        # Forward pass for 2D field branch
+        x_field = x_field.unsqueeze(1)  # Add a channel dimension
+        x_field = F.relu(self.conv1(x_field))
+        x_field = self.pool(F.relu(self.conv2(x_field)))
+        x_field = self.pool(F.relu(self.batch_norm_conv(self.conv3(x_field))))
+        x_field = x_field.view(x_field.size(0), -1)  # Flatten
+
+        # Combine both branches
+        x_combined = torch.cat([x_params, x_field], dim=1)
+        x_combined = F.relu(self.batch_norm_combined(self.fc1_combined(x_combined)))
+        x_combined = self.fc2_combined(x_combined)
+
+        return x_combined
+
+
+if __name__ == "__main__":
+    logger.remove()
+    logger.add(
+        "training.log",
+        format="{time:YYYY-MM-DD at HH:mm:ss} | {message}",
+        rotation="10 MB",
+        compression="zip",
+        mode="a",
+    )
+    logger.add(lambda msg: tqdm.write(msg, end=""))
+    inputs_for_plot, targets_for_plot, outputs_for_plot = main(
+        "ComplexNN", ComplexNN, do_cross_validation=True
+    )
+
+reshaped_target = target0[0].reshape(NUMPOINTS_Y * 6, NUMPOINTS_X)
+reshaped_output = output0[0].reshape(NUMPOINTS_Y * 6, NUMPOINTS_X).detach().numpy()
+reshaped_target_flat = reshaped_target.flatten()
+reshaped_output_flat = reshaped_output.flatten()
+
+fig, axs = plt.subplots(
+    2, 1, figsize=(10, 5)
+)  # Create a figure with 1 row and 2 columns
+
+# Display the first image
+axs[0].imshow(reshaped_target)
+axs[0].axis("off")  # This will remove the axis labels and ticks
+
+# Display the second image
+axs[1].imshow(reshaped_output)
+axs[1].axis("off")  # This will remove the axis labels and ticks
+plt.savefig("resultados.pdf")
+plt.show()
+
+fig, axs = plt.subplots(
+    nrows=2, ncols=3, figsize=(15, 10)
+)  # Create a 2x3 grid of subplots
+
+# Flatten the tensors for plotting
+tensor1_flat = target0[0].reshape(6, 401 * 11)
+tensor2_flat = output0[0].reshape(6, 401 * 11).detach().numpy()
+
+# Iterate over each subplot and each pair of flattened tensors
+for i, (ax, (t1, t2)) in enumerate(zip(axs.flat, zip(tensor1_flat, tensor2_flat))):
+    sns.kdeplot(
+        x=t1,
+        y=t2,
+        fill=True,
+        thresh=0,
+        levels=100,
+        cmap="turbo",
+        ax=ax,  # Specify the subplot to draw on
+    )
+    ax.plot(
+        [min(t1), max(t1)],
+        [min(t2), max(t2)],
+        "w--",
+    )
+    ax.set_xlabel("Valor esperado")
+    ax.set_ylabel("Predicción")
+    ax.set_title(f"{VARIABLES[i]}")  # Set a title for each subplot
+
+plt.tight_layout()  # Improve spacing between subplots
+plt.savefig("density_plots.pdf")
+plt.show()
