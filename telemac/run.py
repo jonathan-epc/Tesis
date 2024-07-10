@@ -1,13 +1,16 @@
 import argparse
 import os
 import sys
-from loguru import logger
-from tqdm import tqdm
-from config import STEERING_FOLDER, OUTPUT_FOLDER, PARAMETERS_FILE
-from modules.file_utils import setup_output_dir, move_file
-from modules.telemac_runner import run_telemac2d
+from datetime import datetime
+from pathlib import Path
+
+from config import OUTPUT_FOLDER, PARAMETERS_FILE, STEERING_FOLDER
 from logger_config import setup_logger
+from loguru import logger
+from modules.file_utils import move_file, setup_output_dir
 from modules.param_utils import load_parameters
+from modules.telemac_runner import run_telemac2d
+from tqdm import tqdm
 
 
 def run_telemac2d_on_files(start, end, output_dir, parameters):
@@ -42,43 +45,3 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
             pbar.update(1)
 
     logger.info("All Telemac2D simulations completed")
-
-
-setup_logger("telemac_running")
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Telemac2D simulations.")
-    parser.add_argument(
-        "--start",
-        type=int,
-        default=0,
-        help="Start file index (default: 0 for all files)",
-    )
-    parser.add_argument(
-        "--end", type=int, default=0, help="End file index (default: 0 for all files)"
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=OUTPUT_FOLDER,
-        help=f"Output directory for the simulations (default: {OUTPUT_FOLDER})",
-    )
-    args = parser.parse_args()
-
-    try:
-        parameters = load_parameters(PARAMETERS_FILE)
-
-        if args.start == 0 and args.end == 0:
-            cas_files = [f for f in os.listdir(STEERING_FOLDER) if f.endswith(".cas")]
-            start_index = 0
-            end_index = len(cas_files)
-        else:
-            start_index = args.start
-            end_index = args.end
-
-        if start_index > end_index:
-            raise ValueError("Start index cannot be greater than end index.")
-
-        run_telemac2d_on_files(start_index, end_index, args.output_dir, parameters)
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
-        sys.exit(1)

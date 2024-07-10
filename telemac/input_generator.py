@@ -1,12 +1,15 @@
-from loguru import logger
+import os
+from datetime import datetime
 from pathlib import Path
-from tqdm.autonotebook import tqdm
-from modules.environment_setup import EnvironmentSetup
-from modules.parameter_manager import ParameterManager
-from modules.geometry_generator import GeometryGenerator
-from modules.boundary_conditions import BoundaryConditions
-from modules.steering_file_generator import SteeringFileGenerator
+
 from logger_config import setup_logger
+from loguru import logger
+from modules.boundary_conditions import BoundaryConditions
+from modules.environment_setup import EnvironmentSetup
+from modules.geometry_generator import GeometryGenerator
+from modules.parameter_manager import ParameterManager
+from modules.steering_file_generator import SteeringFileGenerator
+from tqdm.autonotebook import tqdm
 
 
 def main() -> None:
@@ -80,5 +83,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    logger = setup_logger("input_generation")
+    script_name = os.path.splitext(os.path.basename(__file__))[
+        0
+    ]  # Gets 'main' from 'main.py'
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    process_id = os.getpid()
+
+    log_name = f"{script_name}_{timestamp}_{process_id}"
+    logger = setup_logger(log_name)
     main()
