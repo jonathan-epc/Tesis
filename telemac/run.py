@@ -9,7 +9,7 @@ from loguru import logger
 from modules.file_utils import move_file, setup_output_dir
 from modules.param_utils import load_parameters
 from modules.telemac_runner import run_telemac2d
-from run_configurations import PARAMETERS_FILE, STEERING_FOLDER
+from run_configurations import OUTPUT_FOLDER, PARAMETERS_FILE, STEERING_FOLDER
 from tqdm import tqdm
 
 
