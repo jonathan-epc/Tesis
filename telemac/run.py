@@ -4,12 +4,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from config import OUTPUT_FOLDER, PARAMETERS_FILE, STEERING_FOLDER
 from logger_config import setup_logger
 from loguru import logger
 from modules.file_utils import move_file, setup_output_dir
 from modules.param_utils import load_parameters
 from modules.telemac_runner import run_telemac2d
+from run_configurations import PARAMETERS_FILE, STEERING_FOLDER
 from tqdm import tqdm
 
 
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     script_name = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     process_id = os.getpid()
-    
+
     log_name = f"{script_name}_{timestamp}_{process_id}"
     logger = setup_logger(log_name)  # Use the log_name variable here
 
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         "--output-dir",
         type=str,
         default=OUTPUT_FOLDER,
-        help=f"Output directory for the simulations (default: {OUTPUT_FOLDER})",
+        help=f"Directory for the simulations log files (default: {OUTPUT_FOLDER})",
     )
 
     args = parser.parse_args()
@@ -88,13 +88,15 @@ if __name__ == "__main__":
         else:
             start_index = args.start
             end_index = args.end
-            logger.info(f"Processing .cas files from index {start_index} to {end_index}")
+            logger.info(
+                f"Processing .cas files from index {start_index} to {end_index}"
+            )
 
         if start_index > end_index:
             raise ValueError("Start index cannot be greater than end index.")
 
         run_telemac2d_on_files(start_index, end_index, args.output_dir, parameters)
-        
+
         logger.info("Telemac2D simulations completed successfully")
     except Exception as e:
         logger.exception(f"An unexpected error occurred: {e}")

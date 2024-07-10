@@ -1,3 +1,3 @@
+OUTPUT_FOLDER = "telemac_logs"
 STEERING_FOLDER = "steering"
-OUTPUT_FOLDER = "outputs"
 PARAMETERS_FILE = "parameters.csv"
