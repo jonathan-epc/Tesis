@@ -24,7 +24,7 @@ from loguru import logger
 import sys
 import numpy as np
 from time import sleep
-from neuralop.models import SFNO
+from neuralop.models import SFNO, FNO
 
 # Constants
 NUMPOINTS_X = 401
@@ -58,6 +58,23 @@ def compute_metrics(
     mae = mean_absolute_error(targets, outputs)
     r2 = r2_score(targets, outputs)
     return mse, mae, r2
+
+
+def compute_r2(outputs: torch.Tensor, targets: torch.Tensor) -> float:
+    """
+    Computes mean squared error, mean absolute error, and R2 score.
+
+    Args:
+        outputs (torch.Tensor): Model predictions.
+        targets (torch.Tensor): Ground truth values.
+
+    Returns:
+        float: R2 score.
+    """
+    outputs = outputs.view(-1).detach().cpu().numpy()
+    targets = targets.view(-1).detach().cpu().numpy()
+    r2 = r2_score(targets, outputs)
+    return r2
 
 
 class HDF5Dataset(Dataset):
@@ -302,14 +319,11 @@ def cross_validate(
                 fold_writer,
             )
 
-            val_loss, val_mse, val_mae, val_r2 = validate_model(
-                model, val_dataloader, criterion
-            )
-            fold_results.append((val_loss, val_mse, val_mae, val_r2))
+            val_loss, val_r2 = validate_model(model, val_dataloader, criterion)
+            fold_results.append((val_loss, val_r2))
 
-            logger.log(
-                "METRIC",
-                f"Fold {fold+1} results: Loss={val_loss:.4f}, MSE={val_mse:.4f}, MAE={val_mae:.4f}, R2={val_r2:.4f}",
+            logger.info(
+                f"Fold {fold+1} results: Loss={val_loss:.4f}, R2={val_r2:.4f}",
             )
             pbar.update(1)
 
@@ -317,15 +331,7 @@ def cross_validate(
             fold_writer.close()
 
     avg_results = np.mean(fold_results, axis=0)
-    # Add the avg_results to TensorBoard
-    writer.add_scalar("CrossVal/Loss", avg_results[0])
-    writer.add_scalar("CrossVal/MSE", avg_results[1])
-    writer.add_scalar("CrossVal/MAE", avg_results[2])
-    writer.add_scalar("CrossVal/R2", avg_results[3])
-    logger.log(
-        "METRIC",
-        f"Cross-validation results: Loss={avg_results[0]:.4f}, MSE={avg_results[1]:.4f}, MAE={avg_results[2]:.4f}, R2={avg_results[3]:.4f}",
-    )
+
     return avg_results
 
 
@@ -333,22 +339,18 @@ def validate_model(
     model: nn.Module, dataloader: DataLoader, criterion: nn.Module
 ) -> Tuple[float, float, float, float]:
     model.eval()
-    val_loss, val_mse, val_mae, val_r2 = 0, 0, 0, 0
+    val_loss, val_r2 = 0, 0
     with torch.no_grad():
         for inputs, targets in dataloader:
             outputs = model(inputs)
             outputs = outputs.view(targets.shape)
             loss = criterion(outputs, targets)
             val_loss += loss.item()
-            mse, mae, r2 = compute_metrics(outputs, targets)
-            val_mse += mse
-            val_mae += mae
+            r2 = compute_r2(targets, outputs)
             val_r2 += r2
     val_loss /= len(dataloader)
-    val_mse /= len(dataloader)
-    val_mae /= len(dataloader)
     val_r2 /= len(dataloader)
-    return val_loss, val_mse, val_mae, val_r2
+    return val_loss, val_r2
 
 
 def train_model(
@@ -370,7 +372,7 @@ def train_model(
     with tqdm(total=num_epochs, desc="Fold") as pbar:
         for epoch in range(num_epochs):
             model.train()
-            train_loss, train_mse, train_mae, train_r2 = 0, 0, 0, 0
+            train_loss, train_r2 = 0, 0
             optimizer.zero_grad(set_to_none=True)
             logger.debug(f"Starting epoch {epoch+1}")
             for idx, (inputs, targets) in enumerate(train_dataloader):
@@ -386,29 +388,19 @@ def train_model(
                     optimizer.zero_grad(set_to_none=True)
 
                 train_loss += loss.item()
-                mse, mae, r2 = compute_metrics(outputs, targets)
-                train_mse += mse
-                train_mae += mae
+                r2 = compute_r2(targets, outputs)
                 train_r2 += r2
 
             train_loss /= len(train_dataloader)
-            train_mse /= len(train_dataloader)
-            train_mae /= len(train_dataloader)
             train_r2 /= len(train_dataloader)
 
             writer.add_scalar("Loss/train", train_loss, epoch)
-            writer.add_scalar("MSE/train", train_mse, epoch)
-            writer.add_scalar("MAE/train", train_mae, epoch)
             writer.add_scalar("R2/train", train_r2, epoch)
-            # logger.info(f"Epoch {epoch+1} - Train Loss: {train_loss:.4f}, MSE: {train_mse:.4f}, MAE: {train_mae:.4f}, R2: {train_r2:.4f}")
-            val_loss, val_mse, val_mae, val_r2 = validate_model(
-                model, val_dataloader, criterion
-            )
+            # logger.info(f"Epoch {epoch+1} - Train Loss: {train_loss:.4f}, R2: {train_r2:.4f}")
+            val_loss, val_r2 = validate_model(model, val_dataloader, criterion)
             writer.add_scalar("Loss/val", val_loss, epoch)
-            writer.add_scalar("MSE/val", val_mse, epoch)
-            writer.add_scalar("MAE/val", val_mae, epoch)
             writer.add_scalar("R2/val", val_r2, epoch)
-            # logger.info(f"Epoch {epoch+1} - Val Loss: {val_loss:.4f}, MSE: {val_mse:.4f}, MAE: {val_mae:.4f}, R2: {val_r2:.4f}")
+            # logger.info(f"Epoch {epoch+1} - Val Loss: {val_loss:.4f}, R2: {val_r2:.4f}")
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -436,41 +428,26 @@ def test_model(
     criterion: nn.Module,
     writer: SummaryWriter,
     hparams: Dict[str, Any],
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[Tuple[float, float], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
     model.load_state_dict(torch.load("models/best_model.pth"))
     model.eval()
-    test_loss, test_mse, test_mae, test_r2 = 0, 0, 0, 0
+    test_loss, test_r2 = 0, 0
     with torch.no_grad():
         for inputs, targets in dataloader:
             outputs = model(inputs)
             outputs = outputs.view(targets.shape)
             loss = criterion(outputs, targets)
             test_loss += loss.item()
-            mse, mae, r2 = compute_metrics(outputs, targets)
-            test_mse += mse
-            test_mae += mae
+            r2 = compute_r2(targets, outputs)
             test_r2 += r2
 
     test_loss /= len(dataloader)
-    test_mse /= len(dataloader)
-    test_mae /= len(dataloader)
     test_r2 /= len(dataloader)
 
-    logger.info(
-        f"Test Loss: {test_loss:.4f}\nTest MSE: {test_mse:.4f}\nTest MAE: {test_mae:.4f}\nTest R2: {test_r2:.4f}"
-    )
+    metrics = [test_loss, test_r2]
+    test_data = [inputs, targets, outputs]
 
-    metrics = {
-        "test/Loss": test_loss,
-        "test/MSE": test_mse,
-        "test/MAE": test_mae,
-        "test/R2": test_r2,
-    }
-    writer.add_hparams(hparams, metrics, run_name=".")
-    inputs_for_plot = inputs
-    targets_for_plot = targets
-    outputs_for_plot = outputs
-    return inputs_for_plot, targets_for_plot, outputs_for_plot
+    return metrics, test_data
 
 
 def setup_writer_and_hparams(comment: str) -> Tuple[SummaryWriter, Dict[str, Any]]:
@@ -527,9 +504,8 @@ def cross_validation_procedure(
         writer=writer,
     )
 
-    logger.log(
-        "METRIC",
-        f"Cross-validation completed.\n Avg results: Loss={avg_results[0]:.4f}, MSE={avg_results[1]:.4f}, MAE={avg_results[2]:.4f}, R2={avg_results[3]:.4f}",
+    logger.info(
+        f"Cross-validation completed.\n Avg results: Loss={avg_results[0]:.4f}, R2={avg_results[1]:.4f}",
     )
 
     test_dataloader = DataLoader(
@@ -542,13 +518,21 @@ def cross_validation_procedure(
     )
 
     logger.info("Testing model on the test dataset")
-    inputs_for_plot, targets_for_plot, outputs_for_plot = test_model(
-        model, test_dataloader, criterion, writer, hparams
-    )
+    metrics, test_data = test_model(model, test_dataloader, criterion, writer, hparams)
+    test_loss, test_r2 = metrics
+    logger.info(f"Test Loss: {test_loss:.4f}\nTest R2: {test_r2:.4f}")
+
+    metrics = {
+        "Loss/test": test_loss,
+        "R2/test": test_r2,
+        "Loss/Cross": avg_results[0],
+        "R2/Cross": avg_results[1],
+    }
+    writer.add_hparams(hparams, metrics, run_name=".")
     writer.close()
 
     logger.info("Cross-validation procedure completed")
-    return inputs_for_plot, targets_for_plot, outputs_for_plot
+    return test_data
 
 
 def standard_training_procedure(
@@ -592,12 +576,19 @@ def standard_training_procedure(
     )
 
     logger.info("Testing model on the test dataset")
-    inputs_for_plot, targets_for_plot, outputs_for_plot = test_model(
-        model, test_dataloader, criterion, writer, hparams
-    )
-    logger.info("Procedure completed")
+    metrics, test_data = test_model(model, test_dataloader, criterion, writer, hparams)
+    test_loss, test_r2 = metrics
+    logger.info(f"Test Loss: {test_loss:.4f}\nTest R2: {test_r2:.4f}")
+
+    metrics = {
+        "Loss/test": test_loss,
+        "R2/test": test_r2,
+    }
+    writer.add_hparams(hparams, metrics, run_name=".")
     writer.close()
-    return inputs_for_plot, targets_for_plot, outputs_for_plot
+
+    logger.info("Cross-validation procedure completed")
+    return test_data
 
 
 def main(
@@ -606,20 +597,16 @@ def main(
     try:
         if do_cross_validation:
             logger.info("Starting cross-validation procedure")
-            inputs_for_plot, targets_for_plot, outputs_for_plot = (
-                cross_validation_procedure(name, neural_network)
-            )
+            test_data = cross_validation_procedure(name, neural_network)
         else:
             logger.info("Starting standard training procedure")
-            inputs_for_plot, targets_for_plot, outputs_for_plot = (
-                standard_training_procedure(name, neural_network)
-            )
+            test_data = standard_training_procedure(name, neural_network)
     except Exception as e:
         logger.error(f"An error occurred during the training process: {e}")
         raise
 
     logger.info("Training process completed successfully")
-    return inputs_for_plot, targets_for_plot, outputs_for_plot
+    return test_data
 
 
 class SimpleNN(nn.Module):
@@ -780,7 +767,7 @@ class ComplexSFNO(nn.Module):
         )
 
         # Fully Connected layers for the combined output
-        self.fc1_combined = nn.Linear(32+8 * numpoints_x * numpoints_y, 32)
+        self.fc1_combined = nn.Linear(32 + 8 * numpoints_x * numpoints_y, 32)
         self.fc2_combined = nn.Linear(32, variables_n * numpoints_x * numpoints_y)
 
         # Batch normalization layers
@@ -807,40 +794,59 @@ class ComplexSFNO(nn.Module):
         return x_combined
 
 
+class FNOnet(nn.Module):
+    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y):
+        super(FNOnet, self).__init__()
+
+        # Branch 1: Fully Connected layers for parameters
+        self.fc1_params = nn.Linear(parameters_n, 16)
+        self.fc2_params = nn.Linear(16, parameters_n)
+
+        # Branch 2: SFNO for 2D field
+        self.fno = FNO(
+            n_modes=(16, 16),  # Adjust based on your data
+            hidden_channels=16,
+            in_channels=1,
+            out_channels=6,
+            n_layers=4,
+            lifting_channels=16,
+            projection_channels=16,
+        )
+
+        # Fully Connected layers for the combined output
+        self.fc1_combined = nn.Linear(parameters_n + 6 * numpoints_x * numpoints_y, 32)
+        self.fc2_combined = nn.Linear(32, variables_n * numpoints_x * numpoints_y)
+
+    def forward(self, x):
+        x_params, x_field = x
+
+        # Forward pass for parameters branch
+        x_params = F.relu(self.fc1_params(x_params))
+        x_params = F.relu(self.fc2_params(x_params))
+
+        # Forward pass for 2D field branch using SFNO
+        x_field = x_field.unsqueeze(1)  # Add a channel dimension
+        x_field = self.fno(x_field)
+        x_field = x_field.view(x_field.size(0), -1)  # Flatten
+
+        # Combine both branches
+        x_combined = torch.cat([x_params, x_field], dim=1)
+        x_combined = F.relu(self.fc1_combined(x_combined))
+        x_combined = self.fc2_combined(x_combined)
+
+        return x_combined
+
+
 if __name__ == "__main__":
     # Remove default logger and add custom one
     logger.remove()
-    logger.add(
-        sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level="INFO",
-    )
     logger.add("logs/file_{time}.log", rotation="500 MB")
+    logger.add(lambda msg: tqdm.write(msg, end=""), level="INFO")
     try:
-        inputs_for_plot, targets_for_plot, outputs_for_plot = main(
-            "SFNO", ComplexSFNO, do_cross_validation=True
-        )
+        test_data = main("FNO", FNOnet, do_cross_validation=True)
     except Exception as e:
         logger.error(f"An unhandled exception occurred: {e}")
         sys.exit(1)
-
-if __name__ == "__main__":
-    logger.remove()
-    logger.add(
-        "training.log",
-        format="{time:YYYY-MM-DD at HH:mm:ss} | {message}",
-        rotation="10 MB",
-        compression="zip",
-        mode="a",
-    )
-    logger.add(lambda msg: tqdm.write(msg, end=""))
-    try:
-        logger.level("METRIC", no=15, color="<white>")
-    except:
-        pass
-    inputs_for_plot, targets_for_plot, outputs_for_plot = main(
-        "SFNO", ComplexSFNO, do_cross_validation=True
-    )
 
 reshaped_target = target0[0].reshape(NUMPOINTS_Y * 6, NUMPOINTS_X)
 reshaped_output = output0[0].reshape(NUMPOINTS_Y * 6, NUMPOINTS_X).detach().numpy()

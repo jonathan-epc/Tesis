@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+import seaborn as sns
+
 # Local Imports
 from data_manip.extraction.telemac_file import TelemacFile
 from matplotlib import cm, ticker
@@ -420,6 +422,8 @@ for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
 
 parameters = pd.read_csv("parameters.csv", index_col="id")
 
+parameters['subcritical'].describe()
+
 
 def plot_ith(i):
     # List of points defining the polyline
@@ -485,6 +489,8 @@ poly_coord5, abs_curv5, values_polylines5 = res5.get_timeseries_on_polyline(
     "WATER DEPTH", poly_points, poly_number
 )
 
+plot_ith(1)
+
 res0.close()
 res1.close()
 res2.close()
@@ -531,3 +537,27 @@ ax.minorticks_on()  # Turn on minor ticks
 plt.savefig("test_plot.png")
 # Show the plot
 plt.show()
+
+sns.pairplot(parameters, vars=['SLOPE', 'n', 'Q0', 'H0'], hue='subcritical', diag_kws={'bw': 0.2})
+plt.show()
+
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+
+X = parameters[['SLOPE', 'n', 'Q0', 'H0']]
+y = parameters['subcritical']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+clf = DecisionTreeClassifier(random_state=42)
+clf.fit(X_train, y_train)
+
+from sklearn.tree import plot_tree
+
+fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(15, 7), dpi=300)
+plot_tree(clf, feature_names=['slope', 'n', 'q0', 'h0'], filled=True, impurity=False, ax=axes)
+plt.savefig('decision_tree.svg', format='svg', bbox_inches='tight')
+plt.show()
+
+accuracy = clf.score(X_test, y_test)
+print(f'Accuracy: {accuracy * 100:.2f}%')

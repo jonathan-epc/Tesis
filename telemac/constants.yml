@@ -2,7 +2,6 @@ channel:
   width: 0.3  # in m
   length: 12  # in m
   depth: 0.3  # in m
-  slope: 0.05
   wall_thickness: 0.00  # in m
   flat_zone: 0
 
@@ -11,12 +10,12 @@ mesh:
   num_points_x: 401
 
 parameters:
-  slope_min: 3e-6
-  slope_max: 1e-1
-  n_min: 1e-3
-  n_max: 2e-1
-  q0_min: 5e-3
-  q0_max: 2e-2
-  h0_min: 1e-2
-  h0_max: 3e-2
-  bottom_values: ["NOISE"]
+  slope_min: 0.000003
+  slope_max: 0.1
+  n_min: 0.001
+  n_max: 0.2
+  q0_min: 0.005
+  q0_max: 0.02
+  h0_min: 0.01 
+  h0_max: 0.03 
+  bottom_values: ["NOISE", "FLAT"]
