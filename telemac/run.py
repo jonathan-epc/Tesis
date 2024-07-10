@@ -45,3 +45,57 @@ def run_telemac2d_on_files(start, end, output_dir, parameters):
             pbar.update(1)
 
     logger.info("All Telemac2D simulations completed")
+
+
+if __name__ == "__main__":
+    script_name = os.path.splitext(os.path.basename(__file__))[0]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    process_id = os.getpid()
+    
+    log_name = f"{script_name}_{timestamp}_{process_id}"
+    logger = setup_logger(log_name)  # Use the log_name variable here
+
+    parser = argparse.ArgumentParser(description="Run Telemac2D simulations.")
+    parser.add_argument(
+        "--start",
+        type=int,
+        default=0,
+        help="Start file index (default: 0 for all files)",
+    )
+    parser.add_argument(
+        "--end", type=int, default=0, help="End file index (default: 0 for all files)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=OUTPUT_FOLDER,
+        help=f"Output directory for the simulations (default: {OUTPUT_FOLDER})",
+    )
+
+    args = parser.parse_args()
+
+    logger.info(f"Starting Telemac2D simulations with arguments: {args}")
+
+    try:
+        parameters = load_parameters(PARAMETERS_FILE)
+        logger.info(f"Loaded parameters from {PARAMETERS_FILE}")
+
+        if args.start == 0 and args.end == 0:
+            cas_files = [f for f in os.listdir(STEERING_FOLDER) if f.endswith(".cas")]
+            start_index = 0
+            end_index = len(cas_files)
+            logger.info(f"Processing all {end_index} .cas files")
+        else:
+            start_index = args.start
+            end_index = args.end
+            logger.info(f"Processing .cas files from index {start_index} to {end_index}")
+
+        if start_index > end_index:
+            raise ValueError("Start index cannot be greater than end index.")
+
+        run_telemac2d_on_files(start_index, end_index, args.output_dir, parameters)
+        
+        logger.info("Telemac2D simulations completed successfully")
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred: {e}")
+        sys.exit(1)
