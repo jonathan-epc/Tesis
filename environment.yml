@@ -88,6 +88,8 @@ dependencies:
   - pathspec=0.10.3
   - pillow=10.3.0
   - pip=24.0
+  - pip:
+    - -r requirements.txt
   - platformdirs=3.10.0
   - plotly=5.9.0
   - ply=3.11
