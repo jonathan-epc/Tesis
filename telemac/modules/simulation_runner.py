@@ -41,7 +41,7 @@ def run_single_simulation(i, filename, case_parameters, output_dir, steering_fol
     try:
         src_file = os.path.join(steering_folder, filename)
         dst_file = filename
-        prepare_steering_file(src_file, dst_file, result_file, i)
+        prepare_steering_file(src_file, dst_file, result_file, i, False)
         run_telemac2d(filename, output_dir)
     except Exception as e:
         logger.error(f"Error processing {filename}: {e}")
