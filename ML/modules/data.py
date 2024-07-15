@@ -3,8 +3,8 @@ from typing import Callable, List, Optional, Tuple, Union
 import h5py
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 from loguru import logger
+from torch.utils.data import DataLoader, Dataset, random_split
 
 
 class HDF5Dataset(Dataset):
@@ -15,13 +15,23 @@ class HDF5Dataset(Dataset):
         parameters: List[str],
         numpoints_x: int,
         numpoints_y: int,
-        device:str,
+        device: str,
         normalized: bool = True,
         swap: bool = False,
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
     ):
         self.file_path = file_path
+        self.variables = variables
+        self.parameters = parameters
+        self.numpoints_x = numpoints_x
+        self.numpoints_y = numpoints_y
+        self.normalized = normalized
+        self.swap = swap
+        self.transform = transform
+        self.target_transform = target_transform
+        self.device = device
+
         try:
             with h5py.File(self.file_path, "r") as data:
                 self.keys = [key for key in data.keys() if key != "statistics"]
@@ -33,21 +43,10 @@ class HDF5Dataset(Dataset):
                     param: np.sqrt(data["statistics"].attrs[f"{param}_variance"])
                     for param in parameters + ["B"] + variables
                 }
-        except IOError as e:
-            logger.error(f"Error opening file {self.file_path}: {e}")
-            raise
-        except KeyError as e:
+        except (IOError, KeyError) as e:
             logger.error(f"Error accessing data in file {self.file_path}: {e}")
             raise
-        self.variables = variables
-        self.parameters = parameters
-        self.numpoints_x = numpoints_x
-        self.numpoints_y = numpoints_y
-        self.normalized = normalized
-        self.swap = swap
-        self.transform = transform
-        self.target_transform = target_transform
-        self.device = device
+
         self.data = {}
         try:
             with h5py.File(self.file_path, "r") as data:
@@ -62,7 +61,7 @@ class HDF5Dataset(Dataset):
             logger.error(f"Error loading data from {self.file_path}: {e}")
             raise
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.keys)
 
     def __getitem__(
@@ -79,7 +78,7 @@ class HDF5Dataset(Dataset):
                 for var in self.variables
             ]
 
-            if not self.normalized:
+            if self.normalized:
                 parameters = [
                     self.normalize(p, param)
                     for p, param in zip(parameters, self.parameters)
@@ -89,9 +88,9 @@ class HDF5Dataset(Dataset):
                     self.normalize(o, var) for o, var in zip(output, self.variables)
                 ]
 
-            parameters_normalized = torch.tensor(parameters).double()
-            B_normalized = torch.tensor(B).double()
-            output = torch.stack([torch.tensor(o).double() for o in output])
+            parameters_normalized = torch.tensor(parameters, dtype=torch.float32)
+            B_normalized = torch.tensor(B, dtype=torch.float32)
+            output = torch.stack([torch.tensor(o, dtype=torch.float32) for o in output])
 
             if self.transform:
                 parameters_normalized = self.transform(parameters_normalized)
@@ -100,9 +99,15 @@ class HDF5Dataset(Dataset):
                 output = self.target_transform(output)
 
             if self.swap:
-                return output.to(self.device), [parameters_normalized.to(self.device), B_normalized.to(self.device)]
+                return output.to(self.device), [
+                    parameters_normalized.to(self.device),
+                    B_normalized.to(self.device),
+                ]
             else:
-                return [parameters_normalized.to(self.device), B_normalized.to(self.device)], output.to(self.device)
+                return [
+                    parameters_normalized.to(self.device),
+                    B_normalized.to(self.device),
+                ], output.to(self.device)
 
         except IndexError:
             logger.error(f"Index {idx} out of range for dataset")
@@ -120,3 +125,59 @@ class HDF5Dataset(Dataset):
         mean = self.stat_means[prefix]
         std = self.stat_stds[prefix]
         return data * std + mean
+
+
+def create_dataloaders(
+    file_path: str,
+    variables: List[str],
+    parameters: List[str],
+    numpoints_x: int,
+    numpoints_y: int,
+    device: str,
+    batch_size: int,
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    try:
+        dataset = HDF5Dataset(
+            file_path, variables, parameters, numpoints_x, numpoints_y, device
+        )
+    except Exception as e:
+        logger.error(f"Error creating dataset: {e}")
+        raise
+
+    try:
+        train_size = int(0.6 * len(dataset))
+        val_size = int(0.2 * len(dataset))
+        test_size = len(dataset) - train_size - val_size
+        train_dataset, val_dataset, test_dataset = random_split(
+            dataset, [train_size, val_size, test_size]
+        )
+    except ValueError as e:
+        logger.error(f"Error splitting dataset: {e}")
+        raise
+
+    try:
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=4,
+            drop_last=True,
+        )
+        val_dataloader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=4,
+            drop_last=True,
+        )
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=4,
+            drop_last=True,
+        )
+    except Exception as e:
+        logger.error(f"Error creating dataloaders: {e}")
+        raise
+    return train_dataloader, val_dataloader, test_dataloader
