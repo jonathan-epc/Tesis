@@ -269,4 +269,3 @@ dependencies:
       - torch-harmonics==0.6.3
       - wandb==0.17.4
       - xarray-selafin==0.1.6
-prefix: D:\Users\Jonny\miniconda3\envs\ML
