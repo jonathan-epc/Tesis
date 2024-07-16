@@ -35,7 +35,6 @@ def train_model(
     early_stopping = EarlyStopping(
         patience=20, verbose=True, save_path=f"savepoints/{name}_best_model.pth"
     )
-
     logger.info(f"Starting training for {num_epochs} epochs")
     with tqdm(total=num_epochs, desc="Epochs") as pbar:
         try:
@@ -48,7 +47,7 @@ def train_model(
                     inputs = [input.to(DEVICE) for input in inputs]
                     targets = targets.to(DEVICE)
 
-                    with autocast(enabled=DEVICE == "cuda"):
+                    with autocast(enabled=DEVICE == "cuda", dtype=torch.float32):
                         outputs = model(inputs).view(targets.shape)
                         loss = criterion(outputs, targets)
                         loss = loss / accumulation_steps
