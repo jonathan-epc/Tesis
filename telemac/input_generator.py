@@ -4,12 +4,13 @@ from pathlib import Path
 
 from logger_config import setup_logger
 from loguru import logger
+from tqdm.autonotebook import tqdm
+
 from modules.boundary_conditions import BoundaryConditions
 from modules.environment_setup import EnvironmentSetup
 from modules.geometry_generator import GeometryGenerator
 from modules.parameter_manager import ParameterManager
 from modules.steering_file_generator import SteeringFileGenerator
-from tqdm.autonotebook import tqdm
 
 
 def main() -> None:
@@ -56,9 +57,9 @@ def main() -> None:
             # Generate steering file
             steering_generator = SteeringFileGenerator()
             steering_file_content = steering_generator.generate_steering_file(
-                geometry_file=f"geometry/geometry_3x3_{case['BOTTOM']}_{index}.slf",
+                geometry_file=f"geometry/3x3_{case['BOTTOM']}_{index}.slf",
                 boundary_file=boundary_file,
-                results_file=f"results/results_{index}.slf",
+                results_file=f"results/{index}.slf",
                 title=f"Caso {index}",
                 duration=120,
                 time_step=0.02,
@@ -71,7 +72,7 @@ def main() -> None:
 
             Path("steering").mkdir(parents=True, exist_ok=True)
             try:
-                with open(f"steering/steering_{index}.cas", "w") as f:
+                with open(f"steering/{index}.cas", "w") as f:
                     f.write(steering_file_content)
                 logger.debug(f"Wrote steering file for case {index}")
             except IOError as e:

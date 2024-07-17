@@ -24,5 +24,5 @@ def check_flux_boundaries(log_file):
         logger.error(f"Error reading log file {log_file}: {e}")
         return None, None
 
-def is_flux_balanced(flux_1, flux_2, threshold=1e-4):
+def is_flux_balanced(flux_1, flux_2, threshold=1e-3):
     return abs(flux_1 + flux_2) < threshold

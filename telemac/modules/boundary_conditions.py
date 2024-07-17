@@ -33,6 +33,6 @@ class BoundaryConditions:
             z_left, z_right = borders_noise
 
         if direction == "Left to right":
-            return "boundary/boundary_3x3_tor.cli", (0.0, z_left + h0)
+            return "boundary/3x3_tor.cli", (0.0, z_left + h0)
         else:
-            return "boundary/boundary_3x3_riv.cli", (z_right + h0, 0.0)
+            return "boundary/3x3_riv.cli", (z_right + h0, 0.0)

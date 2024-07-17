@@ -29,7 +29,7 @@ def process_simulation_results(
     result_files = [
         f
         for f in os.listdir(os.path.join(base_dir, "results"))
-        if f.startswith("results_") and f.endswith(".slf")
+        if f.endswith(".slf")
     ]
 
     with h5py.File(output_file_noise, "w") as hdf5_file_noise, \
