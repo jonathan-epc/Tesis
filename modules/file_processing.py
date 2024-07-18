@@ -4,12 +4,12 @@ import h5py
 import xarray as xr
 import pandas as pd
 from loguru import logger
-from tqdm.autonotebook import tqdm
+from rich.progress import track
 from modules.statistics import calculate_statistics, combine_statistics, normalize_statistics
 
 def process_and_save(hdf5_file, condition, base_dir, parameters, parameter_table, parameter_names, variable_names, result_files):
     overall_stats = {}
-    for idx, result_file in enumerate(tqdm(result_files, desc="Processing files")):
+    for idx, result_file in enumerate(track(result_files, description="Processing files")):
         try:
             i = int(re.split(r"_|\.", result_file)[1])
             simulation_name = os.path.splitext(result_file)[0]
@@ -64,7 +64,7 @@ def process_and_save(hdf5_file, condition, base_dir, parameters, parameter_table
     return table
 
 def process_and_save_normalized(hdf5_file, condition, table, base_dir, parameters, parameter_names, variable_names, result_files):
-    for idx, result_file in enumerate(tqdm(result_files, desc="Normalizing files")):
+    for idx, result_file in enumerate(track(result_files, description="Normalizing files")):
         try:
             i = int(re.split(r"_|\.", result_file)[1])
             simulation_name = os.path.splitext(result_file)[0]

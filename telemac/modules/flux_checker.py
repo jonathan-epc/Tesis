@@ -2,7 +2,7 @@ from loguru import logger
 import re
 def check_flux_boundaries(log_file):
     try:
-        with open(log_file, 'r') as f:
+        with open(log_file, 'r', encoding = "latin1") as f:
             content = f.read()
         
         # Find the last occurrence of BALANCE OF WATER VOLUME

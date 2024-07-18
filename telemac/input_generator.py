@@ -4,7 +4,7 @@ from pathlib import Path
 
 from logger_config import setup_logger
 from loguru import logger
-from tqdm.autonotebook import tqdm
+from rich.progress import track
 
 from modules.boundary_conditions import BoundaryConditions
 from modules.environment_setup import EnvironmentSetup
@@ -24,7 +24,7 @@ def main() -> None:
     param_manager = ParameterManager(setup_data["constants"])
     parameters_df = param_manager.get_parameters()
 
-    for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df)):
+    for index, case in track(parameters_df.iterrows(), total=len(parameters_df)):
         try:
             logger.debug(f"Processing case {index}")
 
