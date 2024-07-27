@@ -19,6 +19,8 @@
 *.hdf5
 *.pth
 ML/runs/*
+ML/runs.old/*
+ML/wandb/*
 *steering*/
 *checkpoint*
 *sync-conflict*
