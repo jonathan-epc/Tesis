@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Callable, List, Optional, Tuple, Union
 
 import h5py
@@ -26,158 +27,96 @@ class HDF5Dataset(Dataset):
         self.parameters = parameters
         self.numpoints_x = numpoints_x
         self.numpoints_y = numpoints_y
-        self.normalized = normalized
+        self.already_normalized = normalized
         self.swap = swap
         self.transform = transform
         self.target_transform = target_transform
         self.device = device
 
-        try:
-            with h5py.File(self.file_path, "r") as data:
-                self.keys = [key for key in data.keys() if key != "statistics"]
-                self.stat_means = {
-                    param: data["statistics"].attrs[f"{param}_mean"]
-                    for param in parameters + ["B"] + variables
-                }
-                self.stat_stds = {
-                    param: np.sqrt(data["statistics"].attrs[f"{param}_variance"])
-                    for param in parameters + ["B"] + variables
-                }
-        except (IOError, KeyError) as e:
-            logger.error(f"Error accessing data in file {self.file_path}: {e}")
-            raise
+        with h5py.File(self.file_path, "r") as data:
+            self.keys = [key for key in data.keys() if key != "statistics"]
+            self.stat_means = {
+                param: data["statistics"].attrs[f"{param}_mean"]
+                for param in parameters + ["B"] + variables
+            }
+            self.stat_stds = {
+                param: np.sqrt(data["statistics"].attrs[f"{param}_variance"])
+                for param in parameters + ["B"] + variables
+            }
 
-        self.data = {}
-        try:
-            with h5py.File(self.file_path, "r") as data:
-                for key in self.keys:
-                    self.data[key] = {
-                        param: data[key].attrs[param] for param in self.parameters
-                    }
-                    self.data[key]["B"] = data[key]["B"][()]
-                    for var in self.variables:
-                        self.data[key][var] = data[key][var][()]
-        except Exception as e:
-            logger.error(f"Error loading data from {self.file_path}: {e}")
-            raise
+        # Pre-load all data into memory
+        self.data = self._load_data()
+
+    def _load_data(self):
+        data = {}
+        with h5py.File(self.file_path, "r") as file:
+            for key in self.keys:
+                data[key] = {param: file[key].attrs[param] for param in self.parameters}
+                data[key]["B"] = torch.from_numpy(file[key]["B"][()]).float()
+                for var in self.variables:
+                    data[key][var] = torch.from_numpy(file[key][var][()]).float()
+        return data
 
     def __len__(self) -> int:
         return len(self.keys)
 
+    @lru_cache(maxsize=None)
     def __getitem__(
         self, idx: int
     ) -> Tuple[Union[List[torch.Tensor], torch.Tensor], torch.Tensor]:
-        try:
-            key = self.keys[idx]
-            case = self.data[key]
+        key = self.keys[idx]
+        case = self.data[key]
 
-            parameters = [case[param] for param in self.parameters]
-            B = case["B"].reshape(self.numpoints_y, self.numpoints_x)
-            output = [
+        parameters = torch.tensor(
+            [case[param] for param in self.parameters], dtype=torch.float32
+        )
+        B = case["B"].reshape(self.numpoints_y, self.numpoints_x)
+        output = torch.stack(
+            [
                 case[var].reshape(self.numpoints_y, self.numpoints_x)
                 for var in self.variables
             ]
+        )
 
-            if self.normalized:
-                parameters = [
-                    self.normalize(p, param)
-                    for p, param in zip(parameters, self.parameters)
-                ]
-                B = self.normalize(B, "B")
-                output = [
-                    self.normalize(o, var) for o, var in zip(output, self.variables)
-                ]
+        if not self.already_normalized:
+            parameters = self.normalize(parameters, self.parameters)
+            B = self.normalize(B, "B")
+            output = self.normalize(output, self.variables)
 
-            parameters_normalized = torch.tensor(parameters, dtype=torch.float32)
-            B_normalized = torch.tensor(B, dtype=torch.float32)
-            output = torch.stack([torch.tensor(o, dtype=torch.float32) for o in output])
+        if self.transform:
+            parameters = self.transform(parameters)
+            B = self.transform(B)
+        if self.target_transform:
+            output = self.target_transform(output)
 
-            if self.transform:
-                parameters_normalized = self.transform(parameters_normalized)
-                B_normalized = self.transform(B_normalized)
-            if self.target_transform:
-                output = self.target_transform(output)
+        if self.swap:
+            return output.to(self.device), [
+                parameters.to(self.device),
+                B.to(self.device),
+            ]
+        else:
+            return [parameters.to(self.device), B.to(self.device)], output.to(
+                self.device
+            )
 
-            if self.swap:
-                return output.to(self.device), [
-                    parameters_normalized.to(self.device),
-                    B_normalized.to(self.device),
-                ]
-            else:
-                return [
-                    parameters_normalized.to(self.device),
-                    B_normalized.to(self.device),
-                ], output.to(self.device)
-
-        except IndexError:
-            logger.error(f"Index {idx} out of range for dataset")
-            raise
-        except KeyError as e:
-            logger.error(f"Error accessing data for key {key}: {e}")
-            raise
-
-    def normalize(self, data: np.ndarray, prefix: str) -> np.ndarray:
-        mean = self.stat_means[prefix]
-        std = self.stat_stds[prefix]
+    def normalize(
+        self, data: torch.Tensor, prefixes: Union[str, List[str]]
+    ) -> torch.Tensor:
+        if isinstance(prefixes, str):
+            mean = self.stat_means[prefixes]
+            std = self.stat_stds[prefixes]
+        else:
+            mean = torch.tensor([self.stat_means[prefix] for prefix in prefixes])
+            std = torch.tensor([self.stat_stds[prefix] for prefix in prefixes])
         return (data - mean) / std
 
-    def denormalize(self, data: np.ndarray, prefix: str) -> np.ndarray:
-        mean = self.stat_means[prefix]
-        std = self.stat_stds[prefix]
+    def denormalize(
+        self, data: torch.Tensor, prefixes: Union[str, List[str]]
+    ) -> torch.Tensor:
+        if isinstance(prefixes, str):
+            mean = self.stat_means[prefixes]
+            std = self.stat_stds[prefixes]
+        else:
+            mean = torch.tensor([self.stat_means[prefix] for prefix in prefixes])
+            std = torch.tensor([self.stat_stds[prefix] for prefix in prefixes])
         return data * std + mean
-
-
-def create_dataloaders(
-    file_path: str,
-    variables: List[str],
-    parameters: List[str],
-    numpoints_x: int,
-    numpoints_y: int,
-    device: str,
-    batch_size: int,
-) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    try:
-        dataset = HDF5Dataset(
-            file_path, variables, parameters, numpoints_x, numpoints_y, device
-        )
-    except Exception as e:
-        logger.error(f"Error creating dataset: {e}")
-        raise
-
-    try:
-        train_size = int(0.6 * len(dataset))
-        val_size = int(0.2 * len(dataset))
-        test_size = len(dataset) - train_size - val_size
-        train_dataset, val_dataset, test_dataset = random_split(
-            dataset, [train_size, val_size, test_size]
-        )
-    except ValueError as e:
-        logger.error(f"Error splitting dataset: {e}")
-        raise
-
-    try:
-        train_dataloader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=4,
-            drop_last=True,
-        )
-        val_dataloader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=4,
-            drop_last=True,
-        )
-        test_dataloader = DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=4,
-            drop_last=True,
-        )
-    except Exception as e:
-        logger.error(f"Error creating dataloaders: {e}")
-        raise
-    return train_dataloader, val_dataloader, test_dataloader
