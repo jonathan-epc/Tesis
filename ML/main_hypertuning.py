@@ -24,15 +24,15 @@ def objective(trial):
         "lifting_channels": trial.suggest_int("lifting_channels", 1, 64),
         "projection_channels": trial.suggest_int("projection_channels", 1, 64),
     }
-    architecture = "FNO2v2"
+    architecture = "FNO"
     name = f"{architecture}_trial_{trial.number}"
 
     try:
         test_loss = cross_validation_procedure(
             name,
             "simulation_data_normalized_noise.hdf5",
-            FNOv2net,
-            kfolds=3,
+            FNOnet,
+            kfolds=5,
             hparams=hparams,
             use_wandb=True,
             is_sweep=True,

@@ -78,10 +78,18 @@ class HDF5Dataset(Dataset):
             ]
         )
 
-        if not self.already_normalized:
-            parameters = self.normalize(parameters, self.parameters)
-            B = self.normalize(B, "B")
-            output = self.normalize(output, self.variables)
+        if self.already_normalized:
+            if self.swap:
+                parameters = self.denormalize(parameters, self.parameters)
+                B = self.denormalize(B, "B")
+            else:
+                output = self.denormalize(output, self.variables)                
+        else:
+            if self.swap:
+                output = self.normalize(output, self.variables)
+            else:
+                parameters = self.normalize(parameters, self.parameters)
+                B = self.normalize(B, "B")
 
         if self.transform:
             parameters = self.transform(parameters)
@@ -103,20 +111,24 @@ class HDF5Dataset(Dataset):
         self, data: torch.Tensor, prefixes: Union[str, List[str]]
     ) -> torch.Tensor:
         if isinstance(prefixes, str):
-            mean = self.stat_means[prefixes]
-            std = self.stat_stds[prefixes]
+            mean = self.stat_means[prefixes].float()
+            std = self.stat_stds[prefixes].float()
         else:
             mean = torch.tensor([self.stat_means[prefix] for prefix in prefixes])
             std = torch.tensor([self.stat_stds[prefix] for prefix in prefixes])
+        mean = mean.view(-1, 1, 1)
+        std = std.view(-1, 1, 1)
         return (data - mean) / std
 
     def denormalize(
         self, data: torch.Tensor, prefixes: Union[str, List[str]]
     ) -> torch.Tensor:
         if isinstance(prefixes, str):
-            mean = self.stat_means[prefixes]
-            std = self.stat_stds[prefixes]
+            mean = self.stat_means[prefixes].float()
+            std = self.stat_stds[prefixes].float()
         else:
-            mean = torch.tensor([self.stat_means[prefix] for prefix in prefixes])
-            std = torch.tensor([self.stat_stds[prefix] for prefix in prefixes])
+            mean = torch.tensor([self.stat_means[prefix] for prefix in prefixes],dtype=torch.float32)
+            std = torch.tensor([self.stat_stds[prefix] for prefix in prefixes],dtype=torch.float32)
+        mean = mean.view(-1, 1, 1)
+        std = std.view(-1, 1, 1)
         return data * std + mean

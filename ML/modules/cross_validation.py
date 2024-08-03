@@ -1,4 +1,3 @@
-# cross_validation.py
 import os
 import random
 import sys
@@ -60,6 +59,7 @@ def cross_validation_procedure(
     use_wandb: bool = False,
     is_sweep: bool = False,
     architecture: str = None,
+    plot_enabled: bool = False,
 ) -> float:
     logger.info("Starting cross-validation procedure")
     full_dataset = HDF5Dataset(
@@ -81,7 +81,7 @@ def cross_validation_procedure(
         f"Dataset split into training/validation ({train_val_size} samples) and test ({test_size} samples)"
     )
 
-    criterion = nn.SmoothL1Loss()
+    criterion = nn.MSELoss()
     writer, hparams = setup_writer_and_hparams(comment=name, hparams=hparams)
 
     logger.info("Starting cross-validation")
@@ -98,6 +98,7 @@ def cross_validation_procedure(
         use_wandb=use_wandb,
         is_sweep=is_sweep,
         architecture=architecture,
+        plot_enabled=plot_enabled,
         model_kwargs={
             "n_modes": (
                 hparams.get("n_modes_x", N_MODES_X),

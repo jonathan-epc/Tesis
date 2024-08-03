@@ -14,6 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torcheval.metrics.functional import mean_squared_error, r2_score
 from tqdm.autonotebook import tqdm
 
+from modules.plots import plot_difference_hex
 from modules.utils import EarlyStopping
 
 
@@ -24,8 +25,9 @@ def compute_metrics(outputs, targets):
     mse = mean_squared_error(targets, outputs)
     rmse = torch.sqrt(mse)
     r2 = r2_score(targets, outputs)
+    mae = torch.mean(torch.abs(targets - outputs))
 
-    return mse, rmse, r2
+    return mse, rmse, r2, mae
 
 
 def train_model(
@@ -34,17 +36,19 @@ def train_model(
     train_dataloader: DataLoader,
     val_dataloader: DataLoader,
     num_epochs: int,
-    accumulation_steps: int,
     criterion: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler._LRScheduler,
     scaler: GradScaler,
     fold_n: int,
+    accumulation_steps: int = 1,
     validate_every: int = 1000,
     clip_grad_value: float = 1.0,
     use_wandb: bool = False,
     is_sweep: bool = False,
     architecture: str = None,
+    plot_every: int = 100,
+    plot_enabled: bool = True,
 ) -> None:
     best_val_loss = float("inf")
     early_stopping = EarlyStopping(
@@ -66,43 +70,61 @@ def train_model(
             fold_run = wandb.init(
                 project="Tesis", name=f"{name}_fold_{fold_n}", group=f"{name}"
             )
+
+    global_step = 0
     with tqdm(total=num_epochs, desc=f"Fold {fold_n}") as pbar:
         try:
             for epoch in range(num_epochs):
                 model.train()
                 train_loss = 0.0
                 optimizer.zero_grad()
-
                 for idx, (inputs, targets) in enumerate(train_dataloader):
                     inputs = [input.to(DEVICE) for input in inputs]
                     targets = targets.to(DEVICE)
-
                     with autocast(enabled=DEVICE == "cuda", dtype=torch.float32):
-                        outputs = model(inputs).view(targets.shape)
+                        outputs = model(inputs)
                         loss = criterion(outputs, targets)
-                        loss = loss / accumulation_steps
-
+                        if accumulation_steps > 1:
+                            loss = loss / accumulation_steps
                     scaler.scale(loss).backward()
-
-                    if (idx + 1) % accumulation_steps == 0:
+                    if accumulation_steps == 1 or (idx + 1) % accumulation_steps == 0:
                         scaler.unscale_(optimizer)
                         clip_grad_norm_(model.parameters(), clip_grad_value)
                         scaler.step(optimizer)
                         scaler.update()
                         optimizer.zero_grad()
                         scheduler.step()
+                    train_loss += loss.item() * (
+                        accumulation_steps if accumulation_steps > 1 else 1
+                    )
 
-                    train_loss += loss.item() * accumulation_steps
+                    # Plot and save difference image if enabled
+                    if (
+                        plot_enabled
+                        and plot_every > 0
+                        and global_step % plot_every == 0
+                    ):
+                        plot_difference_hex(outputs, targets, name, global_step, fold_n)
+
+                    global_step += 1
 
                 train_loss /= len(train_dataloader)
-                val_loss, val_metrics = validate_model(model, val_dataloader, criterion)
-
+                val_loss, val_metrics = validate_model(
+                    name,
+                    model,
+                    val_dataloader,
+                    criterion,
+                    global_step,
+                    fold_n,
+                    plot_enabled=plot_enabled,
+                )
                 step = epoch
                 writer.add_scalar(f"Train/Loss", train_loss, step)
                 writer.add_scalar(f"Validation/Loss", val_loss, step)
                 writer.add_scalar(f"Validation/mse", val_metrics["mse"], step)
                 writer.add_scalar(f"Validation/rmse", val_metrics["rmse"], step)
                 writer.add_scalar(f"Validation/r2", val_metrics["r2"], step)
+                writer.add_scalar(f"Validation/mae", val_metrics["mae"], step)
                 if use_wandb:
                     fold_run.log(
                         {
@@ -111,23 +133,20 @@ def train_model(
                             "Validation_mse": val_metrics["mse"],
                             "Validation_rmse": val_metrics["rmse"],
                             "Validation_r2": val_metrics["r2"],
+                            "Validation_mae": val_metrics["mae"],
                         }
                     )
-
                 early_stopping(val_loss, model, epoch)
                 if early_stopping.early_stop:
                     logger.info("Early stopping")
                     break
-
                 pbar.update(1)
                 pbar.set_postfix(train_loss=train_loss, val_loss=val_loss)
             if use_wandb:
                 fold_run.finish()
-
         except Exception as e:
             logger.error(f"An error occurred during training: {str(e)}")
             raise
-
         finally:
             torch.cuda.empty_cache()
             gc.collect()
@@ -135,7 +154,13 @@ def train_model(
 
 
 def validate_model(
-    model: torch.nn.Module, dataloader: DataLoader, criterion: torch.nn.Module
+    name: str,
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    criterion: torch.nn.Module,
+    step: int = -1,
+    fold_n: int = -1,
+    plot_enabled: bool = True,
 ) -> Tuple[float, Dict[str, float]]:
     model.eval()
     val_loss = 0.0
@@ -147,18 +172,21 @@ def validate_model(
             inputs = [input.to(DEVICE) for input in inputs]
             targets = targets.to(DEVICE)
             with autocast(enabled=DEVICE == "cuda", dtype=torch.float32):
-                outputs = model(inputs).view(targets.shape)
+                outputs = model(inputs)
                 loss = criterion(outputs, targets)
                 val_loss += loss.item()
                 all_outputs.append(outputs)
                 all_targets.append(targets)
 
+    if plot_enabled:
+        plot_difference_hex(outputs, targets, name + "_validation", step, fold_n)
+
     val_loss /= len(dataloader)
     all_outputs = torch.cat(all_outputs)
     all_targets = torch.cat(all_targets)
-    mse, rmse, r2 = compute_metrics(all_outputs, all_targets)
+    mse, rmse, r2, mae = compute_metrics(all_outputs, all_targets)
 
-    metrics = {"loss": val_loss, "mse": mse, "rmse": rmse, "r2": r2}
+    metrics = {"loss": val_loss, "mse": mse, "rmse": rmse, "r2": r2, "mae": mae}
     return val_loss, metrics
 
 
@@ -176,10 +204,11 @@ def cross_validate(
     use_wandb: bool = False,
     is_sweep: bool = False,
     architecture: str = None,
+    plot_enabled: bool = False,
 ) -> Tuple[float, Dict[str, float]]:
     kfold = KFold(n_splits=k_folds, shuffle=True)
     results = []
-    all_metrics = {"mse": [], "rmse": [], "r2": []}
+    all_metrics = {"mse": [], "rmse": [], "r2": [], "mae": []}
 
     with tqdm(total=k_folds, desc=f"{k_folds} folds Cross Validation") as pbar:
         for fold, (train_idx, val_idx) in enumerate(kfold.split(dataset)):
@@ -211,7 +240,6 @@ def cross_validate(
                 max_lr=0.01,
                 epochs=num_epochs,
                 steps_per_epoch=len(train_dataloader),
-                # T_max=30,
             )
             scaler = GradScaler()
 
@@ -221,26 +249,30 @@ def cross_validate(
                 train_dataloader,
                 val_dataloader,
                 num_epochs,
-                accumulation_steps,
                 criterion,
                 optimizer,
                 scheduler,
                 scaler,
                 fold + 1,
+                accumulation_steps,
                 use_wandb=use_wandb,
                 is_sweep=is_sweep,
                 architecture=architecture,
+                plot_enabled=plot_enabled,
             )
 
-            val_loss, val_metrics = validate_model(model, val_dataloader, criterion)
+            val_loss, val_metrics = validate_model(
+                name, model, val_dataloader, criterion, plot_enabled=plot_enabled
+            )
             results.append(val_loss)
 
             all_metrics["mse"].append(val_metrics["mse"])
             all_metrics["rmse"].append(val_metrics["rmse"])
             all_metrics["r2"].append(val_metrics["r2"])
+            all_metrics["mae"].append(val_metrics["mae"])
 
             logger.info(
-                f"Fold {fold + 1} results: Loss={val_loss:.4f}, MSE={val_metrics['mse']:.4f}, RMSE={val_metrics['rmse']:.4f}, R2={val_metrics['r2']:.4f}"
+                f"Fold {fold + 1} results: Loss={val_loss:.4f}, MSE={val_metrics['mse']:.4f}, RMSE={val_metrics['rmse']:.4f}, R2={val_metrics['r2']:.4f}, MAE={val_metrics['mae']:.4f}"
             )
             pbar.update(1)
             torch.cuda.empty_cache()
@@ -268,7 +300,7 @@ def test_model(
             inputs = [input.to(DEVICE) for input in inputs]
             targets = targets.to(DEVICE)
             with autocast(enabled=DEVICE == "cuda", dtype=torch.float32):
-                outputs = model(inputs).view(targets.shape)
+                outputs = model(inputs)
                 loss = criterion(outputs, targets)
                 test_loss += loss.item()
 

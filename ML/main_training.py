@@ -23,6 +23,7 @@ def main(name: str, model_class: Type[nn.Module]) -> float:
             model_class,
             kfolds=5,
             use_wandb=True,
+            plot_enabled=False,
         )
     except Exception as e:
         logger.error(f"An error occurred during the training process: {e}")
@@ -36,7 +37,9 @@ if __name__ == "__main__":
     os.environ["WANDB_SILENT"] = "true"
     set_seed(43)
     try:
-        main("FNOv3-MLP", FNOv3net)
+        main("FNOv2dno", FNOv2net)
     except Exception as e:
         logger.error(f"An unhandled exception occurred: {e}")
         sys.exit(1)
+
+
