@@ -42,3 +42,18 @@ class EarlyStopping:
             logger.info(f"New best model saved at epoch {self.epoch+1}")
         torch.save(model.state_dict(), self.save_path)
         self.val_loss_min = val_loss
+
+def set_seed(seed: int) -> None:
+    """
+    Set random seed for reproducibility.
+
+    Parameters
+    ----------
+    seed : int
+        The random seed to set.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)

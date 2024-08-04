@@ -1,0 +1,44 @@
+# config.yaml
+
+# Device configuration
+device: cuda  # Will be overridden by Python code
+
+# Training parameters
+training:
+  batch_size: 16
+  num_epochs: 512
+  num_workers: 0
+  accumulation_steps: 1
+  learning_rate: 0.005
+  test_frac: 0.2
+  early_stopping_patience: 64
+
+# Model architecture
+model:
+  n_layers: 4
+  n_modes_x: 4
+  n_modes_y: 4
+  hidden_channels: 4
+  lifting_channels: 4
+  projection_channels: 4
+
+# Data configuration
+data:
+  numpoints_x: 401
+  numpoints_y: 11
+  variables:
+    - F
+    - H
+    - Q
+    - S
+    - U
+    - V
+  parameters:
+    - H0
+    - Q0
+    - SLOPE
+    - n
+
+# API Keys (to be set via environment variables)
+api_keys:
+  wandb: ${WANDB_API_KEY}

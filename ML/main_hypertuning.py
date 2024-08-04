@@ -7,7 +7,6 @@ from modules.cross_validation import (
     cross_validation_procedure,
     set_seed,
     setup_logger,
-    setup_writer_and_hparams,
 )
 from modules.models import *
 
@@ -30,13 +29,15 @@ def objective(trial):
     try:
         test_loss = cross_validation_procedure(
             name,
-            "simulation_data_normalized_noise.hdf5",
+            "simulation_data_noise.hdf5",
             FNOnet,
             kfolds=5,
             hparams=hparams,
             use_wandb=True,
             is_sweep=True,
             architecture=architecture,
+            plot_enabled=False,
+            already_normalized=False,
         )
     except Exception as e:
         logger.error(f"An error occurred during the training process: {e}")

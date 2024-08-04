@@ -29,15 +29,11 @@ class FNOnet(nn.Module):
 
     def __init__(
         self,
-        parameters_n: int,
-        variables_n: int,
-        numpoints_x: int,
-        numpoints_y: int,
-        n_modes: Tuple[int, int] = (4, 200),
-        hidden_channels: int = 11,
-        n_layers: int = 5,
-        lifting_channels: int = 16,
-        projection_channels: int = 16,
+        parameters_n,
+        variables_n,
+        numpoints_x,
+        numpoints_y,
+        **kwargs
     ):
         """
         Initialize the FNOnet.
@@ -54,27 +50,31 @@ class FNOnet(nn.Module):
             projection_channels (int, optional): Number of projection channels. Defaults to 16.
         """
         super(FNOnet, self).__init__()
+        
         self.parameters_n = parameters_n
         self.variables_n = variables_n
         self.numpoints_x = numpoints_x
         self.numpoints_y = numpoints_y
+        
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
         # Embedding layer for parameters
         self.param_embedding = nn.Sequential(
-            nn.Linear(parameters_n, 64),
+            nn.Linear(self.parameters_n, 64),
             nn.ReLU(),
-            nn.Linear(64, numpoints_y * numpoints_x),
+            nn.Linear(64, self.numpoints_y * self.numpoints_x),
         )
 
         # FNO for 2D field
         self.fno = FNO(
-            n_modes=n_modes,
-            hidden_channels=hidden_channels,
+            n_modes=(self.n_modes_x, self.n_modes_y),
+            hidden_channels=self.hidden_channels,
             in_channels=2,  # 1 for the field channel and 1 for the embedded parameters
-            out_channels=variables_n,
-            n_layers=n_layers,
-            lifting_channels=lifting_channels,
-            projection_channels=projection_channels,
+            out_channels=self.variables_n,
+            n_layers=self.n_layers,
+            lifting_channels=self.lifting_channels,
+            projection_channels=self.projection_channels,
         )
 
     def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
@@ -90,14 +90,13 @@ class FNOnet(nn.Module):
             torch.Tensor: Output tensor of shape (batch_size, variables_n, numpoints_y, numpoints_x).
         """
         x_params, x_field = x
-
+        x_field = x_field.unsqueeze(1)
         # Embed and reshape parameters to match field size
         x_params = self.param_embedding(x_params).view(
-            -1, 1, self.numpoints_y, self.numpoints_x
-        )
-
+            -1, self.numpoints_y, self.numpoints_x
+        ).unsqueeze(1)
         # Concatenate parameters and field along channel dimension
-        x_combined = torch.cat([x_field.unsqueeze(1), x_params], dim=1)
+        x_combined = torch.cat([x_field, x_params], dim=1)
 
         # Forward pass through FNO
         output = self.fno(x_combined)
@@ -328,3 +327,4 @@ class FNO2d(nn.Module):
         gridy = torch.tensor(np.linspace(0, 1, size_y), dtype=torch.float)
         gridy = gridy.reshape(1, 1, size_y, 1).repeat([batchsize, size_x, 1, 1])
         return torch.cat((gridx, gridy), dim=-1).to(device)
+

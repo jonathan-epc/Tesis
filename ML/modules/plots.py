@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import math
 import matplotlib.pyplot as plt
-from config import *
+from config import CONFIG
 from cmap import Colormap
 
 def plot_difference_im(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: str, fold_n: int) -> str:
@@ -31,7 +31,7 @@ def plot_difference_im(outputs: torch.Tensor, targets: torch.Tensor, step: int, 
         ax = axes[i] if num_channels > 1 else axes
         im = ax.imshow(diff_np[0, i], cmap='viridis', vmin=-1, vmax=1)
         # ax.set_title(f'Channel {i+1}')
-        ax.set_ylabel(f'{VARIABLES[i]}')
+        ax.set_ylabel(f'{CONFIG['data']['variables'][i]}')
         # plt.colorbar(im, ax=ax)
     
     plt.tight_layout()
@@ -71,7 +71,7 @@ def plot_difference_scatter(outputs: torch.Tensor, targets: torch.Tensor, step: 
         ax.scatter(targets_np[:, i].flatten(), outputs_np[:, i].flatten(), alpha=0.5)
         ax.set_xlabel('Target')
         ax.set_ylabel('Output')
-        ax.set_title(f'{VARIABLES[i]}')
+        ax.set_title(f'{CONFIG['data']['variables'][i]}')
     # Remove any unused subplots
     for i in range(num_channels, rows*cols):
         row = i // cols
@@ -119,7 +119,7 @@ def plot_difference_hex(outputs: torch.Tensor, targets: torch.Tensor, name: str,
         ax.set_aspect('equal')
         ax.set_xlabel('Target')
         ax.set_ylabel('Output')
-        ax.set_title(f'{VARIABLES[i]}')
+        ax.set_title(f'{CONFIG['data']['variables'][i]}')
 
     # Remove any unused subplots
     for i in range(num_channels, rows*cols):

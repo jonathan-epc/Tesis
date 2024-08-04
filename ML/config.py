@@ -1,24 +1,18 @@
 # config.py
-import torch
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 128
-NUM_EPOCHS = 512
-NUM_WORKERS = 0
-N_LAYERS = 11
-N_MODES_X = 329
-N_MODES_Y = 363
-HIDDEN_CHANNELS = 57
-LIFTING_CHANNELS = 38
-PROJECTION_CHANNELS = 38
-ACCUMULATION_STEPS = 1
-LEARNING_RATE = 0.05293877229047197
-# ITERATIONS = NUM_EPOCHS * (n_entrenamiento // BATCH_SIZE)
-TEST_FRAC = 0.2
-EARLY_STOPPING_PATIENCE = 64
-NUMPOINTS_X = 401
-NUMPOINTS_Y = 11
-VARIABLES = ["F", "H", "Q", "S", "U", "V"]
-# VARIABLES = ["U", "V"]
-PARAMETERS = ["H0", "Q0", "SLOPE", "n"]
-WANDBAPIKEY = "d0ef64d12520da14d081348d37e6947362b89dd0"
+import os
+import yaml
+import torch
+from typing import Any, Dict
+
+def load_config() -> Dict[str, Any]:
+    with open('config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+        
+    config['device'] = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    config['api_keys']['wandb'] = os.environ.get('WANDB_API_KEY')
+    
+    return config
+
+CONFIG = load_config()

@@ -18,6 +18,7 @@
 *.idlk
 *.hdf5
 *.pth
+*.env
 ML/runs/*
 ML/runs.old/*
 ML/wandb/*
