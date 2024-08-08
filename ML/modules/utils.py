@@ -1,4 +1,7 @@
+import os
 import numpy as np
+import random
+import yaml
 import torch
 from loguru import logger
 
@@ -57,3 +60,27 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+def setup_experiment(config: dict) -> None:
+    """Set up the experiment environment."""
+    os.environ["WANDB_SILENT"] = "true"
+    set_seed(config["seed"])
+
+def load_config(config_path: str) -> dict:
+    """Load configuration from a YAML file."""
+    with open(config_path, 'r') as file:
+        return yaml.safe_load(file)
+
+def get_hparams(config: dict) -> dict:
+    """Extract hyperparameters from the configuration."""
+    return {
+        "learning_rate": config["training"]["learning_rate"],
+        "batch_size": config["training"]["batch_size"],
+        "accumulation_steps": config["training"]["accumulation_steps"],
+        "n_layers": config["model"]["n_layers"],
+        "hidden_channels": config["model"]["hidden_channels"],
+        "n_modes_x": config["model"]["n_modes_x"],
+        "n_modes_y": config["model"]["n_modes_y"],
+        "lifting_channels": config["model"]["lifting_channels"],
+        "projection_channels": config["model"]["projection_channels"],
+    }

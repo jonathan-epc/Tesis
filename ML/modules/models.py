@@ -61,13 +61,110 @@ class FNOnet(nn.Module):
 
         # Embedding layer for parameters
         self.param_embedding = nn.Sequential(
-            nn.Linear(self.parameters_n, 64),
+            nn.Linear(self.parameters_n, 16),
             nn.ReLU(),
-            nn.Linear(64, self.numpoints_y * self.numpoints_x),
+            nn.Linear(16, self.numpoints_y * self.numpoints_x),
         )
 
         # FNO for 2D field
         self.fno = FNO(
+            n_modes=(self.n_modes_x, self.n_modes_y),
+            hidden_channels=self.hidden_channels,
+            in_channels=2,  # 1 for the field channel and 1 for the embedded parameters
+            out_channels=self.variables_n,
+            n_layers=self.n_layers,
+            lifting_channels=self.lifting_channels,
+            projection_channels=self.projection_channels,
+        )
+
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        """
+        Forward pass of the FNOnet.
+
+        Args:
+            x (Tuple[torch.Tensor, torch.Tensor]): Input tuple containing:
+                - x_params (torch.Tensor): Input parameters tensor of shape (batch_size, parameters_n).
+                - x_field (torch.Tensor): Input field tensor of shape (batch_size, numpoints_y, numpoints_x).
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, variables_n, numpoints_y, numpoints_x).
+        """
+        x_params, x_field = x
+        x_field = x_field.unsqueeze(1)
+        # Embed and reshape parameters to match field size
+        x_params = self.param_embedding(x_params).view(
+            -1, self.numpoints_y, self.numpoints_x
+        ).unsqueeze(1)
+        # Concatenate parameters and field along channel dimension
+        x_combined = torch.cat([x_field, x_params], dim=1)
+
+        # Forward pass through FNO
+        output = self.fno(x_combined)
+
+        return output
+
+    def __repr__(self):
+        """
+        Return a string representation of the FNOnet.
+
+        Returns:
+            str: String representation of the FNOnet.
+        """
+        return (f"FNOnet(parameters_n={self.parameters_n}, "
+                f"variables_n={self.variables_n}, "
+                f"numpoints_x={self.numpoints_x}, "
+                f"numpoints_y={self.numpoints_y})")
+
+    @property
+    def device(self) -> torch.device:
+        """
+        Get the device on which the model parameters are stored.
+
+        Returns:
+            torch.device: The device (CPU or GPU) of the model parameters.
+        """
+        return next(self.parameters()).device
+
+    def to(self, device: torch.device):
+        """
+        Move the model to the specified device.
+
+        Args:
+            device (torch.device): The target device (CPU or GPU).
+
+        Returns:
+            FNOnet: The model instance moved to the specified device.
+        """
+        return super().to(device)
+
+class SFNOnet(nn.Module):
+    def __init__(
+        self,
+        parameters_n,
+        variables_n,
+        numpoints_x,
+        numpoints_y,
+        **kwargs
+    ):
+        super(SFNOnet, self).__init__()
+        
+        self.parameters_n = parameters_n
+        self.variables_n = variables_n
+        self.numpoints_x = numpoints_x
+        self.numpoints_y = numpoints_y
+        
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        # Embedding layer for parameters
+        self.param_embedding = nn.Sequential(
+            nn.Linear(self.parameters_n, 16),
+            nn.ReLU(),
+            nn.Linear(16, self.numpoints_y * self.numpoints_x),
+        )
+
+        # FNO for 2D field
+        self.fno = SFNO(
             n_modes=(self.n_modes_x, self.n_modes_y),
             hidden_channels=self.hidden_channels,
             in_channels=2,  # 1 for the field channel and 1 for the embedded parameters

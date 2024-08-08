@@ -1,57 +1,62 @@
 # main_training.py
-import os
+
+import argparse
 import sys
 from typing import Type
 
 import torch.nn as nn
+from neuralop import LpLoss
 
-from modules.cross_validation import (
-    cross_validation_procedure,
-    set_seed,
-    setup_logger
-)
+from modules.cross_validation import cross_validation_procedure
+from modules.logging import setup_logger
 from modules.models import *
-from config import CONFIG
+from modules.utils import get_hparams, load_config, set_seed, setup_experiment
 
 
-def main(name: str, architecture: str, model_class: Type[nn.Module]) -> float:
+def main(config_path: str) -> float:
+    """
+    Main function to run the cross-validation procedure for model training.
+
+    ... [rest of the docstring remains the same] ...
+    """
+    config = load_config(config_path)
+    setup_experiment(config)
     try:
         logger.info("Starting cross-validation procedure")
-        hparams = {
-            "learning_rate": CONFIG['training']['learning_rate'],
-            "batch_size": CONFIG['training']['batch_size'],
-            "accumulation_steps": CONFIG['training']['accumulation_steps'],
-            "n_layers": CONFIG['model']['n_layers'],
-            "hidden_channels": CONFIG['model']['hidden_channels'],
-            "n_modes_x": CONFIG['model']['n_modes_x'],
-            "n_modes_y": CONFIG['model']['n_modes_y'],
-            "lifting_channels": CONFIG['model']['lifting_channels'],
-            "projection_channels": CONFIG['model']['projection_channels'],
-        }
+        hparams = get_hparams(config)
+        model_class = globals()[config["model"]["class"]]
         test_loss = cross_validation_procedure(
-            name,
-            "simulation_data_noise.hdf5",
+            config["model"]["name"],
+            config["data"]["file_name"],
             model_class,
-            kfolds=5,
+            nn.HuberLoss(),
+            kfolds=config["training"]["kfolds"],
             hparams=hparams,
-            use_wandb=True,
-            architecture=architecture,
-            plot_enabled=False,
-            already_normalized=False,
+            use_wandb=config["logging"]["use_wandb"],
+            architecture=config["model"]["architecture"],
+            plot_enabled=config["logging"]["plot_enabled"],
         )
     except Exception as e:
         logger.error(f"An error occurred during the training process: {e}")
         raise
+
     logger.info("Training process completed successfully")
     return test_loss
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Run model training with cross-validation."
+    )
+    parser.add_argument(
+        "--config", default="config.yaml", help="Path to the configuration file"
+    )
+    args = parser.parse_args("")
+
     logger = setup_logger()
-    os.environ["WANDB_SILENT"] = "true"
-    set_seed(43)
+
     try:
-        main("FNOv2nn", "FNO", FNOnet)
+        main(args.config)
     except Exception as e:
         logger.error(f"An unhandled exception occurred: {e}")
         sys.exit(1)

@@ -40,7 +40,7 @@ class HDF5Dataset(Dataset):
         numpoints_x: int,
         numpoints_y: int,
         device: str,
-        already_normalized: bool = True,
+        normalize: List[bool] = [True, True],
         swap: bool = False,
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
@@ -65,7 +65,7 @@ class HDF5Dataset(Dataset):
         self.parameters = parameters
         self.numpoints_x = numpoints_x
         self.numpoints_y = numpoints_y
-        self.already_normalized = already_normalized
+        self.normalize_input, self.normalize_output = normalize
         self.swap = swap
         self.transform = transform
         self.target_transform = target_transform
@@ -137,19 +137,13 @@ class HDF5Dataset(Dataset):
                 for var in self.variables
             ]
         )
-        if self.already_normalized:
-            if self.swap:
-                parameters = self.denormalize(parameters, self.parameters)
-                B = self.denormalize(B, "B")
-            else:
-                output = self.denormalize(output, self.variables)                
-        else:
-            if self.swap:
-                output = self.normalize(output, self.variables)
-            else:
-                parameters = self.normalize(parameters, self.parameters)
-                B = self.normalize(B, "B")
         
+        if self.normalize_input:
+            parameters = self.normalize(parameters, self.parameters)
+            B = self.normalize(B, "B")
+
+        if self.normalize_output:
+            output = self.normalize(output, self.variables)       
         
         if self.transform:
             parameters = self.transform(parameters)

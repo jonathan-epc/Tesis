@@ -14,7 +14,8 @@ from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler
 from torcheval.metrics.functional import mean_squared_error, r2_score
 from tqdm.autonotebook import tqdm
 
-from modules.plots import plot_difference_hex
+from modules.plots import plot_hex as plot_difference
+from modules.plots import plot_im as plot_difference_im
 from modules.utils import EarlyStopping
 
 def compute_metrics(outputs: torch.Tensor, targets: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -162,7 +163,8 @@ def train_model(
                         and plot_every > 0
                         and global_step % plot_every == 0
                     ):
-                        plot_difference_hex(outputs, targets, name, global_step, fold_n)
+                        plot_difference(outputs, targets, name, global_step, fold_n)
+                        plot_difference_im(outputs, targets, name, global_step, fold_n)
 
                     global_step += 1
 
@@ -255,7 +257,8 @@ def validate_model(
                 all_targets.append(targets)
 
     if plot_enabled:
-        plot_difference_hex(outputs, targets, name + "_validation", step, fold_n)
+        plot_difference(outputs, targets, name + "_validation", step, fold_n)
+        plot_difference_im(outputs, targets, name + "_validation", step, fold_n)
 
     val_loss /= len(dataloader)
     all_outputs = torch.cat(all_outputs)
@@ -275,7 +278,7 @@ def cross_validate(
     criterion: torch.nn.Module,
     optimizer_class: Type[torch.optim.Optimizer],
     scheduler_class: Type[torch.optim.lr_scheduler._LRScheduler],
-    model_kwargs: Optional[Dict[str, Any]] = None,
+    hparams: Optional[Dict[str, Any]] = None,
     use_wandb: bool = False,
     is_sweep: bool = False,
     architecture: str = None,
@@ -330,20 +333,20 @@ def cross_validate(
 
             train_dataloader = DataLoader(
                 dataset,
-                batch_size=CONFIG['training']['batch_size'],
+                batch_size=hparams['batch_size'],
                 sampler=train_subsampler,
                 num_workers=CONFIG['training']['num_workers'],
             )
             val_dataloader = DataLoader(
                 dataset,
-                batch_size=CONFIG['training']['batch_size'],
+                batch_size=hparams['batch_size'],
                 sampler=val_subsampler,
                 num_workers=CONFIG['training']['num_workers'],
             )
 
-            model = model_class(len(CONFIG['data']['parameters']), len(CONFIG['data']['variables']), CONFIG['data']['numpoints_x'], CONFIG['data']['numpoints_y'], **model_kwargs).to(CONFIG['device'])
+            model = model_class(len(CONFIG['data']['parameters']), len(CONFIG['data']['variables']), CONFIG['data']['numpoints_x'], CONFIG['data']['numpoints_y'], **hparams).to(CONFIG['device'])
             optimizer = optimizer_class(
-                model.parameters(), lr=model_kwargs['learning_rate'], weight_decay=0.0
+                model.parameters(), lr=hparams['learning_rate'], weight_decay=0.0
             )
             scheduler = scheduler_class(
                 optimizer,

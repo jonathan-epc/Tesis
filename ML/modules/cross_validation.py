@@ -1,5 +1,4 @@
 import os
-import random
 import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -11,7 +10,7 @@ import torch.nn as nn
 import wandb
 from config import CONFIG
 from loguru import logger
-from neuralop import LpLoss
+
 from sklearn.model_selection import KFold
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, random_split
@@ -19,20 +18,20 @@ from torch.utils.data import DataLoader, random_split
 from modules.data import HDF5Dataset
 from modules.logging import setup_logger
 from modules.models import *
-from modules.utils  
+from modules.utils import set_seed
 from modules.training import cross_validate, test_model
 
 def cross_validation_procedure(
     name: str,
     data_path: str,
     model_class: Type[nn.Module],
+    criterion: Type[nn.Module],
     kfolds: int,
     hparams: Optional[Dict[str, Any]] = None,
     use_wandb: bool = False,
     is_sweep: bool = False,
     architecture: Optional[str] = None,
-    plot_enabled: bool = False,
-    already_normalized: bool = True,
+    plot_enabled: bool = False
 ) -> float:
     """
     Perform cross-validation procedure for model training and evaluation.
@@ -57,8 +56,6 @@ def cross_validation_procedure(
         Name of the model architecture.
     plot_enabled : bool, optional
         Whether to enable plotting (default is False).
-    already_normalized : bool, optional
-        Whether the dataset is already normalized (default is True).
 
     Returns
     -------
@@ -74,7 +71,7 @@ def cross_validation_procedure(
         parameters=CONFIG['data']['parameters'],
         numpoints_x=CONFIG['data']['numpoints_x'],
         numpoints_y=CONFIG['data']['numpoints_y'],
-        already_normalized=already_normalized,
+        normalize=CONFIG['data']['normalize'],
         device=CONFIG['device'],
     )
 
@@ -88,9 +85,6 @@ def cross_validation_procedure(
         f"Dataset split into training/validation ({train_val_size} samples) and test ({test_size} samples)"
     )
 
-    # Set up training components
-    criterion = nn.MSELoss()
-
     # Perform cross-validation
     logger.info("Starting cross-validation")
     avg_results, avg_metrics = cross_validate(
@@ -103,7 +97,7 @@ def cross_validation_procedure(
         criterion=criterion,
         optimizer_class=torch.optim.AdamW,
         scheduler_class=torch.optim.lr_scheduler.OneCycleLR,
-        model_kwargs = hparams,
+        hparams = hparams,
         use_wandb=use_wandb,
         is_sweep=is_sweep,
         architecture=architecture,
@@ -118,7 +112,7 @@ def cross_validation_procedure(
         shuffle=False,
         num_workers=CONFIG['training']['num_workers'],
     )
-    model = model_class(len(CONFIG['data']['parameters']), len(CONFIG['data']['variables']), CONFIG['data']['numpoints_x'], CONFIG['data']['numpoints_y'], **model_kwargs).to(CONFIG['device'])
+    model = model_class(len(CONFIG['data']['parameters']), len(CONFIG['data']['variables']), CONFIG['data']['numpoints_x'], CONFIG['data']['numpoints_y'], **hparams).to(CONFIG['device'])
     logger.info("Testing model on the test dataset")
     test_loss = test_model(name, model, test_dataloader, criterion)
     logger.info(f"Test Loss: {test_loss:.4f}")
