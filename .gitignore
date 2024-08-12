@@ -19,6 +19,9 @@
 *.hdf5
 *.pth
 *.env
+*.gif
+*.mp4
+blender/*
 ML/runs/*
 ML/runs.old/*
 ML/wandb/*

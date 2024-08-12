@@ -187,6 +187,7 @@ class HDF5Dataset(Dataset):
             
         return (data - mean) / std
 
+
     def denormalize(
         self, data: torch.Tensor, prefixes: Union[str, List[str]]
     ) -> torch.Tensor:

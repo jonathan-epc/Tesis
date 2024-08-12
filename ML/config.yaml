@@ -5,26 +5,26 @@ device: cuda  # Will be overridden by Python code
 
 # Training parameters
 training:
-  kfolds: 5
-  batch_size: 256
-  num_epochs: 512
+  kfolds: 1
+  batch_size: 64
+  num_epochs: 1024
   num_workers: 0
-  accumulation_steps: 1
-  learning_rate: 0.005
+  accumulation_steps: 5
+  learning_rate: 0.00002847859594257385
   test_frac: 0.2
   early_stopping_patience: 64
 
 # Model architecture
 model:
-  name: "FNO"
+  name: "FNOjustUV"
   architecture: "FNO"
   class: "FNOnet"
   n_layers: 4
-  n_modes_x: 4
-  n_modes_y: 4
-  hidden_channels: 4
-  lifting_channels: 4
-  projection_channels: 4
+  n_modes_x: 72
+  n_modes_y: 199
+  hidden_channels: 6
+  lifting_channels: 62
+  projection_channels: 51
 
 # Data configuration
 data:
@@ -33,10 +33,10 @@ data:
   numpoints_x: 401
   numpoints_y: 11
   variables:
-    - F
-    - H
-    - Q
-    - S
+    # - F
+    # - H
+    # - Q
+    # - S
     - U
     - V
   parameters:
@@ -52,16 +52,19 @@ logging:
   plot_enabled: false
 
 optuna:
+  storage: "sqlite:///studies/study-justUV.db"
+  study_name: "study-justUV"
   n_trials: 100
   hyperparameter_space:
     learning_rate:
       type: "float"
-      low: 1e-5
-      high: 1e-1
+      low: 0.00001
+      high: 0.1
       log: true
     batch_size:
-      type: "categorical"
-      choices: [8, 16, 32, 64, 128]
+      type: "int"
+      low: 1
+      high: 128
     accumulation_steps:
       type: "int"
       low: 1

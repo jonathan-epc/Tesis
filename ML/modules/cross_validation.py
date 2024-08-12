@@ -30,38 +30,10 @@ def cross_validation_procedure(
     hparams: Optional[Dict[str, Any]] = None,
     use_wandb: bool = False,
     is_sweep: bool = False,
+    trial = None,
     architecture: Optional[str] = None,
     plot_enabled: bool = False
 ) -> float:
-    """
-    Perform cross-validation procedure for model training and evaluation.
-
-    Parameters
-    ----------
-    name : str
-        Name of the experiment.
-    data_path : str
-        Path to the HDF5 dataset file.
-    model_class : Type[nn.Module]
-        PyTorch model class to be instantiated.
-    kfolds : int
-        Number of folds for cross-validation.
-    hparams : Optional[Dict[str, Any]], optional
-        Dictionary of hyperparameters. If None, default values will be used.
-    use_wandb : bool, optional
-        Whether to use Weights & Biases for logging (default is False).
-    is_sweep : bool, optional
-        Whether this is part of a hyperparameter sweep (default is False).
-    architecture : Optional[str], optional
-        Name of the model architecture.
-    plot_enabled : bool, optional
-        Whether to enable plotting (default is False).
-
-    Returns
-    -------
-    float
-        Test loss after cross-validation and final testing.
-    """
     logger.info("Starting cross-validation procedure")
     
     # Load and split dataset
@@ -85,7 +57,6 @@ def cross_validation_procedure(
         f"Dataset split into training/validation ({train_val_size} samples) and test ({test_size} samples)"
     )
 
-    # Perform cross-validation
     logger.info("Starting cross-validation")
     avg_results, avg_metrics = cross_validate(
         name,
@@ -100,12 +71,12 @@ def cross_validation_procedure(
         hparams = hparams,
         use_wandb=use_wandb,
         is_sweep=is_sweep,
+        trial = trial,
         architecture=architecture,
         plot_enabled=plot_enabled
     )
     logger.info(f"Cross-validation completed. Avg results: Loss={avg_results:.4f}")
 
-    # Test the model on the test dataset
     test_dataloader = DataLoader(
         test_dataset,
         batch_size=hparams["batch_size"],
@@ -117,10 +88,8 @@ def cross_validation_procedure(
     test_loss = test_model(name, model, test_dataloader, criterion)
     logger.info(f"Test Loss: {test_loss:.4f}")
 
-    # Log final metrics and hyperparameters
     metrics = {"Test/loss": test_loss, "CrossValidation/Loss": avg_results}
     
-    # Log to Weights & Biases if enabled
     if use_wandb:
         wandb.init(
             project="Tesis",
@@ -132,7 +101,8 @@ def cross_validation_procedure(
         wandb.config.update({
             "Architecture": architecture,
             "Test_Loss": test_loss,
-            "Cross_Loss": avg_results
+            "Cross_Loss": avg_results,
+            **avg_metrics
         })
         wandb.finish()
 
