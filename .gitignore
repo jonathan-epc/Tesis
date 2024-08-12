@@ -21,7 +21,9 @@
 *.env
 *.gif
 *.mp4
+*.db
 blender/*
+ML/studies
 ML/runs/*
 ML/runs.old/*
 ML/wandb/*
