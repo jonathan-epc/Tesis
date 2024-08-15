@@ -2,6 +2,7 @@
 from loguru import logger
 import pandas as pd
 
+
 def load_parameters(file_path):
     """
     Loads parameters from a CSV file.

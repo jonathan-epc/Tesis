@@ -18,6 +18,7 @@ class GeometryGenerator:
     def generate_geometry(
         idx: int,
         SLOPE: float,
+        BOTTOM: str,
         flat_mesh: xr.Dataset,
         x: np.ndarray,
         y: np.ndarray,
@@ -90,11 +91,13 @@ class GeometryGenerator:
         z_left = z[0::num_points_x].max()
         z_right = z[num_points_x - 1 :: num_points_x].max()
 
-        flat_mesh["B"].values = z_slope.reshape(1, flat_mesh.y.shape[0])
-        flat_mesh.selafin.write(f"geometry/geometry_3x3_FLAT_{idx}.slf")
+        if BOTTOM == 'FLAT':
+            flat_mesh["B"].values = z_slope.reshape(1, flat_mesh.y.shape[0])
+            flat_mesh.selafin.write(f"geometry/geometry_3x3_FLAT_{idx}.slf")
 
-        flat_mesh["B"].values = z.reshape(1, flat_mesh.y.shape[0])
-        flat_mesh.selafin.write(f"geometry/geometry_3x3_NOISE_{idx}.slf")
+        elif BOTTOM == 'NOISE':
+            flat_mesh["B"].values = z.reshape(1, flat_mesh.y.shape[0])
+            flat_mesh.selafin.write(f"geometry/geometry_3x3_NOISE_{idx}.slf")
 
         borders_flat = [z_left_slope, z_right_slope]
         borders_noise = [z_left, z_right]
