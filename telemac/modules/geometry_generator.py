@@ -93,11 +93,11 @@ class GeometryGenerator:
 
         if BOTTOM == 'FLAT':
             flat_mesh["B"].values = z_slope.reshape(1, flat_mesh.y.shape[0])
-            flat_mesh.selafin.write(f"geometry/geometry_3x3_FLAT_{idx}.slf")
+            flat_mesh.selafin.write(f"geometry/3x3_FLAT_{idx}.slf")
 
         elif BOTTOM == 'NOISE':
             flat_mesh["B"].values = z.reshape(1, flat_mesh.y.shape[0])
-            flat_mesh.selafin.write(f"geometry/geometry_3x3_NOISE_{idx}.slf")
+            flat_mesh.selafin.write(f"geometry/3x3_NOISE_{idx}.slf")
 
         borders_flat = [z_left_slope, z_right_slope]
         borders_noise = [z_left, z_right]
