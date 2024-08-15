@@ -12,14 +12,14 @@ training:
   accumulation_steps: 5
   learning_rate: 0.00002847859594257385
   test_frac: 0.2
-  early_stopping_patience: 64
+  early_stopping_patience: 128
 
 # Model architecture
 model:
-  name: "FNOjustUV"
-  architecture: "FNO"
-  class: "FNOnet"
-  n_layers: 4
+  name: "FNOiuvb"
+  architecture: "FNOiuvb"
+  class: "FNOneti"
+  n_layers: 1
   n_modes_x: 72
   n_modes_y: 199
   hidden_channels: 6
@@ -28,7 +28,7 @@ model:
 
 # Data configuration
 data:
-  file_name: "simulation_data_noise.hdf5"
+  file_name: "data/noise.hdf5"
   normalize: [true, false]
   numpoints_x: 401
   numpoints_y: 11
@@ -40,9 +40,9 @@ data:
     - U
     - V
   parameters:
-    - H0
-    - Q0
-    - SLOPE
+    # - H0
+    # - Q0
+    # - SLOPE
     - n
 
 seed: 43

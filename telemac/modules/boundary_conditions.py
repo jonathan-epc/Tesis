@@ -1,5 +1,15 @@
 from typing import Tuple, Literal, List
+
 class BoundaryConditions:
+    """
+    A class to handle boundary conditions for a simulation.
+
+    Methods
+    -------
+    get_boundary_and_elevations(direction, h0, bottom, borders_flat, borders_noise)
+        Determines the boundary file and elevations based on the given parameters.
+    """
+
     @staticmethod
     def get_boundary_and_elevations(
         direction: Literal["Left to right", "Right to left"],
@@ -9,23 +19,35 @@ class BoundaryConditions:
         borders_noise: List[float],
     ) -> Tuple[str, Tuple[float, float]]:
         """
-        Determine the boundary file and prescribed elevations based on flow direction.
+        Determines the boundary file and elevations based on the given parameters.
 
-        Parameters:
+        Parameters
         ----------
         direction : Literal["Left to right", "Right to left"]
-            The direction of flow
-        z_left : float
-            Left elevation
-        z_right : float
-            Right elevation
+            The direction of the flow.
         h0 : float
-            Initial water depth
+            The initial water height.
+        bottom : str
+            The type of bottom surface, either "FLAT" or another string.
+        borders_flat : List[float]
+            A list containing the left and right elevations for a flat bottom.
+        borders_noise : List[float]
+            A list containing the left and right elevations for a noisy bottom.
 
-        Returns:
+        Returns
         -------
         Tuple[str, Tuple[float, float]]
-            A tuple containing the boundary file path and prescribed elevations
+            A tuple containing the boundary file path and the elevations.
+
+        Examples
+        --------
+        >>> BoundaryConditions.get_boundary_and_elevations(
+        ...     "Left to right", 1.0, "FLAT", [0.0, 0.0], [0.1, 0.1])
+        ('boundary/3x3_tor.cli', (0.0, 1.0))
+
+        >>> BoundaryConditions.get_boundary_and_elevations(
+        ...     "Right to left", 1.0, "NOISY", [0.0, 0.0], [0.1, 0.1])
+        ('boundary/3x3_riv.cli', (1.1, 0.0))
         """
         if bottom == "FLAT":
             z_left, z_right = borders_flat

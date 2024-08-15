@@ -152,7 +152,7 @@ if __name__ == "__main__":
 
 logger = setup_logger()
 try:
-    main('config.yaml', 'hypertuning')
+    main('config.yaml', 'training')
 except Exception as e:
     logger.error(f"Unhandled exception: {e}")
     sys.exit(1)

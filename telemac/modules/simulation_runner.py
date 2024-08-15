@@ -8,8 +8,28 @@ from modules.file_utils import move_file, setup_output_dir
 from modules.flux_checker import check_flux_boundaries, is_flux_balanced
 from modules.telemac_runner import run_telemac2d
 
-
 def run_single_simulation(i, filename, case_parameters, output_dir, steering_folder):
+    """
+    Run a single Telemac2D simulation.
+
+    Parameters
+    ----------
+    i : int
+        The index of the simulation case.
+    filename : str
+        The name of the steering file for the simulation.
+    case_parameters : dict
+        A dictionary containing the parameters for the simulation case.
+    output_dir : str
+        The directory where the output files will be saved.
+    steering_folder : str
+        The folder containing the steering files.
+
+    Returns
+    -------
+    bool
+        True if the simulation was run, False if it was skipped.
+    """
     result_file = os.path.join(output_dir, f"{filename}.txt")
     run_simulation = True
 
@@ -50,8 +70,27 @@ def run_single_simulation(i, filename, case_parameters, output_dir, steering_fol
 
     return True
 
-
 def run_telemac2d_on_files(start, end, parameters, output_dir, steering_folder):
+    """
+    Run Telemac2D simulations on a range of files.
+
+    Parameters
+    ----------
+    start : int
+        The starting index of the simulation cases.
+    end : int
+        The ending index of the simulation cases.
+    parameters : pandas.DataFrame
+        A DataFrame containing the parameters for each simulation case.
+    output_dir : str
+        The directory where the output files will be saved.
+    steering_folder : str
+        The folder containing the steering files.
+
+    Returns
+    -------
+    None
+    """
     setup_output_dir(output_dir)
     total_files = end - start
 

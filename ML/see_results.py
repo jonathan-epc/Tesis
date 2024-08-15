@@ -20,7 +20,7 @@ def load_model(model_path, model_class, config, hparams):
         config["data"]["numpoints_y"],
         **hparams,
     ).to(config["device"])
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location=torch.device(config['device'])))
     return model
 
 
@@ -55,8 +55,8 @@ def plot_results(outputs, targets, config, save_path):
     fig.suptitle("Output vs Target")
     cm = Colormap("google:turbo").to_mpl()
     ranges = [
-        [0.000000e+00, 0.011718, 0.061830, 0.094836, 0.167014, 0.265499, 0.400344, 0.630483, 0.917442, 2.132721, 60.392731],  # F
         [1.368279e-08, 0.002357, 0.014414, 0.021451, 0.033815, 0.048432, 0.064224, 0.080132, 0.090736, 0.111490, 0.191505],  # H
+        [0.000000e+00, 0.011718, 0.061830, 0.094836, 0.167014, 0.265499, 0.400344, 0.630483, 0.917442, 2.132721, 60.392731],  # F
         [0.000000e+00, 0.000018, 0.000762, 0.001668, 0.004088, 0.008512, 0.016031, 0.028384, 0.041222, 0.065866, 0.246938],  # Q
         [2.051122e-02, 0.100002, 0.126540, 0.147548, 0.208702, 0.350817, 0.584520, 0.830296, 0.966522, 1.159716, 1.373890],  # S
         [-8.723943e-01, 0.001870, 0.033025, 0.055383, 0.105482, 0.176719, 0.281774, 0.447547, 0.625206, 1.263860, 3.263138],  # U
@@ -65,7 +65,10 @@ def plot_results(outputs, targets, config, save_path):
 
 
     for i in range(num_channels):
-        ax = axes[i // cols, i % cols] if rows > 1 else axes[i]
+        try:
+            ax = axes[i // cols, i % cols] if rows > 1 else axes[i]
+        except:
+            ax = axes
         ax.hist2d(
             targets_np[:, i].flatten(), outputs_np[:, i].flatten(), bins=512, cmap=cm, range=[[ranges[i][1], ranges[i][9]], [ranges[i][1], ranges[i][9]]], 
         )
@@ -117,5 +120,5 @@ def main(config, model_class, hparams):
 if __name__ == "__main__":
     model_class = globals()[CONFIG["model"]["class"]]
     hparams = get_hparams(CONFIG)
-    CONFIG["model"]["name"] = "FNOb"
+    CONFIG["model"]["name"] = "FNOjustHn"
     main(CONFIG, model_class, hparams)

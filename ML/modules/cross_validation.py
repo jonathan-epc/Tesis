@@ -45,6 +45,7 @@ def cross_validation_procedure(
         numpoints_y=CONFIG['data']['numpoints_y'],
         normalize=CONFIG['data']['normalize'],
         device=CONFIG['device'],
+        swap=True
     )
 
     test_size = int(CONFIG['training']['test_frac'] * len(full_dataset))

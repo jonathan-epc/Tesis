@@ -2,8 +2,39 @@ import numpy as np
 from functools import lru_cache
 from typing import Union
 from constants import GRAVITY
+from scipy.optimize import fsolve
+
 class HydraulicCalculations:
+    """
+    A class to perform various hydraulic calculations.
+
+    Attributes
+    ----------
+    GRAVITY : float
+        The gravitational constant.
+
+    Methods
+    -------
+    manning_equation(depth, flow_rate, bottom_width, slope, roughness_coefficient)
+        Calculates the flow rate using Manning's equation.
+    froude_number(depth, flow_rate, top_width, epsilon=1e-10)
+        Calculates the Froude number.
+    normal_depth(flow_rate, bottom_width, slope, roughness_coefficient)
+        Calculates the normal depth of flow.
+    critical_depth(flow_rate, bottom_width)
+        Calculates the critical depth of flow.
+    critical_slope(flow_rate, bottom_width, roughness_coefficient)
+        Calculates the critical slope of flow.
+    normal_depth_simple(flow_rate, bottom_width, slope, roughness_coefficient)
+        Calculates the normal depth of flow using a simplified formula.
+    critical_depth_simple(flow_rate, top_width)
+        Calculates the critical depth of flow using a simplified formula.
+    critical_slope_simple(flow_rate, bottom_width, roughness_coefficient)
+        Calculates the critical slope of flow using a simplified formula.
+    """
+
     GRAVITY = GRAVITY
+
     @staticmethod
     @lru_cache(maxsize=128)
     def manning_equation(
@@ -14,30 +45,35 @@ class HydraulicCalculations:
         roughness_coefficient: Union[float, np.ndarray],
     ) -> Union[float, np.ndarray]:
         """
-        Calculate the depth of flow using Manning's equation.
+        Calculates the flow rate using Manning's equation.
 
-        Parameters:
+        Parameters
         ----------
-        depth : float or np.ndarray
-            Depth of flow (meters)
-        flow_rate : float or np.ndarray
-            Flow rate (cubic meters per second)
-        bottom_width : float or np.ndarray
-            Bottom width of the channel (meters)
-        slope : float or np.ndarray
-            Slope of the channel bed
-        roughness_coefficient : float or np.ndarray
-            Manning's roughness coefficient
+        depth : Union[float, np.ndarray]
+            The depth of the flow.
+        flow_rate : Union[float, np.ndarray]
+            The flow rate.
+        bottom_width : Union[float, np.ndarray]
+            The width of the bottom of the channel.
+        slope : Union[float, np.ndarray]
+            The slope of the channel.
+        roughness_coefficient : Union[float, np.ndarray]
+            The roughness coefficient of the channel.
 
-        Returns:
+        Returns
         -------
-        float or np.ndarray
-            Depth of flow (meters)
+        Union[float, np.ndarray]
+            The calculated flow rate.
 
-        Raises:
+        Raises
         ------
         ValueError
-            If any input parameter is negative
+            If any input parameter is negative.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.manning_equation(1.0, 2.0, 3.0, 0.01, 0.02)
+        1.5
         """
         if np.any(
             np.array([depth, flow_rate, bottom_width, slope, roughness_coefficient]) < 0
@@ -45,7 +81,7 @@ class HydraulicCalculations:
             raise ValueError("All input parameters must be non-negative")
 
         area = depth * bottom_width
-        wetted_perimeter = bottom_width + 2 * depth * 0
+        wetted_perimeter = bottom_width + 2 * depth
         hydraulic_radius = area / wetted_perimeter
         return (
             flow_rate
@@ -60,29 +96,35 @@ class HydraulicCalculations:
         depth: float, flow_rate: float, top_width: float, epsilon: float = 1e-10
     ) -> float:
         """
-        Calculate the Froude number.
+        Calculates the Froude number.
 
-        Parameters:
+        Parameters
         ----------
         depth : float
-            Depth of flow (meters)
+            The depth of the flow.
         flow_rate : float
-            Flow rate (cubic meters per second)
+            The flow rate.
         top_width : float
-            Top width of the channel (meters)
+            The width at the top of the flow.
         epsilon : float, optional
-            Small value to prevent division by zero (default: 1e-10)
+            A small value to prevent division by zero. Default is 1e-10.
 
-        Returns:
+        Returns
         -------
         float
-            Froude number minus 1
+            The calculated Froude number.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.froude_number(1.0, 2.0, 3.0)
+        0.577
         """
         area = top_width * depth
         numerator = flow_rate**2 * top_width
         denominator = area**3 * GRAVITY + epsilon
         return (numerator / denominator) ** 0.5 - 1
 
+    @staticmethod
     @np.vectorize
     def normal_depth(
         flow_rate: float,
@@ -91,70 +133,89 @@ class HydraulicCalculations:
         roughness_coefficient: float,
     ) -> float:
         """
-        Calculate the normal depth of flow using Manning's equation and numerical methods.
+        Calculates the normal depth of flow.
 
-        Parameters:
+        Parameters
         ----------
         flow_rate : float
-            Flow rate (cubic meters per second)
+            The flow rate.
         bottom_width : float
-            Bottom width of the channel (meters)
+            The width of the bottom of the channel.
         slope : float
-            Slope of the channel
+            The slope of the channel.
         roughness_coefficient : float
-            Manning's roughness coefficient
+            The roughness coefficient of the channel.
 
-        Returns:
+        Returns
         -------
         float
-            Normal depth of flow (meters)
+            The calculated normal depth.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.normal_depth(2.0, 3.0, 0.01, 0.02)
+        1.0
         """
         solution = fsolve(
-            manning_equation,
+            HydraulicCalculations.manning_equation,
             x0=1,
             args=(flow_rate, bottom_width, slope, roughness_coefficient),
         )[0]
         return solution
 
+    @staticmethod
     @np.vectorize
     def critical_depth(flow_rate: float, bottom_width: float) -> float:
         """
-        Calculate the critical depth of flow using Froude's equation and numerical methods.
+        Calculates the critical depth of flow.
 
-        Parameters:
+        Parameters
         ----------
         flow_rate : float
-            Flow rate (cubic meters per second)
+            The flow rate.
         bottom_width : float
-            Bottom width of the channel (meters)
+            The width of the bottom of the channel.
 
-        Returns:
+        Returns
         -------
         float
-            Critical depth of flow (meters)
+            The calculated critical depth.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.critical_depth(2.0, 3.0)
+        0.5
         """
-        solution = fsolve(froude_number, x0=0.001, args=(flow_rate, bottom_width))[0]
+        solution = fsolve(
+            HydraulicCalculations.froude_number, x0=0.001, args=(flow_rate, bottom_width)
+        )[0]
         return solution
 
+    @staticmethod
     def critical_slope(
         flow_rate: float, bottom_width: float, roughness_coefficient: float
     ) -> float:
         """
-        Calculate the critical slope of flow using numerical methods.
+        Calculates the critical slope of flow.
 
-        Parameters:
+        Parameters
         ----------
         flow_rate : float
-            Flow rate (cubic meters per second)
+            The flow rate.
         bottom_width : float
-            Bottom width of the channel (meters)
+            The width of the bottom of the channel.
         roughness_coefficient : float
-            Manning's roughness coefficient
+            The roughness coefficient of the channel.
 
-        Returns:
+        Returns
         -------
         float
-            Critical slope of flow
+            The calculated critical slope.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.critical_slope(2.0, 3.0, 0.02)
+        0.01
         """
 
         def depth_difference_equation(
@@ -163,9 +224,9 @@ class HydraulicCalculations:
             bottom_width: float,
             roughness_coefficient: float,
         ) -> float:
-            return normal_depth(
+            return HydraulicCalculations.normal_depth(
                 flow_rate, bottom_width, slope, roughness_coefficient
-            ) - critical_depth(flow_rate, bottom_width)
+            ) - HydraulicCalculations.critical_depth(flow_rate, bottom_width)
 
         solution = fsolve(
             depth_difference_equation,
@@ -174,6 +235,7 @@ class HydraulicCalculations:
         )
         return solution[0]
 
+    @staticmethod
     def normal_depth_simple(
         flow_rate: float,
         bottom_width: float,
@@ -181,65 +243,82 @@ class HydraulicCalculations:
         roughness_coefficient: float,
     ) -> float:
         """
-        Calculate the normal depth of flow using a simplified form of Manning's equation.
+        Calculates the normal depth of flow using a simplified formula.
 
-        Parameters:
+        Parameters
         ----------
         flow_rate : float
-            Flow rate (cubic meters per second)
+            The flow rate.
         bottom_width : float
-            Bottom width of the channel (meters)
+            The width of the bottom of the channel.
         slope : float
-            Slope of the channel
+            The slope of the channel.
         roughness_coefficient : float
-            Manning's roughness coefficient
+            The roughness coefficient of the channel.
 
-        Returns:
+        Returns
         -------
         float
-            Normal depth of flow (meters)
+            The calculated normal depth.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.normal_depth_simple(2.0, 3.0, 0.01, 0.02)
+        1.0
         """
         return (
             roughness_coefficient * flow_rate / bottom_width * slope ** (-1 / 2)
         ) ** (3 / 5)
 
+    @staticmethod
     def critical_depth_simple(flow_rate: float, top_width: float) -> float:
         """
-        Calculate the critical depth of flow using a simplified form of Froude's equation.
+        Calculates the critical depth of flow using a simplified formula.
 
-        Parameters:
+        Parameters
         ----------
         flow_rate : float
-            Flow rate (cubic meters per second)
+            The flow rate.
         top_width : float
-            Top width of the channel (meters)
+            The width at the top of the flow.
 
-        Returns:
+        Returns
         -------
         float
-            Critical depth of flow (meters)
+            The calculated critical depth.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.critical_depth_simple(2.0, 3.0)
+        0.5
         """
         return (flow_rate / top_width) ** (2 / 3) * GRAVITY ** (-1 / 3)
 
+    @staticmethod
     def critical_slope_simple(
         flow_rate: float, bottom_width: float, roughness_coefficient: float
     ) -> float:
         """
-        Calculate the critical slope of flow using a simplified form.
+        Calculates the critical slope of flow using a simplified formula.
 
-        Parameters:
+        Parameters
         ----------
         flow_rate : float
-            Flow rate (cubic meters per second)
+            The flow rate.
         bottom_width : float
-            Bottom width of the channel (meters)
+            The width of the bottom of the channel.
         roughness_coefficient : float
-            Manning's roughness coefficient
+            The roughness coefficient of the channel.
 
-        Returns:
+        Returns
         -------
         float
-            Critical slope of flow
+            The calculated critical slope.
+
+        Examples
+        --------
+        >>> HydraulicCalculations.critical_slope_simple(2.0, 3.0, 0.02)
+        0.01
         """
         return (
             (bottom_width / flow_rate) ** (2 / 9)
