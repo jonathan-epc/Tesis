@@ -136,7 +136,60 @@ class FNOnet(nn.Module):
             FNOnet: The model instance moved to the specified device.
         """
         return super().to(device)
+class FNOneti(nn.Module):
+    def __init__(
+        self,
+        parameters_n,
+        variables_n,
+        numpoints_x,
+        numpoints_y,
+        **kwargs
+    ):
+        super(FNOneti, self).__init__()
+        
+        self.parameters_n = parameters_n
+        self.variables_n = variables_n
+        self.numpoints_x = numpoints_x
+        self.numpoints_y = numpoints_y
+        
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
+        # FNO for 2D field (inverted)
+        self.fno = FNO(
+            n_modes=(self.n_modes_x, self.n_modes_y),
+            hidden_channels=self.hidden_channels,
+            in_channels=self.variables_n,
+            out_channels=1,  # 1 for the field channel and 1 for the embedded parameters
+            n_layers=self.n_layers,
+            lifting_channels=self.lifting_channels,
+            projection_channels=self.projection_channels,
+        )
+
+        # Embedding layer for parameters (now used for decoding)
+        self.param_decoding = nn.Sequential(
+            nn.Linear(self.numpoints_y * self.numpoints_x, 16),
+            nn.ReLU(),
+            nn.Linear(16, self.parameters_n),
+        )
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Forward pass through FNO
+        output = self.fno(x)
+        
+        # Split the output into field and parameters
+        # x_field = output[:, 0:1, :, :]
+        # x_params = output[:, 1:, :, :]
+        
+        # Flatten and decode parameters
+        # x_params_flat = x_params.view(-1, self.numpoints_y * self.numpoints_x)
+        # decoded_params = self.param_decoding(x_params_flat)
+        
+        # Remove the extra dimension from x_field
+        x_field = output.squeeze(1)
+        
+        return x_field
+        
 class FNOnet7(nn.Module):
     def __init__(
         self,

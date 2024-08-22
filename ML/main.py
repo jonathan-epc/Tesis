@@ -174,7 +174,18 @@ if __name__ == "__main__" or is_jupyter():
         main(mode)
     except Exception as e:
         logger.error(f"Unhandled exception: {e}")
+<<<<<<< HEAD
         if not is_jupyter():
             sys.exit(1)
         else:
             raise  # Re-raise the exception in Jupyter for better traceback
+=======
+        sys.exit(1)
+
+logger = setup_logger()
+try:
+    main('config.yaml', 'training')
+except Exception as e:
+    logger.error(f"Unhandled exception: {e}")
+    sys.exit(1)
+>>>>>>> 84d7ef7df9b1cc45d29242968ba9fe7ba1b33b43

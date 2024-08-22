@@ -1,29 +1,6 @@
-"""
-Simulation Data Processor
-
-This module processes simulation results, calculates statistics, and saves the data
-in both raw and normalized formats. It handles two types of data: NOISE and FLAT.
-
-The main function, `process_simulation_results`, orchestrates the entire process.
-
-Dependencies:
-    - os
-    - h5py
-    - pandas
-    - loguru
-    - modules.file_processing
-    - modules.statistics
-
-Usage:
-    Run this script directly to process simulation results.
-    Ensure that the required input files and directories exist before running.
-
-Author: [Your Name]
-Date: [Current Date]
-"""
-
 import os
-from typing import Dict, List
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 import h5py
 import pandas as pd
@@ -36,48 +13,66 @@ from modules.statistics import (
     normalize_statistics,
 )
 
+@dataclass
+class ProcessingConfig:
+    base_dir: str
+    generate_normalized: bool = False
+    separate_critical_states: bool = False
 
-def process_simulation_results(
-    base_dir: str,
-    output_file_noise: str,
-    output_file_flat: str,
-    normalized_output_file_noise: str,
-    normalized_output_file_flat: str,
-) -> None:
-    """
-    Process simulation results, calculate statistics, and save data.
+def get_output_files(config: ProcessingConfig) -> Dict[str, Dict[str, str]]:
+    base_path = os.path.join(config.base_dir, "ML")
+    os.makedirs(base_path, exist_ok=True)
 
-    This function reads simulation parameters, processes result files,
-    calculates statistics, and saves both raw and normalized data to HDF5 files.
+    files = {
+        "noise": {
+            "main": os.path.join(base_path, "simulation_data_noise.hdf5"),
+            "normalized": os.path.join(
+                base_path, "simulation_data_normalized_noise.hdf5"
+            ),
+        },
+        "flat": {
+            "main": os.path.join(base_path, "simulation_data_flat.hdf5"),
+            "normalized": os.path.join(
+                base_path, "simulation_data_normalized_flat.hdf5"
+            ),
+        },
+    }
 
-    Parameters
-    ----------
-    base_dir : str
-        Base directory containing simulation data.
-    output_file_noise : str
-        Path to output HDF5 file for NOISE data.
-    output_file_flat : str
-        Path to output HDF5 file for FLAT data.
-    normalized_output_file_noise : str
-        Path to output HDF5 file for normalized NOISE data.
-    normalized_output_file_flat : str
-        Path to output HDF5 file for normalized FLAT data.
+    if config.separate_critical_states:
+        for flow_type in ["noise", "flat"]:
+            for data_type in ["main", "normalized"]:
+                base_name = files[flow_type][data_type]
+                files[flow_type][f"{data_type}_subcritical"] = base_name.replace(
+                    ".hdf5", "_subcritical.hdf5"
+                )
+                files[flow_type][f"{data_type}_supercritical"] = base_name.replace(
+                    ".hdf5", "_supercritical.hdf5"
+                )
 
-    Returns
-    -------
-    None
+    return files
 
-    Notes
-    -----
-    This function processes both NOISE and FLAT data types.
-    It assumes the existence of a 'parameters.csv' file in the base directory
-    and '.slf' result files in the 'results' subdirectory.
-    """
-    logger.info("Processing start")
+def load_and_validate_data(
+    config: ProcessingConfig,
+) -> Tuple[pd.DataFrame, List[str], List[str]]:
+    parameters_file = os.path.join(config.base_dir, "parameters.csv")
+    results_dir = os.path.join(config.base_dir, "results")
 
-    # Read and process parameters
-    parameters = pd.read_csv(os.path.join(base_dir, "parameters.csv"))
-    parameter_names = ["H0", "Q0", "SLOPE", "n"]
+    if not os.path.exists(parameters_file):
+        raise FileNotFoundError(f"Parameters file not found: {parameters_file}")
+    if not os.path.isdir(results_dir):
+        raise NotADirectoryError(f"Results directory not found: {results_dir}")
+
+    parameters = pd.read_csv(parameters_file)
+    result_files = [f for f in os.listdir(results_dir) if f.endswith(".slf")]
+
+    if not result_files:
+        raise ValueError(f"No result files found in {results_dir}")
+
+    return parameters, result_files, ["F", "B", "H", "Q", "S", "U", "V"]
+
+def prepare_parameter_table(
+    parameters: pd.DataFrame, parameter_names: List[str]
+) -> pd.DataFrame:
     parameter_stats = {param: parameters[param].describe() for param in parameter_names}
     parameter_table = (
         pd.DataFrame(parameter_stats)
@@ -85,87 +80,107 @@ def process_simulation_results(
         .rename(columns={"index": "names", "std": "variance"})
     )
     parameter_table["variance"] = parameter_table["variance"] ** 2
+    return parameter_table
 
-    # Define variable names and find result files
-    variable_names = ["F", "B", "H", "Q", "S", "U", "V"]
-    result_files = [
-        f for f in os.listdir(os.path.join(base_dir, "results")) if f.endswith(".slf")
-    ]
+def process_data(
+    config: ProcessingConfig,
+    files: Dict[str, Dict[str, str]],
+    parameters: pd.DataFrame,
+    result_files: List[str],
+    variable_names: List[str],
+    parameter_names: List[str],
+):
+    parameter_table = prepare_parameter_table(parameters, parameter_names)
 
-    # Process and save raw data
-    with h5py.File(output_file_noise, "w") as hdf5_file_noise, h5py.File(
-        output_file_flat, "w"
-    ) as hdf5_file_flat:
-        table_noise = process_and_save(
-            hdf5_file_noise,
-            "NOISE",
-            base_dir,
-            parameters,
-            parameter_table,
-            parameter_names,
-            variable_names,
-            result_files,
+    for flow_type in ["noise", "flat"]:
+        if config.separate_critical_states:
+            for critical_state in ["subcritical", "supercritical"]:
+                mask = (
+                    parameters["subcritical"]
+                    if critical_state == "subcritical"
+                    else ~parameters["subcritical"]
+                )
+                filtered_parameters = parameters[mask]
+                filtered_result_files = [f for f, m in zip(result_files, mask) if m]
+
+                with h5py.File(
+                    files[flow_type][f"main_{critical_state}"], "w"
+                ) as hdf5_file:
+                    process_and_save(
+                        hdf5_file,
+                        flow_type.upper(),
+                        config.base_dir,
+                        filtered_parameters,
+                        parameter_table,
+                        parameter_names,
+                        variable_names,
+                        filtered_result_files,
+                    )
+
+                if config.generate_normalized:
+                    with h5py.File(
+                        files[flow_type][f"normalized_{critical_state}"], "w"
+                    ) as hdf5_file_norm:
+                        process_and_save_normalized(
+                            hdf5_file_norm,
+                            flow_type.upper(),
+                            None,
+                            config.base_dir,
+                            filtered_parameters,
+                            parameter_names,
+                            variable_names,
+                            filtered_result_files,
+                        )
+        else:
+            with h5py.File(files[flow_type]["main"], "w") as hdf5_file:
+                table = process_and_save(
+                    hdf5_file,
+                    flow_type.upper(),
+                    config.base_dir,
+                    parameters,
+                    parameter_table,
+                    parameter_names,
+                    variable_names,
+                    result_files,
+                )
+
+            if config.generate_normalized:
+                with h5py.File(files[flow_type]["normalized"], "w") as hdf5_file_norm:
+                    process_and_save_normalized(
+                        hdf5_file_norm,
+                        flow_type.upper(),
+                        table,
+                        config.base_dir,
+                        parameters,
+                        parameter_names,
+                        variable_names,
+                        result_files,
+                    )
+
+def process_simulation_results(config: ProcessingConfig) -> None:
+    logger.info("Processing started")
+
+    try:
+        parameters, result_files, variable_names = load_and_validate_data(config)
+        parameter_names = ["H0", "Q0", "SLOPE", "n"]
+        files = get_output_files(config)
+
+        process_data(
+            config, files, parameters, result_files, variable_names, parameter_names
         )
-        table_flat = process_and_save(
-            hdf5_file_flat,
-            "FLAT",
-            base_dir,
-            parameters,
-            parameter_table,
-            parameter_names,
-            variable_names,
-            result_files,
-        )
 
-    # Process and save normalized data
-    with h5py.File(
-        normalized_output_file_noise, "w"
-    ) as hdf5_file_noise_norm, h5py.File(
-        normalized_output_file_flat, "w"
-    ) as hdf5_file_flat_norm:
-        process_and_save_normalized(
-            hdf5_file_noise_norm,
-            "NOISE",
-            table_noise,
-            base_dir,
-            parameters,
-            parameter_names,
-            variable_names,
-            result_files,
-        )
-        process_and_save_normalized(
-            hdf5_file_flat_norm,
-            "FLAT",
-            table_flat,
-            base_dir,
-            parameters,
-            parameter_names,
-            variable_names,
-            result_files,
-        )
-
-    logger.success("Script completed successfully")
-
+        logger.success("Processing completed successfully")
+    except Exception as e:
+        logger.error(f"An error occurred during processing: {str(e)}")
 
 if __name__ == "__main__":
-    # Configure logging
     logger.remove()
     logger.add(
         "simulation_data_processor.log", format="{time} {level} {message}", level="INFO"
     )
 
-    # Define input and output paths
-    BASE_DIR = "telemac"
-    OUTPUT_FILE_NOISE = "ML/simulation_data_noise.hdf5"
-    OUTPUT_FILE_FLAT = "ML/simulation_data_flat.hdf5"
-    NORMALIZED_OUTPUT_FILE_NOISE = "ML/simulation_data_normalized_noise.hdf5"
-    NORMALIZED_OUTPUT_FILE_FLAT = "ML/simulation_data_normalized_flat.hdf5"
-
-    # Run the main processing function
-    process_simulation_results(
-        BASE_DIR,
-        OUTPUT_FILE_NOISE,
-        OUTPUT_FILE_FLAT,
-        NORMALIZED_OUTPUT_FILE_NOISE,
-        NORMALIZED_OUTPUT_FILE_FLAT,
+    config = ProcessingConfig(
+        base_dir="telemac", generate_normalized=False, separate_critical_states=True
     )
+
+    process_simulation_results(config)

@@ -1,7 +1,17 @@
 import pandas as pd
 from scipy.stats import qmc
 from typing import List
+
 class SampleGenerator:
+    """
+    A class to generate samples of combinations for given parameter ranges.
+
+    Methods
+    -------
+    sample_combinations(n, SLOPE_min, SLOPE_max, n_min, n_max, Q0_min, Q0_max, H0_min, H0_max)
+        Generates a DataFrame of sampled combinations for the specified parameter ranges.
+    """
+
     @staticmethod
     def sample_combinations(
         n: int,
@@ -13,52 +23,50 @@ class SampleGenerator:
         Q0_max: float,
         H0_min: float,
         H0_max: float,
-        BOTTOM_values: List[str]
     ) -> pd.DataFrame:
         """
-        Generate a DataFrame of sample combinations using Latin Hypercube Sampling (LHS).
-    
-        Parameters:
+        Generates a DataFrame of sampled combinations for the specified parameter ranges.
+
+        Parameters
         ----------
         n : int
-            Number of samples to generate
+            The number of samples to generate.
         SLOPE_min : float
-            Minimum value for S
+            The minimum value for the SLOPE parameter.
         SLOPE_max : float
-            Maximum value for S
+            The maximum value for the SLOPE parameter.
         n_min : float
-            Minimum value for n
+            The minimum value for the n parameter.
         n_max : float
-            Maximum value for n
+            The maximum value for the n parameter.
         Q0_min : float
-            Minimum value for Q
+            The minimum value for the Q0 parameter.
         Q0_max : float
-            Maximum value for Q
+            The maximum value for the Q0 parameter.
         H0_min : float
-            Minimum value for H0
+            The minimum value for the H0 parameter.
         H0_max : float
-            Maximum value for H0
-        BOTTOM_values : List[str]
-            List of values for BOTTOM to be combined with each sample
-    
-        Returns:
+            The maximum value for the H0 parameter.
+
+        Returns
         -------
         pd.DataFrame
-            DataFrame containing the sample combinations with columns ["SLOPE", "n", "Q0", "H0", "BOTTOM"]
+            A DataFrame containing the sampled combinations of the parameters.
+
+        Examples
+        --------
+        >>> generator = SampleGenerator()
+        >>> df = generator.sample_combinations(10, 0.1, 0.5, 1.0, 2.0, 10.0, 20.0, 5.0, 15.0)
+        >>> print(df)
         """
-        sampler = qmc.LatinHypercube(d=4, strength=2, seed=1618)
+
+        sampler = qmc.LatinHypercube(d=4, strength=2, seed=0)
         sample = sampler.random(n=n)
-    
+
         lower_bounds = [SLOPE_min, n_min, Q0_min, H0_min]
         upper_bounds = [SLOPE_max, n_max, Q0_max, H0_max]
-    
+
         sample_scaled = qmc.scale(sample, lower_bounds, upper_bounds)
-    
-        combinations = [
-            combination.tolist() + [bottom]
-            for combination in sample_scaled
-            for bottom in BOTTOM_values
-        ]
-    
-        column_names = ["SLOPE", "n", "Q0", "H0", "BOTTOM"]
-        return pd.DataFrame(combinations, columns=column_names)
+
+        column_names = ["SLOPE", "n", "Q0", "H0"]
+        return pd.DataFrame(sample_scaled, columns=column_names)
