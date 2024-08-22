@@ -107,14 +107,14 @@ def main():
             extract_variable_data(normalized_dataset, 0),
         )
     )
-    parameters.append('B')
+    parameters.append("B")
     plot_distributions(parameter_data, parameters)
 
     stats = [calculate_statistics(data) for data, _ in parameter_data]
     df = pd.DataFrame(stats, index=parameters)
     df["Range"] = df["Max"] - df["Min"]
     print(df)
-    
+
     # Extract variable data
     variable_data = [
         (

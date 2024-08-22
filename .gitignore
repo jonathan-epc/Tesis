@@ -27,6 +27,7 @@ ML/studies
 ML/runs/*
 ML/runs.old/*
 ML/wandb/*
+ML/data/*
 *steering*/
 *checkpoint*
 *sync-conflict*

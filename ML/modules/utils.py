@@ -14,6 +14,7 @@ class EarlyStopping:
         self.verbose = verbose
         self.counter = 0
         self.best_score = None
+        self.best_epoch = None
         self.early_stop = False
         self.val_loss_min = np.Inf
         self.delta = delta
@@ -37,6 +38,7 @@ class EarlyStopping:
                 self.early_stop = True
         else:
             self.best_score = score
+            self.best_epoch = epoch
             self.save_checkpoint(val_loss, model)
             self.counter = 0
 
@@ -64,7 +66,7 @@ def set_seed(seed: int) -> None:
 def setup_experiment(config: dict) -> None:
     """Set up the experiment environment."""
     os.environ["WANDB_SILENT"] = "true"
-    set_seed(config["seed"])
+    set_seed(config.seed)
 
 def load_config(config_path: str) -> dict:
     """Load configuration from a YAML file."""
