@@ -15,8 +15,7 @@ class BoundaryConditions:
         direction: Literal["Left to right", "Right to left"],
         h0: float,
         bottom: str,
-        borders_flat: List[float],
-        borders_noise: List[float],
+        borders: List[float],
     ) -> Tuple[str, Tuple[float, float]]:
         """
         Determines the boundary file and elevations based on the given parameters.
@@ -49,10 +48,7 @@ class BoundaryConditions:
         ...     "Right to left", 1.0, "NOISY", [0.0, 0.0], [0.1, 0.1])
         ('boundary/3x3_riv.cli', (1.1, 0.0))
         """
-        if bottom == "FLAT":
-            z_left, z_right = borders_flat
-        else:
-            z_left, z_right = borders_noise
+        z_left, z_right = borders
 
         if direction == "Left to right":
             return "boundary/3x3_tor.cli", (0.0, z_left + h0)

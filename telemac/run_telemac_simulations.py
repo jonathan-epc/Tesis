@@ -55,7 +55,10 @@ def parse_arguments() -> argparse.Namespace:
         "--end", type=int, default=0, help="End index for simulation files"
     )
     parser.add_argument(
-        "--bottom", type=str, help="Select a specific bottom value for simulation"
+        "--bottom", type=str,
+        default="",
+        choices=["SLOPE", "NOISE", "BUMP"],
+        help="Select a specific bottom value for simulation"
     )
     parser.add_argument(
         "--output-dir",

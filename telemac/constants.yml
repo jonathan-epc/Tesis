@@ -3,7 +3,6 @@ channel:
   length: 12  # in m
   depth: 0.3  # in m
   wall_thickness: 0.00  # in m
-  flat_zone: 0
 
 mesh:
   num_points_y: 11
@@ -17,5 +16,5 @@ parameters:
   q0_min: 0.005
   q0_max: 0.02
   h0_min: 0.01 
-  h0_max: 0.03 
-  bottom_values: ["NOISE", "FLAT"]
+  h0_max: 0.25 
+  bottom_values: ["SLOPE","NOISE","BUMP"]

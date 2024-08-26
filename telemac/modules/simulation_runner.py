@@ -30,7 +30,8 @@ def run_single_simulation(i, filename, case_parameters, output_dir, steering_fol
     bool
         True if the simulation was run, False if it was skipped.
     """
-    result_file = os.path.join(output_dir, f"{filename}.txt")
+    name, ext = os.path.splitext(filename)
+    result_file = os.path.join(output_dir, f"{name}.txt")
     run_simulation = True
 
     if os.path.exists(result_file):
@@ -92,16 +93,18 @@ def run_telemac2d_on_files(start, end, parameters, output_dir, steering_folder):
     None
     """
     setup_output_dir(output_dir)
-    total_files = end - start
+
+    # Filter the parameters DataFrame to match the selected range.
+    filtered_parameters = parameters.iloc[start:end]
+    total_files = len(filtered_parameters)
 
     with tqdm(total=total_files, unit="case", dynamic_ncols=True) as pbar:
-        for i in range(start, end):
-            filename = f"{i}.cas"
-            case_parameters = parameters.loc[i]
+        for i, (index, case_parameters) in enumerate(filtered_parameters.iterrows()):
+            filename = f"{index}.cas"  # Use the original index as part of the filename
 
             pbar.set_description(f"Processing {filename}")
             simulation_run = run_single_simulation(
-                i, filename, case_parameters, output_dir, steering_folder
+                index, filename, case_parameters, output_dir, steering_folder
             )
 
             if simulation_run:

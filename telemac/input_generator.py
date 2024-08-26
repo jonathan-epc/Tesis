@@ -18,8 +18,9 @@ def process_case(index, case, setup_data):
         logger.debug(f"Processing case {index}")
 
         # Generate geometry
+        logger.debug(f"Generating geometry")
         geometry_generator = GeometryGenerator()
-        borders_flat, borders_noise = geometry_generator.generate_geometry(
+        borders = geometry_generator.generate_geometry(
             index,
             case["SLOPE"],
             case["BOTTOM"],
@@ -34,17 +35,18 @@ def process_case(index, case, setup_data):
         )
 
         # Get boundary conditions
+        logger.debug(f"Getting boundary conditions")
         boundary_file, prescribed_elevations = (
             BoundaryConditions.get_boundary_and_elevations(
                 case["direction"],
                 case["H0"],
                 case["BOTTOM"],
-                borders_flat,
-                borders_noise,
+                borders
             )
         )
 
         # Generate steering file
+        logger.debug(f"Getting steering file")
         steering_generator = SteeringFileGenerator()
         steering_file_content = steering_generator.generate_steering_file(
             geometry_file=f"geometry/3x3_{case['BOTTOM']}_{index}.slf",
