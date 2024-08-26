@@ -16,10 +16,10 @@ training:
 
 # Model architecture
 model:
-  name: "FNOiuvb"
-  architecture: "FNOiuvb"
-  class: "FNOneti"
-  n_layers: 1
+  name: "FNOda"
+  architecture: "FNO"
+  class_name: "FNOnet"
+  n_layers: 4
   n_modes_x: 72
   n_modes_y: 199
   hidden_channels: 6
@@ -33,12 +33,19 @@ data:
   numpoints_x: 401
   numpoints_y: 11
   variables:
-    # - F
-    # - H
-    # - Q
-    # - S
+    - F
+    - H
+    - Q
+    - S
     - U
     - V
+  variable_units:
+    - "dimensionless"
+    - "m"
+    - "m3s-1"
+    - "m"
+    - "ms-1"
+    - "ms-1"
   parameters:
     # - H0
     # - Q0

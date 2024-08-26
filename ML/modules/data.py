@@ -44,6 +44,7 @@ class HDF5Dataset(Dataset):
         swap: bool = False,
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
+        augment: bool = True,
     ):
         """
         Initialize the HDF5Dataset.
@@ -70,6 +71,7 @@ class HDF5Dataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.device = device
+        self.augment = augment
 
         with h5py.File(self.file_path, "r") as data:
             self.keys = [key for key in data.keys() if key != "statistics"]
@@ -144,7 +146,11 @@ class HDF5Dataset(Dataset):
 
         if self.normalize_output:
             output = self.normalize(output, self.variables)       
-        
+
+        if self.augment and torch.rand(1).item() > 0.5:
+            B = torch.flip(B, [0])  
+            output = torch.flip(output, [1])  
+
         if self.transform:
             parameters = self.transform(parameters)
             B = self.transform(B)

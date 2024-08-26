@@ -4,7 +4,7 @@ import torch
 import math
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from config import CONFIG
+from config import get_config
 from cmap import Colormap
 
 def plot_im(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: str, fold_n: int) -> str:
@@ -21,6 +21,7 @@ def plot_im(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: str, 
     Returns:
     str: Path to the saved plot image
     """
+    config = get_config()
     diff = (outputs - targets).abs()
     outputs_np = outputs.cpu().detach().numpy()
     targets_np = targets.cpu().detach().numpy()
@@ -39,9 +40,9 @@ def plot_im(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: str, 
         im_target = ax_target.imshow(targets_np[0, i], cmap='viridis', vmin=-1, vmax=1, aspect='auto')
         im_diff = ax_diff.imshow(diff_np[0, i], cmap='viridis', vmin=0, vmax=2, aspect='auto')
         
-        ax_output.set_title(f'Output - {CONFIG['data']['variables'][i]}')
-        ax_target.set_title(f'Target - {CONFIG['data']['variables'][i]}')
-        ax_diff.set_title(f'Absolute Difference - {CONFIG['data']['variables'][i]}')
+        ax_output.set_title(f'Output - {config.data.variables[i]}')
+        ax_target.set_title(f'Target - {config.data.variables[i]}')
+        ax_diff.set_title(f'Absolute Difference - {config.data.variables[i]}')
         
         # Add colorbars with adjusted size
         divider = make_axes_locatable(ax_output)
@@ -77,6 +78,7 @@ def plot_scatter(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: 
     Returns:
     str: Path to the saved plot image
     """
+    config = get_config()
     outputs_np = outputs.cpu().detach().numpy()
     targets_np = targets.cpu().detach().numpy()
 
@@ -93,7 +95,7 @@ def plot_scatter(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: 
         ax.scatter(targets_np[:, i].flatten(), outputs_np[:, i].flatten(), alpha=0.5)
         ax.set_xlabel('Target')
         ax.set_ylabel('Output')
-        ax.set_title(f'{CONFIG['data']['variables'][i]}')
+        ax.set_title(f'{config.data.variables[i]}')
     # Remove any unused subplots
     for i in range(num_channels, rows*cols):
         row = i // cols
@@ -107,7 +109,7 @@ def plot_scatter(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: 
 
     return filename
 
-def plot_hex(outputs: torch.Tensor, targets: torch.Tensor, name: str, step: int, fold_n: int) -> str:
+def plot_hist(outputs: torch.Tensor, targets: torch.Tensor, name: str, step: int, fold_n: int) -> str:
     """
     Plot and save the hexbin plot of outputs vs targets for each channel in a grid.
 
@@ -121,6 +123,7 @@ def plot_hex(outputs: torch.Tensor, targets: torch.Tensor, name: str, step: int,
     Returns:
     str: Path to the saved plot image
     """
+    config = get_config()
     outputs_np = outputs.cpu().detach().numpy()
     targets_np = targets.cpu().detach().numpy()
     
@@ -149,7 +152,7 @@ def plot_hex(outputs: torch.Tensor, targets: torch.Tensor, name: str, step: int,
         ax.set_aspect('equal')
         ax.set_xlabel('Target')
         ax.set_ylabel('Output')
-        ax.set_title(f'{CONFIG['data']['variables'][i]}')
+        ax.set_title(f'{config.data.variables[i]}')
 
     # Remove any unused subplots
     for i in range(num_channels, rows*cols):
