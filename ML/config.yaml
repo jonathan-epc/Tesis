@@ -10,13 +10,13 @@ training:
   num_epochs: 1024
   num_workers: 0
   accumulation_steps: 5
-  learning_rate: 0.00002847859594257385
+  learning_rate: 0.0001
   test_frac: 0.2
-  early_stopping_patience: 128
+  early_stopping_patience: 1024
 
 # Model architecture
 model:
-  name: "FNOda"
+  name: "FNO"
   architecture: "FNO"
   class_name: "FNOnet"
   n_layers: 4
@@ -47,9 +47,9 @@ data:
     - "ms-1"
     - "ms-1"
   parameters:
-    # - H0
-    # - Q0
-    # - SLOPE
+    - H0
+    - Q0
+    - SLOPE
     - n
 
 seed: 43
@@ -59,27 +59,27 @@ logging:
   plot_enabled: false
 
 optuna:
-  storage: "sqlite:///studies/study-justUV.db"
-  study_name: "study-justUV"
-  n_trials: 100
+  study_name: "study4"
+  n_trials: 200
+  base_storage_path: "sqlite:///studies/"
   hyperparameter_space:
     learning_rate:
       type: "float"
-      low: 0.00001
-      high: 0.1
+      low: 0.000001
+      high: 0.001
       log: true
     batch_size:
       type: "int"
-      low: 1
-      high: 128
+      low: 16
+      high: 512
     accumulation_steps:
       type: "int"
       low: 1
-      high: 16
+      high: 1
     n_layers:
       type: "int"
       low: 1
-      high: 16
+      high: 32
     hidden_channels:
       type: "int"
       low: 1
@@ -87,19 +87,19 @@ optuna:
     n_modes_x:
       type: "int"
       low: 1
-      high: 400
+      high: 200
     n_modes_y:
       type: "int"
       low: 1
-      high: 400
+      high: 200
     lifting_channels:
       type: "int"
       low: 1
-      high: 64
+      high: 32
     projection_channels:
       type: "int"
       low: 1
-      high: 64
+      high: 32
 
 # API Keys (to be set via environment variables)
 api_keys:

@@ -9,27 +9,10 @@ from torch.utils.data import Dataset
 
 class HDF5Dataset(Dataset):
     """
-    A PyTorch Dataset for loading and processing HDF5 data.
-
-    This dataset class is designed to work with HDF5 files containing
-    parameter data, B fields, and variable data. It supports normalization,
-    denormalization, and optional data transformations.
-
-    Attributes:
-        file_path (str): Path to the HDF5 file.
-        variables (List[str]): List of variable names to load.
-        parameters (List[str]): List of parameter names to load.
-        numpoints_x (int): Number of points in the x-dimension.
-        numpoints_y (int): Number of points in the y-dimension.
-        device (str): Device to load the data onto ('cpu' or 'cuda').
-        already_normalized (bool): Whether the data is already normalized.
-        swap (bool): Whether to swap inputs and outputs.
-        transform (Optional[Callable]): Optional transform to be applied on the input.
-        target_transform (Optional[Callable]): Optional transform to be applied on the target.
-        keys (List[str]): List of keys in the HDF5 file.
-        stat_means (dict): Mean values for normalization.
-        stat_stds (dict): Standard deviation values for normalization.
-        data (dict): Pre-loaded data from the HDF5 file.
+    PyTorch Dataset for loading and processing data from an HDF5 file.
+    
+    This dataset supports loading data, normalization, denormalization, and optional 
+    data transformations, and it can work with both CPU and CUDA devices.
     """
 
     def __init__(
@@ -39,7 +22,7 @@ class HDF5Dataset(Dataset):
         parameters: List[str],
         numpoints_x: int,
         numpoints_y: int,
-        device: str,
+        device: torch.device,
         normalize: List[bool] = [True, True],
         swap: bool = False,
         transform: Optional[Callable] = None,
@@ -55,72 +38,67 @@ class HDF5Dataset(Dataset):
             parameters (List[str]): List of parameter names to load.
             numpoints_x (int): Number of points in the x-dimension.
             numpoints_y (int): Number of points in the y-dimension.
-            device (str): Device to load the data onto ('cpu' or 'cuda').
-            normalized (bool, optional): Whether the data is already normalized. Defaults to True.
-            swap (bool, optional): Whether to swap inputs and outputs. Defaults to False.
-            transform (Optional[Callable], optional): Optional transform to be applied on the input. Defaults to None.
-            target_transform (Optional[Callable], optional): Optional transform to be applied on the target. Defaults to None.
+            device (torch.device): Device to load the data onto ('cpu' or 'cuda').
+            normalize (List[bool]): Whether to normalize input and output data. 
+            swap (bool): Whether to swap inputs and outputs.
+            transform (Optional[Callable]): Optional transform for the input.
+            target_transform (Optional[Callable]): Optional transform for the target.
+            augment (bool): Whether to apply augmentation (random flipping).
         """
         self.file_path = file_path
         self.variables = variables
         self.parameters = parameters
         self.numpoints_x = numpoints_x
         self.numpoints_y = numpoints_y
+        self.device = device
         self.normalize_input, self.normalize_output = normalize
         self.swap = swap
         self.transform = transform
         self.target_transform = target_transform
-        self.device = device
         self.augment = augment
 
-        with h5py.File(self.file_path, "r") as data:
-            self.keys = [key for key in data.keys() if key != "statistics"]
-            self.stat_means = {
-                param: data["statistics"].attrs[f"{param}_mean"]
-                for param in parameters + ["B"] + variables
-            }
-            self.stat_stds = {
-                param: np.sqrt(data["statistics"].attrs[f"{param}_variance"])
-                for param in parameters + ["B"] + variables
-            }
+        # Load statistics for normalization
+        self._load_statistics()
 
-        # Pre-load all data into memory
+        # Preload all data into memory
         self.data = self._load_data()
 
-    def _load_data(self) -> dict:
-        """
-        Load all data from the HDF5 file into memory.
+    def _load_statistics(self) -> None:
+        """Load normalization statistics from the HDF5 file."""
+        with h5py.File(self.file_path, "r") as f:
+            self.keys = [key for key in f.keys() if key != "statistics"]
+            self.stat_means = {
+                param: f["statistics"].attrs[f"{param}_mean"]
+                for param in self.parameters + ["B"] + self.variables
+            }
+            self.stat_stds = {
+                param: np.sqrt(f["statistics"].attrs[f"{param}_variance"])
+                for param in self.parameters + ["B"] + self.variables
+            }
 
-        Returns:
-            dict: Dictionary containing all loaded data.
-        """
+    def _load_data(self) -> dict:
+        """Load all data from the HDF5 file into memory."""
         data = {}
-        with h5py.File(self.file_path, "r") as file:
+        with h5py.File(self.file_path, "r") as f:
             for key in self.keys:
-                data[key] = {param: file[key].attrs[param] for param in self.parameters}
-                data[key]["B"] = torch.from_numpy(file[key]["B"][()]).float()
+                case_data = {param: f[key].attrs[param] for param in self.parameters}
+                case_data["B"] = torch.from_numpy(f[key]["B"][()]).float()
                 for var in self.variables:
-                    data[key][var] = torch.from_numpy(file[key][var][()]).float()
+                    case_data[var] = torch.from_numpy(f[key][var][()]).float()
+                data[key] = case_data
         return data
 
     def __len__(self) -> int:
-        """
-        Get the number of items in the dataset.
-
-        Returns:
-            int: Number of items in the dataset.
-        """
+        """Return the number of samples in the dataset."""
         return len(self.keys)
 
     @lru_cache(maxsize=None)
-    def __getitem__(
-        self, idx: int
-    ) -> Tuple[Union[List[torch.Tensor], torch.Tensor], torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[Union[List[torch.Tensor], torch.Tensor], torch.Tensor]:
         """
-        Get an item from the dataset.
+        Retrieve a sample from the dataset by index.
 
         Args:
-            idx (int): Index of the item to retrieve.
+            idx (int): Index of the sample to retrieve.
 
         Returns:
             Tuple[Union[List[torch.Tensor], torch.Tensor], torch.Tensor]: 
@@ -129,118 +107,106 @@ class HDF5Dataset(Dataset):
         key = self.keys[idx]
         case = self.data[key]
 
-        parameters = torch.tensor(
-            [case[param] for param in self.parameters], dtype=torch.float32
+        # Load and process parameters
+        parameters = torch.tensor([case[param] for param in self.parameters], dtype=torch.float32)
+        B_field = case["B"].reshape(self.numpoints_y, self.numpoints_x)
+        outputs = torch.stack(
+            [case[var].reshape(self.numpoints_y, self.numpoints_x) for var in self.variables]
         )
-        B = case["B"].reshape(self.numpoints_y, self.numpoints_x)
-        output = torch.stack(
-            [
-                case[var].reshape(self.numpoints_y, self.numpoints_x)
-                for var in self.variables
-            ]
-        )
-        
+
+        # Apply normalization if specified
         if self.normalize_input:
-            parameters = self.normalize(parameters, self.parameters)
-            B = self.normalize(B, "B")
+            parameters = self._normalize(parameters, self.parameters)
+            B_field = self._normalize(B_field, "B")
 
         if self.normalize_output:
-            output = self.normalize(output, self.variables)       
+            outputs = self._normalize(outputs, self.variables)
 
+        # Apply data augmentation (random flipping)
         if self.augment and torch.rand(1).item() > 0.5:
-            B = torch.flip(B, [0])  
-            output = torch.flip(output, [1])  
+            B_field = torch.flip(B_field, [0])
+            outputs = torch.flip(outputs, [1])
 
+        # Apply any specified transformations
         if self.transform:
             parameters = self.transform(parameters)
-            B = self.transform(B)
+            B_field = self.transform(B_field)
+
         if self.target_transform:
-            output = self.target_transform(output)
+            outputs = self.target_transform(outputs)
 
+        # Return swapped inputs and outputs if specified
         if self.swap:
-            return output.to(self.device), [
-                parameters.to(self.device),
-                B.to(self.device),
-            ]
+            return outputs.to(self.device), [parameters.to(self.device), B_field.to(self.device)]
         else:
-            return [parameters.to(self.device), B.to(self.device)], output.to(
-                self.device
-            )
+            return [parameters.to(self.device), B_field.to(self.device)], outputs.to(self.device)
 
-    def normalize(
-        self, data: torch.Tensor, prefixes: Union[str, List[str]]
-    ) -> torch.Tensor:
+    def _normalize(self, data: torch.Tensor, keys: Union[str, List[str]]) -> torch.Tensor:
         """
-        Normalize the given data using pre-computed statistics.
+        Normalize data using precomputed mean and standard deviation.
 
         Args:
-            data (torch.Tensor): Data to be normalized.
-            prefixes (Union[str, List[str]]): Prefix(es) for selecting normalization statistics.
+            data (torch.Tensor): Data to normalize.
+            keys (Union[str, List[str]]): Key(s) to retrieve corresponding statistics.
 
         Returns:
             torch.Tensor: Normalized data.
         """
-        if isinstance(prefixes, str):
-            mean = torch.tensor(self.stat_means[prefixes], dtype=torch.float32)
-            std = torch.tensor(self.stat_stds[prefixes], dtype=torch.float32)
+        if isinstance(keys, str):
+            mean = torch.tensor(self.stat_means[keys], dtype=torch.float32)
+            std = torch.tensor(self.stat_stds[keys], dtype=torch.float32)
         else:
-            mean = torch.tensor([self.stat_means[prefix] for prefix in prefixes], dtype=torch.float32)
-            std = torch.tensor([self.stat_stds[prefix] for prefix in prefixes], dtype=torch.float32)
+            mean = torch.tensor([self.stat_means[key] for key in keys], dtype=torch.float32)
+            std = torch.tensor([self.stat_stds[key] for key in keys], dtype=torch.float32)
 
-        if data.dim() ==3:
-            mean = mean.view(-1,1,1)
-            std = std.view(-1,1,1)
-            
+        # Adjust mean and std for multi-channel data
+        if data.dim() == 3:
+            mean = mean.view(-1, 1, 1)
+            std = std.view(-1, 1, 1)
+
         return (data - mean) / std
 
-
-    def denormalize(
-        self, data: torch.Tensor, prefixes: Union[str, List[str]]
-    ) -> torch.Tensor:
+    def _denormalize(self, data: torch.Tensor, keys: Union[str, List[str]]) -> torch.Tensor:
         """
-        Denormalize the given data using pre-computed statistics.
+        Denormalize data using precomputed mean and standard deviation.
 
         Args:
-            data (torch.Tensor): Data to be denormalized.
-            prefixes (Union[str, List[str]]): Prefix(es) for selecting denormalization statistics.
+            data (torch.Tensor): Data to denormalize.
+            keys (Union[str, List[str]]): Key(s) to retrieve corresponding statistics.
 
         Returns:
             torch.Tensor: Denormalized data.
         """
-        if isinstance(prefixes, str):
-            mean = torch.tensor(self.stat_means[prefixes], dtype=torch.float32)
-            std = torch.tensor(self.stat_stds[prefixes], dtype=torch.float32)
+        if isinstance(keys, str):
+            mean = torch.tensor(self.stat_means[keys], dtype=torch.float32)
+            std = torch.tensor(self.stat_stds[keys], dtype=torch.float32)
         else:
-            mean = torch.tensor([self.stat_means[prefix] for prefix in prefixes], dtype=torch.float32)
-            std = torch.tensor([self.stat_stds[prefix] for prefix in prefixes], dtype=torch.float32)
+            mean = torch.tensor([self.stat_means[key] for key in keys], dtype=torch.float32)
+            std = torch.tensor([self.stat_stds[key] for key in keys], dtype=torch.float32)
 
-        if data.dim() ==3:
-            mean = mean.view(-1,1,1)
-            std = std.view(-1,1,1)
+        # Adjust mean and std for multi-channel data
+        if data.dim() == 3:
+            mean = mean.view(-1, 1, 1)
+            std = std.view(-1, 1, 1)
+
         return data * std + mean
 
     def __repr__(self) -> str:
-        """
-        Return a string representation of the HDF5Dataset.
-
-        Returns:
-            str: String representation of the HDF5Dataset.
-        """
-        return (f"HDF5Dataset(file_path='{self.file_path}', "
-                f"variables={self.variables}, "
-                f"parameters={self.parameters}, "
-                f"numpoints_x={self.numpoints_x}, "
-                f"numpoints_y={self.numpoints_y}, "
-                f"device='{self.device}', "
-                f"normalized={self.already_normalized}, "
-                f"swap={self.swap})")
+        """Return a string representation of the dataset."""
+        return (
+            f"HDF5Dataset(file_path='{self.file_path}', "
+            f"variables={self.variables}, parameters={self.parameters}, "
+            f"numpoints_x={self.numpoints_x}, numpoints_y={self.numpoints_y}, "
+            f"device='{self.device}', normalize_input={self.normalize_input}, "
+            f"normalize_output={self.normalize_output}, swap={self.swap})"
+        )
 
     @property
     def shape(self) -> Tuple[int, int, int]:
         """
-        Get the shape of the dataset.
+        Return the shape of the dataset.
 
         Returns:
-            Tuple[int, int, int]: A tuple containing (num_samples, numpoints_y, numpoints_x).
+            Tuple[int, int, int]: (num_samples, numpoints_y, numpoints_x)
         """
         return len(self), self.numpoints_y, self.numpoints_x

@@ -86,3 +86,15 @@ def get_hparams(config: dict) -> dict:
         "lifting_channels": config["model"]["lifting_channels"],
         "projection_channels": config["model"]["projection_channels"],
     }
+
+def is_jupyter():
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == "ZMQInteractiveShell":  # Jupyter notebook or qtconsole
+            return True
+        elif shell == "TerminalInteractiveShell":  # IPython terminal
+            return False
+        else:
+            return False
+    except NameError:
+        return False  # Probably standard Python interpreter

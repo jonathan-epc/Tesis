@@ -7,11 +7,13 @@ import optuna
 import torch.nn as nn
 from neuralop import LpLoss
 
-from modules.training import cross_validation_procedure
-from modules.logging import setup_logger
-from modules.models import *
-from modules.utils import set_seed, setup_experiment
 from config import get_config  # Import the new config function
+
+from modules.logging import setup_logger
+from modules.loss import FluidDynamicsLoss
+from modules.models import *
+from modules.training import cross_validation_procedure
+from modules.utils import set_seed, setup_experiment, is_jupyter
 
 
 class TrialSkippedException(Exception):
@@ -20,8 +22,8 @@ class TrialSkippedException(Exception):
 
 def create_hparams(trial, config):
     return {
-        param: getattr(trial, f"suggest_{space.type}")(
-            param, space.low, space.high, log=space.log if hasattr(space, 'log') else False
+        param: getattr(trial, f"suggest_{space['type']}")(
+            param, space["low"], space["high"], log=space.get("log", False)
         )
         for param, space in config.optuna.hyperparameter_space.items()
     }
@@ -30,7 +32,9 @@ def create_hparams(trial, config):
 def objective(trial, config):
     hparams = create_hparams(trial, config)
     model_class = globals()[config.model.class_name]
-    name = f"{config.optuna.study_name}_{config.model.architecture}_trial_{trial.number}"
+    name = (
+        f"{config.optuna.study_name}_{config.model.architecture}_trial_{trial.number}"
+    )
 
     try:
         return cross_validation_procedure(
@@ -45,6 +49,7 @@ def objective(trial, config):
             trial=trial,
             architecture=config.model.architecture,
             plot_enabled=config.logging.plot_enabled,
+            config = config
         )
     except KeyboardInterrupt:
         logger.info(f"Skipping trial {trial.number} due to keyboard interrupt.")
@@ -92,7 +97,7 @@ def run_hypertuning(config):
 
 def run_single_training(config):
     model_class = globals()[config.model.class_name]
-    
+
     test_loss = cross_validation_procedure(
         config.model.name,
         config.data.file_name,
@@ -100,19 +105,20 @@ def run_single_training(config):
         nn.HuberLoss(),
         kfolds=config.training.kfolds,
         hparams={
-            'n_layers': config.model.n_layers,
-            'n_modes_x': config.model.n_modes_x,
-            'n_modes_y': config.model.n_modes_y,
-            'hidden_channels': config.model.hidden_channels,
-            'lifting_channels': config.model.lifting_channels,
-            'projection_channels': config.model.projection_channels,
-            'batch_size': config.training.batch_size,
-            'learning_rate': config.training.learning_rate,
-            'accumulation_steps': config.training.accumulation_steps,
+            "n_layers": config.model.n_layers,
+            "n_modes_x": config.model.n_modes_x,
+            "n_modes_y": config.model.n_modes_y,
+            "hidden_channels": config.model.hidden_channels,
+            "lifting_channels": config.model.lifting_channels,
+            "projection_channels": config.model.projection_channels,
+            "batch_size": config.training.batch_size,
+            "learning_rate": config.training.learning_rate,
+            "accumulation_steps": config.training.accumulation_steps,
         },
         use_wandb=config.logging.use_wandb,
         architecture=config.model.architecture,
         plot_enabled=config.logging.plot_enabled,
+        config = config
     )
     logger.info(f"Final test loss: {test_loss}")
     return test_loss
@@ -138,24 +144,11 @@ def main(mode: str):
     logger.info("Process completed successfully.")
 
 
-def is_jupyter():
-    try:
-        shell = get_ipython().__class__.__name__
-        if shell == 'ZMQInteractiveShell':  # Jupyter notebook or qtconsole
-            return True
-        elif shell == 'TerminalInteractiveShell':  # IPython terminal
-            return False
-        else:
-            return False
-    except NameError:
-        return False  # Probably standard Python interpreter
-
-
 if __name__ == "__main__" or is_jupyter():
     logger = setup_logger()
     if is_jupyter():
         # Default mode when running in Jupyter
-        mode = "training"
+        mode = "hypertuning"
         logger.info(f"Running in Jupyter environment. Default mode: {mode}")
     else:
         parser = argparse.ArgumentParser(
@@ -174,18 +167,7 @@ if __name__ == "__main__" or is_jupyter():
         main(mode)
     except Exception as e:
         logger.error(f"Unhandled exception: {e}")
-<<<<<<< HEAD
         if not is_jupyter():
             sys.exit(1)
         else:
             raise  # Re-raise the exception in Jupyter for better traceback
-=======
-        sys.exit(1)
-
-logger = setup_logger()
-try:
-    main('config.yaml', 'training')
-except Exception as e:
-    logger.error(f"Unhandled exception: {e}")
-    sys.exit(1)
->>>>>>> 84d7ef7df9b1cc45d29242968ba9fe7ba1b33b43

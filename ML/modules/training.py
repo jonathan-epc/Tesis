@@ -1,5 +1,4 @@
-import gc
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Tuple, Type
 
 import numpy as np
 import optuna
@@ -7,21 +6,23 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import wandb
+from math import ceil 
 from config import get_config
 from loguru import logger
 from sklearn.model_selection import KFold, train_test_split
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler, random_split
 from torcheval.metrics.functional import mean_squared_error, r2_score
-from tqdm.auto import tqdm
+from tqdm.autonotebook import tqdm
 
 from modules.data import HDF5Dataset
 from modules.logging import setup_logger
 from modules.models import *
-from modules.plots import plot_im as plot_difference_im
 from modules.plots import plot_hist as plot_difference
+from modules.plots import plot_im as plot_difference_im
 from modules.utils import EarlyStopping
+
 
 def compute_metrics(
     outputs: torch.Tensor,
@@ -50,15 +51,7 @@ def compute_metrics(
             "r2": r2,
         }
     )
-
-    # Normalized Root Mean Square Error (NRMSE)
-    nrmse = rmse / (targets.max() - targets.min())
-    metrics["nrmse"] = nrmse
-
-    # Mean Absolute Percentage Error (MAPE)
     epsilon = 1e-8  # Small value to avoid division by zero
-    mape = torch.mean(torch.abs((targets - outputs) / (targets + epsilon))) * 100
-    metrics["mape"] = mape
 
     # Compute metrics for each variable
     for i, (var_name, var_unit) in enumerate(zip(variable_names, variable_units)):
@@ -69,6 +62,7 @@ def compute_metrics(
         var_rmse = torch.sqrt(var_mse)
         var_mae = torch.mean(torch.abs(var_targets - var_outputs))
         var_r2 = r2_score(var_targets, var_outputs)
+        var_mape = torch.mean(torch.abs((var_targets - var_outputs) / (var_targets + epsilon))) * 100
 
         metrics.update(
             {
@@ -76,22 +70,12 @@ def compute_metrics(
                 f"{var_name}_rmse": var_rmse,
                 f"{var_name}_mae": var_mae,
                 f"{var_name}_r2": var_r2,
+                f"{var_name}_mape": var_mape,
             }
         )
 
-        # For variables with units, add interpretable metrics
-        if var_unit != "dimensionless":
-            var_mean_error = torch.mean(var_outputs - var_targets)
-            var_std_error = torch.std(var_outputs - var_targets)
-
-            metrics.update(
-                {
-                    f"{var_name}_mean_error_{var_unit}": var_mean_error,
-                    f"{var_name}_std_error_{var_unit}": var_std_error,
-                }
-            )
-
     return metrics
+
 
 class Trainer:
     def __init__(
@@ -107,6 +91,7 @@ class Trainer:
         clip_grad_value,
         variable_names,
         variable_units,
+        config
     ):
         self.model = model
         self.architecture = architecture
@@ -119,25 +104,53 @@ class Trainer:
         self.clip_grad_value = clip_grad_value
         self.variable_names = variable_names
         self.variable_units = variable_units
+        self.config = config
 
     def train_epoch(self, dataloader):
         self.model.train()
         total_loss = 0.0
+        self.optimizer.zero_grad(set_to_none=True)
+        scaler = self.scaler
+        counter = 0
+
         for idx, (inputs, targets) in enumerate(dataloader):
-            inputs = [input.to(self.device) for input in inputs]
+            if isinstance(inputs, (tuple, list)):
+                inputs = [input.to(self.device) for input in inputs]
+            else:
+                inputs = inputs.to(self.device)
             targets = targets.to(self.device)
-            with autocast(enabled=self.device == "cuda", dtype=torch.float32):
+
+            with autocast(
+                device_type=self.device,
+                enabled=self.device == "cuda",
+                dtype=torch.float32,
+            ):
                 outputs = self.model(inputs)
-                loss = self.criterion(outputs, targets) / self.accumulation_steps
-            self.scaler.scale(loss).backward()
+                loss = self.criterion(outputs, targets)
+
+            scaler.scale(loss).backward()
+
             if (idx + 1) % self.accumulation_steps == 0:
-                self.scaler.unscale_(self.optimizer)
+                scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), self.clip_grad_value)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                scaler.step(self.optimizer)
+                scaler.update()
                 self.optimizer.zero_grad(set_to_none=True)
                 self.scheduler.step()
-            total_loss += loss.item() * self.accumulation_steps
+                counter +=1
+
+            total_loss += loss.item()
+
+        # Final step to apply remaining gradients if any
+        if (idx + 1) % self.accumulation_steps != 0:
+            scaler.unscale_(self.optimizer)
+            clip_grad_norm_(self.model.parameters(), self.clip_grad_value)
+            scaler.step(self.optimizer)
+            scaler.update()
+            self.optimizer.zero_grad(set_to_none=True)
+            self.scheduler.step()
+            counter +=1
+
         return total_loss / len(dataloader)
 
     @torch.no_grad()
@@ -146,9 +159,16 @@ class Trainer:
         total_loss = 0.0
         all_outputs, all_targets = [], []
         for inputs, targets in dataloader:
-            inputs = [input.to(self.device) for input in inputs]
+            if isinstance(inputs, (tuple, list)):
+                inputs = [input.to(self.device) for input in inputs]
+            else:
+                inputs = inputs.to(self.device)
             targets = targets.to(self.device)
-            with autocast(enabled=self.device == "cuda", dtype=torch.float32):
+            with autocast(
+                device_type=self.device,
+                enabled=self.device == "cuda",
+                dtype=torch.float32,
+            ):
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
             total_loss += loss.item()
@@ -182,11 +202,10 @@ class Trainer:
         use_wandb,
         is_sweep,
         trial,
-        plot_enabled
+        plot_enabled,
     ):
-        config = get_config()
         early_stopping = EarlyStopping(
-            patience=config.training.early_stopping_patience,
+            patience=self.config.training.early_stopping_patience,
             verbose=True,
             save_path=f"savepoints/{name}_best_model.pth",
         )
@@ -196,67 +215,36 @@ class Trainer:
                 name=f"{name}_fold_{fold_n}",
                 group=name,
                 job_type="Sweep" if is_sweep else "Run",
-                config={"architecture": self.architecture}
+                config={"architecture": self.architecture},
             )
 
-<<<<<<< HEAD
         # Create progress bar for epochs
         epoch_pbar = tqdm(range(num_epochs), desc=f"Fold {fold_n}", position=0)
-        
-        best_val_loss = float('inf')
+
+        best_val_loss = float("inf")
         for epoch in epoch_pbar:
             # Train epoch
             train_loss = self.train_epoch(train_dataloader)
-            
+
             # Validate
             val_metrics = self.validate(
                 val_dataloader, name, epoch, fold_n, plot_enabled
             )
             val_loss = val_metrics["loss"]
-=======
-    global_step = 0
-    with tqdm(total=num_epochs, desc=f"Fold {fold_n}") as pbar:
-        try:
-            for epoch in range(num_epochs):
-                model.train()
-                train_loss = 0.0
-                optimizer.zero_grad()
-                for idx, (inputs, targets) in enumerate(train_dataloader):
-                    inputs = inputs.to(CONFIG["device"])
-                    targets = [target.to(CONFIG["device"]) for target in targets]
-                    with autocast(
-                        enabled=CONFIG["device"] == "cuda", dtype=torch.float32
-                    ):
-                        outputs = model(inputs)
-                        loss1 = criterion(outputs[0], targets[0])
-                        loss2 = criterion(outputs[1], targets[1])
-                        loss = loss1 + loss2
-                        if accumulation_steps > 1:
-                            loss = loss / accumulation_steps
-                    scaler.scale(loss).backward()
-                    if accumulation_steps == 1 or (idx + 1) % accumulation_steps == 0:
-                        scaler.unscale_(optimizer)
-                        clip_grad_norm_(model.parameters(), clip_grad_value)
-                        scaler.step(optimizer)
-                        scaler.update()
-                        optimizer.zero_grad()
-                        scheduler.step()
-                    train_loss += loss.item() * (
-                        accumulation_steps if accumulation_steps > 1 else 1
-                    )
->>>>>>> 84d7ef7df9b1cc45d29242968ba9fe7ba1b33b43
 
             # Update best validation loss
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
 
             # Update epoch progress bar
-            epoch_pbar.set_postfix({
-                'Train Loss': f'{train_loss:.4f}',
-                'Val Loss': f'{val_loss:.4f}',
-                'Best Val Loss': f'{best_val_loss:.4f}',
-                'LR': f'{self.scheduler.get_last_lr()[0]:.6f}'
-            })
+            epoch_pbar.set_postfix(
+                {
+                    "Train Loss": f"{train_loss:.4f}",
+                    "Val Loss": f"{val_loss:.4f}",
+                    "Best Val Loss": f"{best_val_loss:.4f}",
+                    "LR": f"{self.scheduler.get_last_lr()[0]:.6f}",
+                }
+            )
 
             if is_sweep:
                 trial.report(val_loss, epoch)
@@ -275,73 +263,26 @@ class Trainer:
 
             early_stopping(val_loss, self.model, epoch)
             if early_stopping.early_stop:
-                epoch_pbar.set_postfix({
-                    'Status': 'Early Stopped',
-                    'Best Epoch': f'{early_stopping.best_epoch}',
-                    'Best Val Loss': f'{early_stopping.best_score:.4f}'
-                })
-                logger.info(f"Early stopping triggered. Best epoch: {early_stopping.best_epoch}")
+                epoch_pbar.set_postfix(
+                    {
+                        "Status": "Early Stopped",
+                        "Best Epoch": f"{early_stopping.best_epoch}",
+                        "Best Val Loss": f"{early_stopping.best_score:.4f}",
+                    }
+                )
+                logger.info(
+                    f"Early stopping triggered. Best epoch: {early_stopping.best_epoch}"
+                )
                 break
 
-<<<<<<< HEAD
         if use_wandb:
             wandb.finish()
-=======
-def validate_model(
-    name: str,
-    model: torch.nn.Module,
-    dataloader: DataLoader,
-    criterion: torch.nn.Module,
-    step: int = -1,
-    fold_n: int = -1,
-    plot_enabled: bool = True,
-) -> Tuple[float, Dict[str, float]]:
-    model.eval()
-    val_loss = 0.0
-    all_outputs1 = []
-    all_targets1 = []
-    all_outputs2 = []
-    all_targets2 = []
 
-    with torch.no_grad():
-        for inputs, targets in dataloader:
-            inputs = inputs.to(CONFIG["device"])
-            targets = [target.to(CONFIG["device"]) for target in targets]
-            with autocast(enabled=CONFIG["device"] == "cuda", dtype=torch.float32):
-                outputs = model(inputs)
-                loss1 = criterion(outputs[0], targets[0])
-                loss2 = criterion(outputs[1], targets[1])
-                loss = loss1 + loss2
-                val_loss += loss.item()
-                all_outputs1.append(outputs[0])
-                all_targets1.append(targets[0])
-                all_outputs2.append(outputs[1])
-                all_targets2.append(targets[1])
-
-    if plot_enabled:
-        plot_difference(outputs, targets, name + "_validation", step, fold_n)
-        plot_difference_im(outputs, targets, name + "_validation", step, fold_n)
-
-    val_loss /= len(dataloader)
-    all_outputs1 = torch.cat(all_outputs1)
-    all_targets1 = torch.cat(all_targets1)
-    all_outputs2 = torch.cat(all_outputs2)
-    all_targets2 = torch.cat(all_targets2)
-    mse1, rmse1, r21, mae1 = compute_metrics(all_outputs1, all_targets1)
-    mse2, rmse2, r22, mae2 = compute_metrics(all_outputs2, all_targets2)
-    mse = (mse1+mse2)/2
-    rmse = (rmse1+rmse2)/2
-    r2 = (r21+r22)/2
-    mae = (mae1+mae2)/2
-
-    metrics = {"loss": val_loss, "mse": mse, "rmse": rmse, "r2": r2, "mae": mae}
-    return val_loss, metrics
-
->>>>>>> 84d7ef7df9b1cc45d29242968ba9fe7ba1b33b43
 
 def cross_validate(
     name,
     model_class,
+    criterion,
     dataset,
     k_folds,
     num_epochs,
@@ -351,13 +292,14 @@ def cross_validate(
     trial,
     plot_enabled,
     architecture,
+    config
 ):
     if k_folds > 1:
-        splits = KFold(n_splits=k_folds, shuffle=True, random_state=42).split(dataset)
+        splits = KFold(n_splits=k_folds, shuffle=True, random_state=config.seed).split(dataset)
         desc = f"{k_folds}-fold Cross Validation"
     else:
         train_idx, val_idx = train_test_split(
-            np.arange(len(dataset)), test_size=0.2, shuffle=True, random_state=42
+            np.arange(len(dataset)), test_size=0.2, shuffle=True, random_state=config.seed
         )
         splits = [(train_idx, val_idx)]
         desc = "Single Train-Test Split"
@@ -365,9 +307,7 @@ def cross_validate(
     results = []
     all_metrics = {metric: [] for metric in ["mse", "rmse", "r2", "mae"]}
 
-    config = get_config()
-
-    for fold, (train_idx, val_idx) in enumerate(tqdm(splits, desc=desc)):
+    for fold, (train_idx, val_idx) in enumerate(tqdm(splits, desc=desc, total=k_folds)):
         train_loader = DataLoader(
             dataset,
             batch_size=hparams["batch_size"],
@@ -388,10 +328,15 @@ def cross_validate(
             config.data.numpoints_y,
             **hparams,
         ).to(config.device)
-        criterion = nn.MSELoss()
         optimizer = torch.optim.AdamW(model.parameters(), lr=hparams["learning_rate"])
+        steps_per_epoch = len(train_loader) // hparams["accumulation_steps"]
+        if len(train_loader) % hparams["accumulation_steps"] != 0:
+            steps_per_epoch += 1
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=0.01, epochs=num_epochs, steps_per_epoch=len(train_loader)
+            optimizer,
+            max_lr=hparams["learning_rate"],
+            epochs=num_epochs,            
+            steps_per_epoch=steps_per_epoch,
         )
         scaler = GradScaler()
 
@@ -407,6 +352,7 @@ def cross_validate(
             1.0,
             config.data.variables,
             config.data.variable_units,
+            config
         )
         trainer.train(
             name,
@@ -437,6 +383,7 @@ def cross_validate(
     avg_loss = np.mean(results)
     return avg_loss, avg_metrics
 
+
 def cross_validation_procedure(
     name,
     data_path,
@@ -449,10 +396,9 @@ def cross_validation_procedure(
     trial=None,
     plot_enabled=False,
     architecture=None,
+    config=None,
 ):
     logger.info("Starting cross-validation procedure")
-
-    config = get_config()
 
     full_dataset = HDF5Dataset(
         file_path=data_path,
@@ -467,7 +413,9 @@ def cross_validation_procedure(
     test_size = int(config.training.test_frac * len(full_dataset))
     train_val_size = len(full_dataset) - test_size
     train_val_dataset, test_dataset = random_split(
-        full_dataset, [train_val_size, test_size], generator=torch.Generator().manual_seed(config.seed)
+        full_dataset,
+        [train_val_size, test_size],
+        generator=torch.Generator().manual_seed(config.seed),
     )
 
     logger.info(
@@ -477,6 +425,7 @@ def cross_validation_procedure(
     avg_loss, avg_metrics = cross_validate(
         name,
         model_class,
+        criterion,
         train_val_dataset,
         kfolds,
         config.training.num_epochs,
@@ -486,6 +435,7 @@ def cross_validation_procedure(
         trial,
         plot_enabled,
         architecture,
+        config
     )
 
     logger.info(f"Cross-validation completed. Avg loss: {avg_loss:.4f}")
@@ -505,7 +455,6 @@ def cross_validation_procedure(
     ).to(config.device)
     model.load_state_dict(torch.load(f"savepoints/{name}_best_model.pth"))
 
-<<<<<<< HEAD
     trainer = Trainer(
         model,
         architecture,
@@ -518,23 +467,12 @@ def cross_validation_procedure(
         1.0,
         variable_names=config.data.variables,
         variable_units=config.data.variable_units,
+        config=config
     )
     test_metrics = trainer.validate(test_loader)
     logger.info(
         f"Test metrics: {', '.join(f'{k.capitalize()}={v:.4f}' for k, v in test_metrics.items())}"
     )
-=======
-    with torch.no_grad():
-        for inputs, targets in dataloader:
-            inputs = inputs.to(CONFIG["device"])
-            targets = [target.to(CONFIG["device"]) for target in targets]
-            with autocast(enabled=CONFIG["device"] == "cuda", dtype=torch.float32):
-                outputs = model(inputs)
-                loss1 = criterion(outputs[0], targets[0])
-                loss2 = criterion(outputs[1], targets[1])
-                loss = loss1 + loss2
-                test_loss += loss.item()
->>>>>>> 84d7ef7df9b1cc45d29242968ba9fe7ba1b33b43
 
     if use_wandb:
         wandb.init(
@@ -545,7 +483,12 @@ def cross_validation_procedure(
             job_type="Sweep" if is_sweep else "Run",
         )
         wandb.config.update(
-            {"Test_Loss": test_metrics["loss"], "Cross_Loss": avg_loss, **avg_metrics, "architecture": architecture}
+            {
+                "Test_Loss": test_metrics["loss"],
+                "Cross_Loss": avg_loss,
+                **avg_metrics,
+                "architecture": architecture,
+            }
         )
         wandb.finish()
 

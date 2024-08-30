@@ -1,6 +1,7 @@
+import argparse
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import h5py
 import pandas as pd
@@ -18,34 +19,32 @@ class ProcessingConfig:
     base_dir: str
     generate_normalized: bool = False
     separate_critical_states: bool = False
+    bottom_types: Optional[List[str]] = (
+        None  # Specify which bottom types to process (None for all)
+    )
 
 def get_output_files(config: ProcessingConfig) -> Dict[str, Dict[str, str]]:
     base_path = os.path.join(config.base_dir, "ML")
     os.makedirs(base_path, exist_ok=True)
 
-    files = {
-        "noise": {
-            "main": os.path.join(base_path, "simulation_data_noise.hdf5"),
-            "normalized": os.path.join(
-                base_path, "simulation_data_normalized_noise.hdf5"
-            ),
-        },
-        "flat": {
-            "main": os.path.join(base_path, "simulation_data_flat.hdf5"),
-            "normalized": os.path.join(
-                base_path, "simulation_data_normalized_flat.hdf5"
-            ),
-        },
-    }
+    bottom_types = config.bottom_types or ["noise", "slope", "bump"]
 
-    if config.separate_critical_states:
-        for flow_type in ["noise", "flat"]:
+    files = {}
+    for bottom_type in bottom_types:
+        files[bottom_type] = {
+            "main": os.path.join(base_path, f"simulation_data_{bottom_type}.hdf5"),
+            "normalized": os.path.join(
+                base_path, f"simulation_data_normalized_{bottom_type}.hdf5"
+            ),
+        }
+
+        if config.separate_critical_states:
             for data_type in ["main", "normalized"]:
-                base_name = files[flow_type][data_type]
-                files[flow_type][f"{data_type}_subcritical"] = base_name.replace(
+                base_name = files[bottom_type][data_type]
+                files[bottom_type][f"{data_type}_subcritical"] = base_name.replace(
                     ".hdf5", "_subcritical.hdf5"
                 )
-                files[flow_type][f"{data_type}_supercritical"] = base_name.replace(
+                files[bottom_type][f"{data_type}_supercritical"] = base_name.replace(
                     ".hdf5", "_supercritical.hdf5"
                 )
 
@@ -91,8 +90,9 @@ def process_data(
     parameter_names: List[str],
 ):
     parameter_table = prepare_parameter_table(parameters, parameter_names)
+    bottom_types = config.bottom_types or ["noise", "slope", "bump"]
 
-    for flow_type in ["noise", "flat"]:
+    for bottom_type in bottom_types:
         if config.separate_critical_states:
             for critical_state in ["subcritical", "supercritical"]:
                 mask = (
@@ -104,11 +104,11 @@ def process_data(
                 filtered_result_files = [f for f, m in zip(result_files, mask) if m]
 
                 with h5py.File(
-                    files[flow_type][f"main_{critical_state}"], "w"
+                    files[bottom_type][f"main_{critical_state}"], "w"
                 ) as hdf5_file:
                     process_and_save(
                         hdf5_file,
-                        flow_type.upper(),
+                        bottom_type.upper(),
                         config.base_dir,
                         filtered_parameters,
                         parameter_table,
@@ -119,11 +119,11 @@ def process_data(
 
                 if config.generate_normalized:
                     with h5py.File(
-                        files[flow_type][f"normalized_{critical_state}"], "w"
+                        files[bottom_type][f"normalized_{critical_state}"], "w"
                     ) as hdf5_file_norm:
                         process_and_save_normalized(
                             hdf5_file_norm,
-                            flow_type.upper(),
+                            bottom_type.upper(),
                             None,
                             config.base_dir,
                             filtered_parameters,
@@ -132,10 +132,10 @@ def process_data(
                             filtered_result_files,
                         )
         else:
-            with h5py.File(files[flow_type]["main"], "w") as hdf5_file:
+            with h5py.File(files[bottom_type]["main"], "w") as hdf5_file:
                 table = process_and_save(
                     hdf5_file,
-                    flow_type.upper(),
+                    bottom_type.upper(),
                     config.base_dir,
                     parameters,
                     parameter_table,
@@ -145,10 +145,10 @@ def process_data(
                 )
 
             if config.generate_normalized:
-                with h5py.File(files[flow_type]["normalized"], "w") as hdf5_file_norm:
+                with h5py.File(files[bottom_type]["normalized"], "w") as hdf5_file_norm:
                     process_and_save_normalized(
                         hdf5_file_norm,
-                        flow_type.upper(),
+                        bottom_type.upper(),
                         table,
                         config.base_dir,
                         parameters,
@@ -173,14 +173,48 @@ def process_simulation_results(config: ProcessingConfig) -> None:
     except Exception as e:
         logger.error(f"An error occurred during processing: {str(e)}")
 
+def parse_args() -> ProcessingConfig:
+    parser = argparse.ArgumentParser(description="Process simulation data.")
+    parser.add_argument(
+        "--base_dir",
+        type=str,
+        default= "telemac",
+        help="Base directory for the simulation data",
+    )
+    parser.add_argument(
+        "--generate_normalized",
+        default=False,
+        action="store_true",
+        help="Flag to generate normalized data",
+    )
+    parser.add_argument(
+        "--separate_critical_states",
+        default=False,
+        action="store_true",
+        help="Flag to separate subcritical and supercritical states",
+    )
+    parser.add_argument(
+        "--bottom_types",
+        type=str,
+        nargs="+",
+        choices=["noise", "slope", "bump"],
+        help="Bottom types to process (e.g., --bottom_types noise slope). Default is all.",
+    )
+
+    args = parser.parse_args()
+
+    return ProcessingConfig(
+        base_dir=args.base_dir,
+        generate_normalized=args.generate_normalized,
+        separate_critical_states=args.separate_critical_states,
+        bottom_types=args.bottom_types,
+    )
+
 if __name__ == "__main__":
     logger.remove()
     logger.add(
         "simulation_data_processor.log", format="{time} {level} {message}", level="INFO"
     )
 
-    config = ProcessingConfig(
-        base_dir="telemac", generate_normalized=False, separate_critical_states=True
-    )
-
+    config = parse_args()
     process_simulation_results(config)

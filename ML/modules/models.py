@@ -136,6 +136,105 @@ class FNOnet(nn.Module):
             FNOnet: The model instance moved to the specified device.
         """
         return super().to(device)
+
+class FNOnetDR(nn.Module):
+    """
+    Fourier Neural Operator Network (FNOnet) for processing 2D fields with parameter embedding.
+    This version includes dropout and L2 regularization for improved generalization.
+
+    Attributes:
+        (... previous attributes ...)
+        dropout_rate (float): Dropout rate for regularization.
+        l2_lambda (float): L2 regularization strength.
+    """
+
+    def __init__(
+        self,
+        parameters_n,
+        variables_n,
+        numpoints_x,
+        numpoints_y,
+        dropout_rate=0.1,
+        l2_lambda=1e-5,
+        **kwargs
+    ):
+        """
+        Initialize the FNOnet with dropout and L2 regularization.
+
+        Args:
+            (... previous arguments ...)
+            dropout_rate (float, optional): Dropout rate. Defaults to 0.1.
+            l2_lambda (float, optional): L2 regularization strength. Defaults to 1e-5.
+        """
+        super(FNOnetDR, self).__init__()
+        
+        self.parameters_n = parameters_n
+        self.variables_n = variables_n
+        self.numpoints_x = numpoints_x
+        self.numpoints_y = numpoints_y
+        self.dropout_rate = dropout_rate
+        self.l2_lambda = l2_lambda
+        
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        # Embedding layer for parameters with dropout
+        self.param_embedding = nn.Sequential(
+            nn.Linear(self.parameters_n, 16),
+            nn.ReLU(),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(16, self.numpoints_y * self.numpoints_x),
+        )
+
+        # FNO for 2D field
+        self.fno = FNO(
+            n_modes=(self.n_modes_x, self.n_modes_y),
+            hidden_channels=self.hidden_channels,
+            in_channels=2,  # 1 for the field channel and 1 for the embedded parameters
+            out_channels=self.variables_n,
+            n_layers=self.n_layers,
+            lifting_channels=self.lifting_channels,
+            projection_channels=self.projection_channels,
+        )
+
+    def forward(self, x: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        """
+        Forward pass of the FNOnet.
+
+        Args:
+            x (Tuple[torch.Tensor, torch.Tensor]): Input tuple containing:
+                - x_params (torch.Tensor): Input parameters tensor of shape (batch_size, parameters_n).
+                - x_field (torch.Tensor): Input field tensor of shape (batch_size, numpoints_y, numpoints_x).
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, variables_n, numpoints_y, numpoints_x).
+        """
+        x_params, x_field = x
+        x_field = x_field.unsqueeze(1)
+        # Embed and reshape parameters to match field size
+        x_params = self.param_embedding(x_params).view(
+            -1, self.numpoints_y, self.numpoints_x
+        ).unsqueeze(1)
+        # Concatenate parameters and field along channel dimension
+        x_combined = torch.cat([x_field, x_params], dim=1)
+
+        # Forward pass through FNO
+        output = self.fno(x_combined)
+
+        return output
+
+    def get_l2_regularization(self):
+        """
+        Calculate L2 regularization term for the model's parameters.
+
+        Returns:
+            torch.Tensor: L2 regularization term.
+        """
+        l2_reg = torch.tensor(0., requires_grad=True)
+        for param in self.parameters():
+            l2_reg = l2_reg + torch.norm(param, 2)
+        return self.l2_lambda * l2_reg
+
 class FNOneti(nn.Module):
     def __init__(
         self,

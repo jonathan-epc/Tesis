@@ -1,71 +1,60 @@
 import os
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 import torch
 import yaml
 from pydantic import BaseModel, Field, validator
 
-
 class TrainingConfig(BaseModel):
-    kfolds: int = 1
-    batch_size: int = 64
-    num_epochs: int = 1024
-    num_workers: int = 0
-    accumulation_steps: int = 5
-    learning_rate: float = 2.847859594257385e-5
-    test_frac: float = 0.2
-    early_stopping_patience: int = 64
-
+    kfolds: int = Field(1, ge=1)
+    batch_size: int = Field(64, gt=0)
+    num_epochs: int = Field(1024, gt=0)
+    num_workers: int = Field(0, ge=0)
+    accumulation_steps: int = Field(5, gt=0)
+    learning_rate: float = Field(1e-4, gt=0)
+    test_frac: float = Field(0.2, ge=0, le=1)
+    early_stopping_patience: int = Field(64, ge=0)
 
 class ModelConfig(BaseModel):
-    name: str = "FNOjustUV"
-    architecture: str = "FNO"
-    class_name: str = "FNOnet"
-    n_layers: int = 4
-    n_modes_x: int = 72
-    n_modes_y: int = 199
-    hidden_channels: int = 6
-    lifting_channels: int = 62
-    projection_channels: int = 51
-
+    name: str
+    architecture: str
+    class_name: str
+    n_layers: int = Field(4, gt=0)
+    n_modes_x: int = Field(72, gt=0)
+    n_modes_y: int = Field(199, gt=0)
+    hidden_channels: int = Field(6, gt=0)
+    lifting_channels: int = Field(62, gt=0)
+    projection_channels: int = Field(51, gt=0)
 
 class DataConfig(BaseModel):
-    file_name: str = "simulation_data_noise.hdf5"
+    file_name: str
     normalize: List[bool] = [True, False]
-    numpoints_x: int = 401
-    numpoints_y: int = 11
-    variables: List[str] = ["F", "H", "Q", "S", "U", "V"]
-    variable_units: List[str] = ["dimensionless", "H", "Q", "S", "U", "V"]
-    parameters: List[str] = ["H0", "Q0", "SLOPE", "n"]
-
+    numpoints_x: int = Field(401, gt=0)
+    numpoints_y: int = Field(11, gt=0)
+    variables: List[str]
+    variable_units: List[str]
+    parameters: List[str]
 
 class LoggingConfig(BaseModel):
     use_wandb: bool = True
     plot_enabled: bool = False
 
-
-class HyperparameterConfig(BaseModel):
-    type: str
-    low: float
-    high: float
-    log: Optional[bool] = None
-
-
 class OptunaConfig(BaseModel):
-    storage: str = "sqlite:///studies/study-justUV.db"
-    study_name: str = "study-justUV"
-    n_trials: int = 100
-    hyperparameter_space: Dict[str, HyperparameterConfig]
+    study_name: str
+    n_trials: int = Field(100, gt=0)
+    hyperparameter_space: Dict[str, Dict[str, Any]]
+    base_storage_path: str = "sqlite:///studies/"
 
+    @property
+    def storage(self) -> str:
+        return f"{self.base_storage_path}{self.study_name}.db"
 
 class ApiKeys(BaseModel):
     wandb: Optional[str] = None
 
-
 class Config(BaseModel):
-    device: str = Field(
-        default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu"
-    )
+    device: str = Field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
     training: TrainingConfig
     model: ModelConfig
     data: DataConfig
@@ -76,25 +65,36 @@ class Config(BaseModel):
 
     @validator("api_keys", pre=True, always=True)
     def set_wandb_api_key(cls, v):
-        v = v or {}
-        v["wandb"] = os.environ.get("WANDB_API_KEY")
+        if v is None:
+            v = {}
+        v["wandb"] = os.environ.get("WANDB_API_KEY", v.get("wandb"))
         return v
 
+def add_date_to_name(name: str) -> str:
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{name}_{date_str}"
 
 def load_config(config_path: str = "config.yaml") -> Config:
     with open(config_path, "r") as file:
         yaml_config = yaml.safe_load(file)
-
-    # Convert 'class' key to 'class_name' in model config
+    
+    # Handle the 'class' key in model config
     if "model" in yaml_config and "class" in yaml_config["model"]:
         yaml_config["model"]["class_name"] = yaml_config["model"].pop("class")
-
+    
+    # Add date to model name
+    yaml_config["model"]["name"] = add_date_to_name(yaml_config["model"]["name"])
+    
     return Config(**yaml_config)
 
-
-# Create a global instance of the config
-config = load_config()
-
+# Global config instance
+config: Config = load_config()
 
 def get_config() -> Config:
     return config
+
+if __name__ == "__main__":
+    print(config.json(indent=2))
+    print(f"Model name: {config.model.name}")
+    print(f"Optuna study name: {config.optuna.study_name}")
+    print(f"Optuna storage path: {config.optuna.storage}")
