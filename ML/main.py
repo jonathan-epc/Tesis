@@ -7,7 +7,7 @@ import optuna
 import torch.nn as nn
 from neuralop import LpLoss
 
-from config import get_config  # Import the new config function
+from config import get_config
 
 from modules.loss import FluidDynamicsLoss
 from modules.models import *
@@ -32,6 +32,19 @@ def create_hparams(trial, config):
     return hparams
 
 
+def save_trial_params(trial, study_name):
+    """Save trial parameters to a JSON file."""
+    os.makedirs(f"studies/{study_name}", exist_ok=True)
+    trial_params = {
+        "number": trial.number,
+        "params": trial.params,
+        "value": trial.value,
+        "state": trial.state.name,
+    }
+    with open(f"studies/{study_name}/trial_{trial.number}.json", "w") as f:
+        json.dump(trial_params, f, indent=2)
+
+
 def objective(trial, config):
     """Objective function for hyperparameter optimization."""
     hparams = create_hparams(trial, config)
@@ -40,11 +53,16 @@ def objective(trial, config):
         f"{config.optuna.study_name}_{config.model.architecture}_trial_{trial.number}"
     )
 
+    # Log the parameters at the start of each trial
+    logger.info(f"Starting trial {trial.number} with parameters:")
+    for key, value in hparams.items():
+        logger.info(f"  {key}: {value}")
+
     # If hypertuning, skip using pretrained models
     config.training.pretrained_model_name = None
 
     try:
-        return cross_validation_procedure(
+        result = cross_validation_procedure(
             name,
             config.data.file_name,
             model_class,
@@ -55,6 +73,9 @@ def objective(trial, config):
             trial=trial,
             config=config,
         )
+        # Save trial parameters after successful completion
+        save_trial_params(trial, config.optuna.study_name)
+        return result
     except KeyboardInterrupt:
         logger.info(f"Skipping trial {trial.number} due to keyboard interrupt.")
         raise TrialSkippedException()

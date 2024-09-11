@@ -1,4 +1,6 @@
+import os
 import random
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,7 +8,9 @@ import torch
 import torch.nn as nn
 from cmap import Colormap
 from config import get_config
+from matplotlib import gridspec
 from matplotlib.colors import TwoSlopeNorm
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch.utils.data import DataLoader, random_split
 from torcheval.metrics.functional import r2_score
 
@@ -14,8 +18,7 @@ from modules.data import HDF5Dataset
 from modules.models import *
 from modules.utils import get_hparams
 
-
-def load_model(model_path, model_class, config, hparams):
+def load_model(model_path: str, model_class, config, hparams: dict) -> nn.Module:
     model = model_class(
         len(config.data.parameters),
         len(config.data.variables),
@@ -23,11 +26,14 @@ def load_model(model_path, model_class, config, hparams):
         config.data.numpoints_y,
         **hparams,
     ).to(config.device)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    model.load_state_dict(
+        torch.load(model_path, map_location=config.device, weights_only=True)
+    )
     return model
 
-
-def evaluate_model(model, dataloader, config):
+def evaluate_model(
+    model: nn.Module, dataloader: DataLoader, config
+) -> Tuple[torch.Tensor, torch.Tensor]:
     model.eval()
     all_outputs = []
     all_targets = []
@@ -40,12 +46,16 @@ def evaluate_model(model, dataloader, config):
             all_targets.append(targets)
     return torch.cat(all_outputs), torch.cat(all_targets)
 
-
-def calculate_metrics(outputs, targets):
-    mse = nn.MSELoss()(outputs, targets).item()
+def calculate_metrics(outputs: torch.Tensor, targets: torch.Tensor) -> dict:
+    mse = mean_squared_error(
+        targets.cpu().numpy().flatten(), outputs.cpu().numpy().flatten()
+    )
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(
+        targets.cpu().numpy().flatten(), outputs.cpu().numpy().flatten()
+    )
     r2 = r2_score(outputs.flatten(), targets.flatten()).item()
-    return mse, r2
-
+    return {"MSE": mse, "RMSE": rmse, "MAE": mae, "R2": r2}
 
 def plot_results(outputs, targets, config, save_path=None, case_idx=None):
     if case_idx:
@@ -144,10 +154,14 @@ def plot_results(outputs, targets, config, save_path=None, case_idx=None):
     num_points = len(outputs_np.flatten())
     n_bins = int(num_points ** (1 / 3))
     for i in range(num_channels):
+
+        targets = targets_np[:, i].flatten()
+        outputs = outputs_np[:, i].flatten()
+        
         ax = axes[i // cols, i % cols] if rows > 1 else axes[i]
         ax.hist2d(
-            targets_np[:, i].flatten(),
-            outputs_np[:, i].flatten(),
+            targets,
+            outputs,
             bins=n_bins,
             cmap=cm,
             range=[[ranges[i][1], ranges[i][9]], [ranges[i][1], ranges[i][9]]],
@@ -155,12 +169,34 @@ def plot_results(outputs, targets, config, save_path=None, case_idx=None):
         ax.set_xlabel("Target")
         ax.set_ylabel("Output")
         ax.set_title(config.data.variables[i])
+
+        # Add identity line
+        min_val = ranges[i][1]
+        max_val = ranges[i][9]
+        ax.plot([min_val, max_val], [min_val, max_val], "r--", lw=0.5)
+
+        # Calculate and display R2 score
+        try:
+            target_tensor = torch.tensor(targets, dtype=torch.float32)
+            output_tensor = torch.tensor(outputs, dtype=torch.float32)
+            r2 = r2_score(output_tensor, target_tensor)
+            ax.text(0.05, 0.95, f'R² = {r2:.4f}', transform=ax.transAxes,
+                    verticalalignment='top', fontsize=10, color='red')
+        except Exception as e:
+            print(f"Error calculating R² score: {e}")
+
+        # Set the aspect ratio to be equal
+        ax.set_aspect("equal", adjustable="box")
+
+        # Set the x and y limits to be the same
+        ax.set_xlim(min_val, max_val)
+        ax.set_ylim(min_val, max_val)
+
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path + ".png")  # Save the figure to the specified path
     plt.show()
     plt.close()
-
 
 def plot_residuals(outputs, targets, config, save_path=None, case_idx=None):
     if case_idx:
@@ -219,24 +255,21 @@ def plot_residuals(outputs, targets, config, save_path=None, case_idx=None):
     plt.show()
     plt.close()
 
-
 def plot_2d_field(data, title, cmap, vmin=None, vmax=None, norm=None):
     """Helper function to plot 2D fields with proper colormap scaling."""
     if norm is not None:
-        plt.imshow(data, cmap=cmap, norm=norm)
+        im = plt.imshow(data, cmap=cmap, norm=norm)
     else:
-        plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax)
-        
-    plt.colorbar(orientation="horizontal")
+        im = plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax)
+    plt.colorbar(im, orientation="horizontal")
     plt.title(title)
     plt.axis("off")
-
+    return im
 
 def plot_field_comparison(outputs, targets, config, save_path=None, case_idx=None):
     """Plot expected, calculated, and difference 2D fields for each variable."""
     output_case = outputs[case_idx].cpu().numpy()
     target_case = targets[case_idx].cpu().numpy()
-
     num_channels = output_case.shape[0]
     cmap = Colormap(
         "google:turbo"
@@ -249,17 +282,30 @@ def plot_field_comparison(outputs, targets, config, save_path=None, case_idx=Non
         variable_name = config.data.variables[i]
         variable_unit = config.data.variable_units[i]
 
-        # Plot expected field
+        # Determine overall min and max for consistent colorbar
+        vmin = min(np.min(target_case[i]), np.min(output_case[i]))
+        vmax = max(np.max(target_case[i]), np.max(output_case[i]))
+
         plt.figure(figsize=(15, 5))
+
+        # Plot expected field
         plt.subplot(3, 1, 1)
-        plot_2d_field(
-            target_case[i], f"Expected {variable_name} / {variable_unit}", cmap
+        im1 = plot_2d_field(
+            target_case[i],
+            f"Expected {variable_name} / {variable_unit}",
+            cmap,
+            vmin=vmin,
+            vmax=vmax,
         )
 
         # Plot calculated field
         plt.subplot(3, 1, 2)
-        plot_2d_field(
-            output_case[i], f"Calculated {variable_name} / {variable_unit}", cmap
+        im2 = plot_2d_field(
+            output_case[i],
+            f"Calculated {variable_name} / {variable_unit}",
+            cmap,
+            vmin=vmin,
+            vmax=vmax,
         )
 
         # Plot difference
@@ -268,12 +314,10 @@ def plot_field_comparison(outputs, targets, config, save_path=None, case_idx=Non
         max_diff = np.abs(
             diff
         ).max()  # Get the max absolute difference for symmetric limits
-
         norm = TwoSlopeNorm(
             vmin=-max_diff, vcenter=0, vmax=max_diff
         )  # Normalize colormap symmetrically around 0
-
-        plot_2d_field(
+        im3 = plot_2d_field(
             diff, f"Difference {variable_name} / {variable_unit}", diff_cmap, norm=norm
         )
 
@@ -282,23 +326,27 @@ def plot_field_comparison(outputs, targets, config, save_path=None, case_idx=Non
             plt.savefig(save_path + variable_name + ".png")
         plt.show()
 
-def select_random_case(test_dataset):
-    """Select a random case index from the test dataset."""
+def select_random_case(test_dataset) -> int:
     num_cases = len(test_dataset)
     print(f"Number of test cases: {num_cases}")
     case_idx = random.randint(0, num_cases - 1)
     print(f"Randomly selected case index: {case_idx}")
     return case_idx
 
+def create_output_directories(directories: List[str]):
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
 
-def main(config, model_name, model_class, hparams, case_idx=None):
+def main(config, model_name: str, model_class, hparams: dict, case_idx: int = None):
+    # Create output directories
+    create_output_directories(["savepoints", "plots"])
+
     # Load the model
-    model = load_model(
-        f"savepoints/{model_name}_best_model.pth",
-        model_class,
-        config,
-        hparams,
-    )
+    model_path = f"savepoints/{model_name}_best_model.pth"
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+
+    model = load_model(model_path, model_class, config, hparams)
 
     full_dataset = HDF5Dataset(
         file_path=config.data.file_name,
@@ -325,8 +373,9 @@ def main(config, model_name, model_class, hparams, case_idx=None):
     outputs, targets = evaluate_model(model, test_dataloader, config)
 
     # Calculate metrics
-    mse, r2 = calculate_metrics(outputs, targets)
-    print(f"MSE: {mse}, R2: {r2}")
+    metrics = calculate_metrics(outputs, targets)
+    for metric_name, metric_value in metrics.items():
+        print(f"{metric_name}: {metric_value:.4f}")
 
     # If no specific case_idx is provided, select one randomly
     if case_idx is None:
@@ -351,7 +400,6 @@ def main(config, model_name, model_class, hparams, case_idx=None):
     plot_results(outputs, targets, config, "plots/model_results_single", case_idx)
     plot_residuals(outputs, targets, config, "plots/model_residuals_single", case_idx)
 
-
 if __name__ == "__main__":
     config = get_config()
     hparams = {
@@ -366,4 +414,4 @@ if __name__ == "__main__":
         "accumulation_steps": config.training.accumulation_steps,
     }
     model_class = globals()[config.model.class_name]
-    main(config, "FNOwR_bump_20240907_122500", model_class, hparams)
+    main(config, "study2_FNOwRnet_trial_12", model_class, hparams)

@@ -1,26 +1,26 @@
 device: cuda
 training:
   kfolds: 1
-  batch_size: 38
+  batch_size: 16
   num_epochs: 512
   num_workers: 0
   accumulation_steps: 1
-  learning_rate: 0.00001071
+  learning_rate: 0.00014078191814745754
   test_frac: 0.2
   early_stopping_patience: 32
   pretrained_model_name: FNOwR_bump_20240907_122500
   clip_grad_value: 1
-  weight_decay: 0.001
+  weight_decay: 0.002640849756957605
 model:
   name: FNOwR_noise
   architecture: FNOwRnet
   class_name: FNOnet
   n_layers: 4
-  n_modes_x: 200
-  n_modes_y: 5
-  hidden_channels: 32
-  lifting_channels: 32
-  projection_channels: 128
+  n_modes_x: 145
+  n_modes_y: 116
+  hidden_channels: 47
+  lifting_channels: 242
+  projection_channels: 183
 data:
   file_name: data/noise.hdf5
   normalize:
