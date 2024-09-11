@@ -1,9 +1,12 @@
+import random
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from cmap import Colormap
 from config import get_config
+from matplotlib.colors import TwoSlopeNorm
 from torch.utils.data import DataLoader, random_split
 from torcheval.metrics.functional import r2_score
 
@@ -20,7 +23,7 @@ def load_model(model_path, model_class, config, hparams):
         config.data.numpoints_y,
         **hparams,
     ).to(config.device)
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, weights_only=True))
     return model
 
 
@@ -44,10 +47,14 @@ def calculate_metrics(outputs, targets):
     return mse, r2
 
 
-def plot_results(outputs, targets, config, save_path):
-    outputs_np = outputs.cpu().numpy()
-    targets_np = targets.cpu().numpy()
-    num_channels = outputs_np.shape[1]
+def plot_results(outputs, targets, config, save_path=None, case_idx=None):
+    if case_idx:
+        outputs_np = outputs[case_idx].cpu().numpy()
+        targets_np = targets[case_idx].cpu().numpy()
+    else:
+        outputs_np = outputs.cpu().numpy()
+        targets_np = targets.cpu().numpy()
+    num_channels = len(config.data.variables)
     cols = int(np.ceil(np.sqrt(num_channels)))
     rows = int(np.ceil(num_channels / cols))
 
@@ -134,35 +141,40 @@ def plot_results(outputs, targets, config, save_path):
             0.510785,
         ],  # V
     ]
-
+    num_points = len(outputs_np.flatten())
+    n_bins = int(num_points ** (1 / 3))
     for i in range(num_channels):
         ax = axes[i // cols, i % cols] if rows > 1 else axes[i]
         ax.hist2d(
             targets_np[:, i].flatten(),
             outputs_np[:, i].flatten(),
-            bins=512,
+            bins=n_bins,
             cmap=cm,
             range=[[ranges[i][1], ranges[i][9]], [ranges[i][1], ranges[i][9]]],
         )
-        ax.set_aspect("equal")
         ax.set_xlabel("Target")
         ax.set_ylabel("Output")
         ax.set_title(config.data.variables[i])
-
     plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path + ".png")  # Save the figure to the specified path
     plt.show()
     plt.close()
 
 
-def plot_residuals(outputs, targets, config, save_path):
-    outputs_np = outputs.cpu().numpy()
-    targets_np = targets.cpu().numpy()
+def plot_residuals(outputs, targets, config, save_path=None, case_idx=None):
+    if case_idx:
+        outputs_np = outputs[case_idx].cpu().numpy()
+        targets_np = targets[case_idx].cpu().numpy()
+    else:
+        outputs_np = outputs.cpu().numpy()
+        targets_np = targets.cpu().numpy()
     residuals_np = outputs_np - targets_np
-    num_channels = outputs_np.shape[1]
+    num_channels = len(config.data.variables)
     cols = int(np.ceil(np.sqrt(num_channels)))
     rows = int(np.ceil(num_channels / cols))
 
-    fig, axes = plt.subplots(rows, cols, figsize=(12*cols, 12*rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
 
     # Make sure axes is always iterable (for both 1D and 2D cases)
     if num_channels == 1:
@@ -170,6 +182,9 @@ def plot_residuals(outputs, targets, config, save_path):
 
     fig.suptitle("Residuals Distribution", fontsize=16)
     cm = Colormap("google:turbo").to_mpl()
+
+    num_points = len(outputs_np.flatten())
+    n_bins = int(num_points ** (1 / 3))
 
     for i in range(num_channels):
         ax = axes[i // cols, i % cols] if rows > 1 else axes[i]
@@ -180,13 +195,12 @@ def plot_residuals(outputs, targets, config, save_path):
             np.min(residuals_np[:, i]),
             np.max(residuals_np[:, i]),
         )
-        bins = [512, 512]
 
         # Plot 2D histogram
         c = ax.hist2d(
             targets_np[:, i].flatten(),
             residuals_np[:, i].flatten(),
-            bins=bins,
+            bins=n_bins,
             cmap=cm,
             range=[[target_min, target_max], [residual_min, residual_max]],
         )
@@ -200,12 +214,84 @@ def plot_residuals(outputs, targets, config, save_path):
             fig.delaxes(axes.flatten()[j])
 
     plt.tight_layout(rect=[0, 0, 0.95, 0.96])  # Adjust layout to fit suptitle
-    plt.savefig(save_path)  # Save the figure to the specified path
+    if save_path:
+        plt.savefig(save_path + ".png")  # Save the figure to the specified path
     plt.show()
     plt.close()
 
 
-def main(config,model_name, model_class, hparams):
+def plot_2d_field(data, title, cmap, vmin=None, vmax=None, norm=None):
+    """Helper function to plot 2D fields with proper colormap scaling."""
+    if norm is not None:
+        plt.imshow(data, cmap=cmap, norm=norm)
+    else:
+        plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax)
+        
+    plt.colorbar(orientation="horizontal")
+    plt.title(title)
+    plt.axis("off")
+
+
+def plot_field_comparison(outputs, targets, config, save_path=None, case_idx=None):
+    """Plot expected, calculated, and difference 2D fields for each variable."""
+    output_case = outputs[case_idx].cpu().numpy()
+    target_case = targets[case_idx].cpu().numpy()
+
+    num_channels = output_case.shape[0]
+    cmap = Colormap(
+        "google:turbo"
+    ).to_mpl()  # Keep your original colormap for the first two plots
+    diff_cmap = plt.get_cmap(
+        "seismic"
+    )  # Use a diverging colormap for the difference plot
+
+    for i in range(num_channels):
+        variable_name = config.data.variables[i]
+        variable_unit = config.data.variable_units[i]
+
+        # Plot expected field
+        plt.figure(figsize=(15, 5))
+        plt.subplot(3, 1, 1)
+        plot_2d_field(
+            target_case[i], f"Expected {variable_name} / {variable_unit}", cmap
+        )
+
+        # Plot calculated field
+        plt.subplot(3, 1, 2)
+        plot_2d_field(
+            output_case[i], f"Calculated {variable_name} / {variable_unit}", cmap
+        )
+
+        # Plot difference
+        plt.subplot(3, 1, 3)
+        diff = target_case[i] - output_case[i]
+        max_diff = np.abs(
+            diff
+        ).max()  # Get the max absolute difference for symmetric limits
+
+        norm = TwoSlopeNorm(
+            vmin=-max_diff, vcenter=0, vmax=max_diff
+        )  # Normalize colormap symmetrically around 0
+
+        plot_2d_field(
+            diff, f"Difference {variable_name} / {variable_unit}", diff_cmap, norm=norm
+        )
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path + variable_name + ".png")
+        plt.show()
+
+def select_random_case(test_dataset):
+    """Select a random case index from the test dataset."""
+    num_cases = len(test_dataset)
+    print(f"Number of test cases: {num_cases}")
+    case_idx = random.randint(0, num_cases - 1)
+    print(f"Randomly selected case index: {case_idx}")
+    return case_idx
+
+
+def main(config, model_name, model_class, hparams, case_idx=None):
     # Load the model
     model = load_model(
         f"savepoints/{model_name}_best_model.pth",
@@ -242,9 +328,28 @@ def main(config,model_name, model_class, hparams):
     mse, r2 = calculate_metrics(outputs, targets)
     print(f"MSE: {mse}, R2: {r2}")
 
+    # If no specific case_idx is provided, select one randomly
+    if case_idx is None:
+        case_idx = select_random_case(test_dataset)
+
+    # Get the original case index from the full dataset
+    original_case_idx = test_dataset.indices[case_idx]
+
+    # Print the key of the selected case
+    print(
+        f"Selected case index: {case_idx}, corresponding key: {full_dataset.keys[original_case_idx]}"
+    )
+
+    plot_results(outputs, targets, config, "plots/model_results")
+    plot_residuals(outputs, targets, config, "plots/model_residuals")
+
+    # Plot fields comparison (expected, calculated, difference)
+    plot_field_comparison(outputs, targets, config, "plots/model_difference", case_idx)
+
+    # Plot correlation with R² and identity line
     # Plot and save results
-    plot_results(outputs, targets, config, "plots/model_results.png")
-    plot_residuals(outputs, targets, config, "plots/model_results.png")
+    plot_results(outputs, targets, config, "plots/model_results_single", case_idx)
+    plot_residuals(outputs, targets, config, "plots/model_residuals_single", case_idx)
 
 
 if __name__ == "__main__":
@@ -261,4 +366,4 @@ if __name__ == "__main__":
         "accumulation_steps": config.training.accumulation_steps,
     }
     model_class = globals()[config.model.class_name]
-    main(config, 'FNO_20240829_132709', model_class, hparams)
+    main(config, "FNOwR_bump_20240907_122500", model_class, hparams)

@@ -9,11 +9,10 @@ from neuralop import LpLoss
 
 from config import get_config  # Import the new config function
 
-from modules.logging import setup_logger
 from modules.loss import FluidDynamicsLoss
 from modules.models import *
 from modules.training import cross_validation_procedure
-from modules.utils import set_seed, setup_experiment, is_jupyter
+from modules.utils import is_jupyter, set_seed, setup_experiment, setup_logger
 
 
 class TrialSkippedException(Exception):
@@ -21,20 +20,28 @@ class TrialSkippedException(Exception):
 
 
 def create_hparams(trial, config):
-    return {
-        param: getattr(trial, f"suggest_{space['type']}")(
-            param, space["low"], space["high"], log=space.get("log", False)
-        )
-        for param, space in config.optuna.hyperparameter_space.items()
-    }
+    """Create hyperparameters based on Optuna trial suggestions."""
+    hparams = {}
+    for param, space in config.optuna.hyperparameter_space.items():
+        if space["type"] == "categorical":
+            hparams[param] = trial.suggest_categorical(param, space["choices"])
+        else:
+            hparams[param] = getattr(trial, f"suggest_{space['type']}")(
+                param, space["low"], space["high"], log=space.get("log", False)
+            )
+    return hparams
 
 
 def objective(trial, config):
+    """Objective function for hyperparameter optimization."""
     hparams = create_hparams(trial, config)
-    model_class = globals()[config.model.class_name]
+    model_class = getattr(sys.modules[__name__], config.model.class_name)
     name = (
         f"{config.optuna.study_name}_{config.model.architecture}_trial_{trial.number}"
     )
+
+    # If hypertuning, skip using pretrained models
+    config.training.pretrained_model_name = None
 
     try:
         return cross_validation_procedure(
@@ -44,12 +51,9 @@ def objective(trial, config):
             nn.HuberLoss(),
             kfolds=config.training.kfolds,
             hparams=hparams,
-            use_wandb=config.logging.use_wandb,
             is_sweep=True,
             trial=trial,
-            architecture=config.model.architecture,
-            plot_enabled=config.logging.plot_enabled,
-            config = config
+            config=config,
         )
     except KeyboardInterrupt:
         logger.info(f"Skipping trial {trial.number} due to keyboard interrupt.")
@@ -60,6 +64,7 @@ def objective(trial, config):
 
 
 def save_study_artifacts(study, study_name):
+    """Save Optuna study artifacts."""
     for artifact in ["sampler", "pruner"]:
         with open(f"studies/{study_name}_{artifact}.pkl", "wb") as f:
             pickle.dump(getattr(study, artifact), f)
@@ -67,6 +72,7 @@ def save_study_artifacts(study, study_name):
 
 
 def log_best_trial(study):
+    """Log the best trial details after hypertuning."""
     best_trial = study.best_trial
     logger.info(f"Best trial:\n  Value: {best_trial.value}")
     for key, value in best_trial.params.items():
@@ -74,12 +80,12 @@ def log_best_trial(study):
 
 
 def run_hypertuning(config):
+    """Run Optuna hypertuning."""
     study = optuna.create_study(
         study_name=config.optuna.study_name,
         load_if_exists=True,
         direction="minimize",
         storage=config.optuna.storage,
-        pruner=optuna.pruners.SuccessiveHalvingPruner(),
     )
 
     try:
@@ -95,8 +101,26 @@ def run_hypertuning(config):
         log_best_trial(study)
 
 
+def get_default_hparams(config):
+    """Helper function to get default hyperparameters for training."""
+    return {
+        "n_layers": config.model.n_layers,
+        "n_modes_x": config.model.n_modes_x,
+        "n_modes_y": config.model.n_modes_y,
+        "hidden_channels": config.model.hidden_channels,
+        "lifting_channels": config.model.lifting_channels,
+        "projection_channels": config.model.projection_channels,
+        "batch_size": config.training.batch_size,
+        "learning_rate": config.training.learning_rate,
+        "learning_rate": config.training.weight_decay,
+        "accumulation_steps": config.training.accumulation_steps,
+    }
+
+
 def run_single_training(config):
-    model_class = globals()[config.model.class_name]
+    """Run a single training procedure."""
+    model_class = getattr(sys.modules[__name__], config.model.class_name)
+    hparams = get_default_hparams(config)
 
     test_loss = cross_validation_procedure(
         config.model.name,
@@ -104,21 +128,8 @@ def run_single_training(config):
         model_class,
         nn.HuberLoss(),
         kfolds=config.training.kfolds,
-        hparams={
-            "n_layers": config.model.n_layers,
-            "n_modes_x": config.model.n_modes_x,
-            "n_modes_y": config.model.n_modes_y,
-            "hidden_channels": config.model.hidden_channels,
-            "lifting_channels": config.model.lifting_channels,
-            "projection_channels": config.model.projection_channels,
-            "batch_size": config.training.batch_size,
-            "learning_rate": config.training.learning_rate,
-            "accumulation_steps": config.training.accumulation_steps,
-        },
-        use_wandb=config.logging.use_wandb,
-        architecture=config.model.architecture,
-        plot_enabled=config.logging.plot_enabled,
-        config = config
+        hparams=hparams,
+        config=config,
     )
     logger.info(f"Final test loss: {test_loss}")
     return test_loss
@@ -128,6 +139,7 @@ def main(mode: str):
     config = get_config()
     setup_experiment(config)
     set_seed(config.seed)
+
     try:
         if mode == "hypertuning":
             logger.info("Starting hyperparameter tuning.")
@@ -147,7 +159,6 @@ def main(mode: str):
 if __name__ == "__main__" or is_jupyter():
     logger = setup_logger()
     if is_jupyter():
-        # Default mode when running in Jupyter
         mode = "hypertuning"
         logger.info(f"Running in Jupyter environment. Default mode: {mode}")
     else:

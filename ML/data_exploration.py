@@ -1,9 +1,3 @@
-17%5
-
-17//5
-
-
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -113,7 +107,7 @@ def main():
 
     # Correlation analysis for parameters
     print("\nParameter Correlation Matrix:")
-    param_corr = correlation_analysis(parameter_data, parameters)
+    # param_corr = correlation_analysis(parameter_data, parameters)
 
     # Extract variable data
     variable_data = [extract_variable_data(dataset, i) for i in range(len(variables))]
