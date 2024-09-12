@@ -65,6 +65,37 @@ class GeometryGenerator:
             z_noise = interpolator((y, x))
             z += z_noise
 
+        # Add noise if required
+        if BOTTOM_TYPE == 'NOISE_LONG':
+            # Generate noise on a square grid
+            square_grid_size = max(num_points_y, num_points_x)
+            random_noise = np.random.rand(square_grid_size, square_grid_size)
+            scaled_random_noise = noise_amplitude * random_noise
+            smoothed_random_noise = gaussian_filter(scaled_random_noise, sigma=noise_smoothness)
+    
+            # Define the square grid coordinates
+            square_grid_y = np.linspace(0, 1, square_grid_size)
+            square_grid_x = np.linspace(0, 1, square_grid_size)
+    
+            # Interpolate the smoothed noise to the real grid dimensions
+            interpolator = RegularGridInterpolator(
+                (square_grid_y, square_grid_x),
+                smoothed_random_noise,
+                bounds_error=False,
+                fill_value=None,
+            )
+    
+            # Generate the real grid coordinates
+            y = np.linspace(0, 1, num_points_y)
+            x = np.linspace(0, 1, num_points_x)
+            yv, xv = np.meshgrid(y, x, indexing='ij')
+    
+            # Interpolate the noise to the real grid
+            z_noise = interpolator((yv, xv))
+    
+            # Add the noise to the base slope
+            z += z_noise
+        
         # Add bump if required
         if BOTTOM_TYPE == 'BUMP':
             bump_center = channel_length / 2
