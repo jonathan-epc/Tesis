@@ -1,3 +1,4 @@
+from math import ceil
 from typing import Any, Dict, List, Tuple, Type
 
 import numpy as np
@@ -6,164 +7,99 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import wandb
-from math import ceil 
 from config import get_config
 from loguru import logger
 from sklearn.model_selection import KFold, train_test_split
 from torch.amp import GradScaler, autocast
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler, random_split
-from torcheval.metrics.functional import mean_squared_error, r2_score
 from tqdm.autonotebook import tqdm
 
 from modules.data import HDF5Dataset
-from modules.logging import setup_logger
 from modules.models import *
 from modules.plots import plot_hist as plot_difference
 from modules.plots import plot_im as plot_difference_im
-from modules.utils import EarlyStopping
-
-
-def compute_metrics(
-    outputs: torch.Tensor,
-    targets: torch.Tensor,
-    variable_names: List[str],
-    variable_units: List[str],
-) -> Dict[str, torch.Tensor]:
-    outputs, targets = (
-        outputs.view(-1, len(variable_names)),
-        targets.view(-1, len(variable_names)),
-    )
-
-    metrics = {}
-
-    # Overall metrics
-    mse = mean_squared_error(targets, outputs)
-    rmse = torch.sqrt(mse)
-    mae = torch.mean(torch.abs(targets - outputs))
-    r2 = r2_score(targets, outputs)
-
-    metrics.update(
-        {
-            "mse": mse,
-            "rmse": rmse,
-            "mae": mae,
-            "r2": r2,
-        }
-    )
-    epsilon = 1e-8  # Small value to avoid division by zero
-
-    # Compute metrics for each variable
-    for i, (var_name, var_unit) in enumerate(zip(variable_names, variable_units)):
-        var_outputs = outputs[:, i]
-        var_targets = targets[:, i]
-
-        var_mse = mean_squared_error(var_targets, var_outputs)
-        var_rmse = torch.sqrt(var_mse)
-        var_mae = torch.mean(torch.abs(var_targets - var_outputs))
-        var_r2 = r2_score(var_targets, var_outputs)
-        var_mape = torch.mean(torch.abs((var_targets - var_outputs) / (var_targets + epsilon))) * 100
-
-        metrics.update(
-            {
-                f"{var_name}_mse": var_mse,
-                f"{var_name}_rmse": var_rmse,
-                f"{var_name}_mae": var_mae,
-                f"{var_name}_r2": var_r2,
-                f"{var_name}_mape": var_mape,
-            }
-        )
-
-    return metrics
+from modules.utils import EarlyStopping, compute_metrics, setup_logger
 
 
 class Trainer:
     def __init__(
         self,
         model,
-        architecture,
         criterion,
         optimizer,
         scheduler,
         scaler,
         device,
         accumulation_steps,
-        clip_grad_value,
-        variable_names,
-        variable_units,
-        config
+        config,
     ):
+        self.config = config
         self.model = model
-        self.architecture = architecture
         self.criterion = criterion
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.scaler = scaler
         self.device = device
         self.accumulation_steps = accumulation_steps
-        self.clip_grad_value = clip_grad_value
-        self.variable_names = variable_names
-        self.variable_units = variable_units
-        self.config = config
+        self.variable_names = self.config.data.variables
+        self.variable_units = self.config.data.variable_units
+        self.pretrained_model_path = None
+
+        if self.config.training.pretrained_model_name:
+            self.pretrained_model_path = f"savepoints/{self.config.training.pretrained_model_name}_best_model.pth"
+            self._load_pretrained_model()
 
     def train_epoch(self, dataloader):
         self.model.train()
         total_loss = 0.0
         self.optimizer.zero_grad(set_to_none=True)
-        scaler = self.scaler
-        counter = 0
 
         for idx, (inputs, targets) in enumerate(dataloader):
-            if isinstance(inputs, (tuple, list)):
-                inputs = [input.to(self.device) for input in inputs]
-            else:
-                inputs = inputs.to(self.device)
-            targets = targets.to(self.device)
+            inputs, targets = self._move_to_device(inputs, targets)
 
             with autocast(
                 device_type=self.device,
-                enabled=self.device == "cuda",
+                enabled=(self.device == "cuda"),
                 dtype=torch.float32,
             ):
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
 
-            scaler.scale(loss).backward()
+            self.scaler.scale(loss).backward()
 
-            if (idx + 1) % self.accumulation_steps == 0:
-                scaler.unscale_(self.optimizer)
-                clip_grad_norm_(self.model.parameters(), self.clip_grad_value)
-                scaler.step(self.optimizer)
-                scaler.update()
-                self.optimizer.zero_grad(set_to_none=True)
-                self.scheduler.step()
-                counter +=1
+            if (idx + 1) % self.config.training.accumulation_steps == 0:
+                self._step_optimization()
 
             total_loss += loss.item()
 
-        # Final step to apply remaining gradients if any
-        if (idx + 1) % self.accumulation_steps != 0:
-            scaler.unscale_(self.optimizer)
-            clip_grad_norm_(self.model.parameters(), self.clip_grad_value)
-            scaler.step(self.optimizer)
-            scaler.update()
-            self.optimizer.zero_grad(set_to_none=True)
-            self.scheduler.step()
-            counter +=1
+        if (idx + 1) % self.config.training.accumulation_steps != 0:
+            self._step_optimization()
 
         return total_loss / len(dataloader)
 
+    def _move_to_device(self, inputs, targets):
+        if isinstance(inputs, (tuple, list)):
+            inputs = [input.to(self.device) for input in inputs]
+        else:
+            inputs = inputs.to(self.device)
+        return inputs, targets.to(self.device)
+
+    def _step_optimization(self):
+        self.scaler.unscale_(self.optimizer)
+        clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.optimizer.zero_grad(set_to_none=True)
+        self.scheduler.step()
+
     @torch.no_grad()
-    def validate(self, dataloader, name="", step=-1, fold_n=-1, plot_enabled=True):
+    def validate(self, dataloader, name="", step=-1, fold_n=-1):
         self.model.eval()
         total_loss = 0.0
         all_outputs, all_targets = [], []
         for inputs, targets in dataloader:
-            if isinstance(inputs, (tuple, list)):
-                inputs = [input.to(self.device) for input in inputs]
-            else:
-                inputs = inputs.to(self.device)
-            targets = targets.to(self.device)
+            inputs, targets = self._move_to_device(inputs, targets)
             with autocast(
                 device_type=self.device,
                 enabled=self.device == "cuda",
@@ -178,7 +114,7 @@ class Trainer:
         all_outputs = torch.cat(all_outputs)
         all_targets = torch.cat(all_targets)
 
-        if plot_enabled:
+        if self.config.logging.plot_enabled:
             plot_difference(
                 all_outputs, all_targets, f"{name}_validation", step, fold_n
             )
@@ -199,23 +135,17 @@ class Trainer:
         val_dataloader,
         num_epochs,
         fold_n,
-        use_wandb,
         is_sweep,
         trial,
-        plot_enabled,
+        early_stopping,  # Pass EarlyStopping instance here
     ):
-        early_stopping = EarlyStopping(
-            patience=self.config.training.early_stopping_patience,
-            verbose=True,
-            save_path=f"savepoints/{name}_best_model.pth",
-        )
-        if use_wandb:
+        if self.config.logging.use_wandb:
             wandb.init(
                 project="Tesis",
                 name=f"{name}_fold_{fold_n}",
                 group=name,
                 job_type="Sweep" if is_sweep else "Run",
-                config={"architecture": self.architecture},
+                config={"architecture": self.config.model.architecture},
             )
 
         # Create progress bar for epochs
@@ -227,9 +157,7 @@ class Trainer:
             train_loss = self.train_epoch(train_dataloader)
 
             # Validate
-            val_metrics = self.validate(
-                val_dataloader, name, epoch, fold_n, plot_enabled
-            )
+            val_metrics = self.validate(val_dataloader, name, epoch, fold_n)
             val_loss = val_metrics["loss"]
 
             # Update best validation loss
@@ -242,7 +170,7 @@ class Trainer:
                     "Train Loss": f"{train_loss:.4f}",
                     "Val Loss": f"{val_loss:.4f}",
                     "Best Val Loss": f"{best_val_loss:.4f}",
-                    "LR": f"{self.scheduler.get_last_lr()[0]:.6f}",
+                    "LR": f"{self.scheduler.get_last_lr()[0]:.8f}",
                 }
             )
 
@@ -251,7 +179,7 @@ class Trainer:
                 if trial.should_prune():
                     raise optuna.TrialPruned()
 
-            if use_wandb:
+            if self.config.logging.use_wandb:
                 wandb.log(
                     {
                         "Epoch": epoch,
@@ -275,8 +203,21 @@ class Trainer:
                 )
                 break
 
-        if use_wandb:
+        if self.config.logging.use_wandb:
             wandb.finish()
+
+    def _load_pretrained_model(self):
+        try:
+            checkpoint = torch.load(
+                self.pretrained_model_path, map_location=self.device, weights_only=True
+            )
+            self.model.load_state_dict(checkpoint)
+            logger.info(f"Loaded pretrained model from {self.pretrained_model_path}")
+        except Exception as e:
+            logger.error(
+                f"Failed to load pretrained model from {self.pretrained_model_path}: {e}"
+            )
+            raise e
 
 
 def cross_validate(
@@ -287,25 +228,34 @@ def cross_validate(
     k_folds,
     num_epochs,
     hparams,
-    use_wandb,
     is_sweep,
     trial,
-    plot_enabled,
-    architecture,
-    config
+    config,
 ):
     if k_folds > 1:
-        splits = KFold(n_splits=k_folds, shuffle=True, random_state=config.seed).split(dataset)
+        splits = KFold(n_splits=k_folds, shuffle=True, random_state=config.seed).split(
+            dataset
+        )
         desc = f"{k_folds}-fold Cross Validation"
     else:
         train_idx, val_idx = train_test_split(
-            np.arange(len(dataset)), test_size=0.2, shuffle=True, random_state=config.seed
+            np.arange(len(dataset)),
+            test_size=0.2,
+            shuffle=True,
+            random_state=config.seed,
         )
         splits = [(train_idx, val_idx)]
         desc = "Single Train-Test Split"
 
     results = []
     all_metrics = {metric: [] for metric in ["mse", "rmse", "r2", "mae"]}
+
+    # Instantiate EarlyStopping once, to be shared across folds
+    early_stopping = EarlyStopping(
+        patience=config.training.early_stopping_patience,
+        verbose=True,
+        save_path=f"savepoints/{name}_best_model.pth",
+    )
 
     for fold, (train_idx, val_idx) in enumerate(tqdm(splits, desc=desc, total=k_folds)):
         train_loader = DataLoader(
@@ -328,48 +278,52 @@ def cross_validate(
             config.data.numpoints_y,
             **hparams,
         ).to(config.device)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=hparams["learning_rate"])
-        steps_per_epoch = len(train_loader) // hparams["accumulation_steps"]
-        if len(train_loader) % hparams["accumulation_steps"] != 0:
-            steps_per_epoch += 1
+
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=hparams["learning_rate"],
+            weight_decay=hparams["weight_decay"],
+        )
+
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer,
             max_lr=hparams["learning_rate"],
-            epochs=num_epochs,            
-            steps_per_epoch=steps_per_epoch,
+            steps_per_epoch=ceil(
+                len(train_loader) / config.training.accumulation_steps
+            ),
+            epochs=num_epochs,
         )
-        scaler = GradScaler()
+        scaler = GradScaler(enabled=(config.device == "cuda"))
 
         trainer = Trainer(
             model,
-            architecture,
             criterion,
             optimizer,
             scheduler,
             scaler,
             config.device,
-            hparams["accumulation_steps"],
-            1.0,
-            config.data.variables,
-            config.data.variable_units,
-            config
+            config.training.accumulation_steps,
+            config,
         )
+
+        # Reset early stopping for each fold, but keep the best model across folds
+        early_stopping.reset()
+
         trainer.train(
             name,
             train_loader,
             val_loader,
             num_epochs,
-            fold + 1,
-            use_wandb,
+            fold,
             is_sweep,
             trial,
-            plot_enabled,
+            early_stopping,  # Pass EarlyStopping instance to each fold
         )
 
-        val_metrics = trainer.validate(val_loader, plot_enabled=plot_enabled)
+        val_metrics = trainer.validate(val_loader, name, -1, fold)
         results.append(val_metrics["loss"])
-        for metric in all_metrics:
-            all_metrics[metric].append(val_metrics[metric])
+        for key in all_metrics:
+            all_metrics[key].append(val_metrics[key])
 
         logger.info(
             f"Fold {fold + 1} results: {', '.join(f'{k.capitalize()}={v:.4f}' for k, v in val_metrics.items())}"
@@ -391,11 +345,8 @@ def cross_validation_procedure(
     criterion,
     kfolds=1,
     hparams=None,
-    use_wandb=False,
     is_sweep=False,
     trial=None,
-    plot_enabled=False,
-    architecture=None,
     config=None,
 ):
     logger.info("Starting cross-validation procedure")
@@ -430,12 +381,9 @@ def cross_validation_procedure(
         kfolds,
         config.training.num_epochs,
         hparams,
-        use_wandb,
         is_sweep,
         trial,
-        plot_enabled,
-        architecture,
-        config
+        config,
     )
 
     logger.info(f"Cross-validation completed. Avg loss: {avg_loss:.4f}")
@@ -453,28 +401,19 @@ def cross_validation_procedure(
         config.data.numpoints_y,
         **hparams,
     ).to(config.device)
-    model.load_state_dict(torch.load(f"savepoints/{name}_best_model.pth"))
+    model.load_state_dict(
+        torch.load(f"savepoints/{name}_best_model.pth", weights_only=True)
+    )
 
     trainer = Trainer(
-        model,
-        architecture,
-        criterion,
-        None,
-        None,
-        None,
-        config.device,
-        1,
-        1.0,
-        variable_names=config.data.variables,
-        variable_units=config.data.variable_units,
-        config=config
+        model, criterion, None, None, None, config.device, 1, config=config
     )
     test_metrics = trainer.validate(test_loader)
     logger.info(
         f"Test metrics: {', '.join(f'{k.capitalize()}={v:.4f}' for k, v in test_metrics.items())}"
     )
 
-    if use_wandb:
+    if config.logging.use_wandb:
         wandb.init(
             project="Tesis",
             name=name,
@@ -487,7 +426,8 @@ def cross_validation_procedure(
                 "Test_Loss": test_metrics["loss"],
                 "Cross_Loss": avg_loss,
                 **avg_metrics,
-                "architecture": architecture,
+                "architecture": config.model.architecture,
+                "study": config.optuna.study_name,
             }
         )
         wandb.finish()

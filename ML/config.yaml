@@ -1,35 +1,31 @@
-# config.yaml
-
-# Device configuration
-device: cuda  # Will be overridden by Python code
-
-# Training parameters
+device: cuda
 training:
   kfolds: 1
-  batch_size: 64
-  num_epochs: 1024
+  batch_size: 16
+  num_epochs: 512
   num_workers: 0
-  accumulation_steps: 5
-  learning_rate: 0.0001
+  accumulation_steps: 1
+  learning_rate: 0.00014078191814745754
   test_frac: 0.2
-  early_stopping_patience: 1024
-
-# Model architecture
+  early_stopping_patience: 32
+  pretrained_model_name: FNOwR_bump_20240907_122500
+  clip_grad_value: 1
+  weight_decay: 0.002640849756957605
 model:
-  name: "FNO"
-  architecture: "FNO"
-  class_name: "FNOnet"
+  name: FNOwR_noise
+  architecture: FNOwRnet
+  class_name: FNOnet
   n_layers: 4
-  n_modes_x: 72
-  n_modes_y: 199
-  hidden_channels: 6
-  lifting_channels: 62
-  projection_channels: 51
-
-# Data configuration
+  n_modes_x: 145
+  n_modes_y: 116
+  hidden_channels: 47
+  lifting_channels: 242
+  projection_channels: 183
 data:
-  file_name: "data/noise.hdf5"
-  normalize: [true, false]
+  file_name: data/noise.hdf5
+  normalize:
+    - true
+    - false
   numpoints_x: 401
   numpoints_y: 11
   variables:
@@ -40,67 +36,73 @@ data:
     - U
     - V
   variable_units:
-    - "dimensionless"
-    - "m"
-    - "m3s-1"
-    - "m"
-    - "ms-1"
-    - "ms-1"
+    - dimensionless
+    - m
+    - m3s-1
+    - m
+    - ms-1
+    - ms-1
   parameters:
     - H0
     - Q0
     - SLOPE
-    - n
-
+    - 'n'
 seed: 43
-
 logging:
   use_wandb: true
   plot_enabled: false
-
 optuna:
-  study_name: "study4"
+  study_name: study2
   n_trials: 200
-  base_storage_path: "sqlite:///studies/"
+  base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
     learning_rate:
-      type: "float"
+      type: float
       low: 0.000001
       high: 0.001
       log: true
+    weight_decay:
+      type: float
+      low: 0
+      high: 0.005
+      log: false
     batch_size:
-      type: "int"
-      low: 16
-      high: 512
+      type: categorical
+      choices:
+        - 8
+        - 16
+        - 32
+        - 64
+        - 128
+        - 256
+        - 512
     accumulation_steps:
-      type: "int"
+      type: int
       low: 1
       high: 1
     n_layers:
-      type: "int"
+      type: int
       low: 1
-      high: 32
-    hidden_channels:
-      type: "int"
-      low: 1
-      high: 64
+      high: 16
     n_modes_x:
-      type: "int"
+      type: int
       low: 1
       high: 200
     n_modes_y:
-      type: "int"
+      type: int
       low: 1
       high: 200
+    hidden_channels:
+      type: int
+      low: 1
+      high: 256
     lifting_channels:
-      type: "int"
+      type: int
       low: 1
-      high: 32
+      high: 256
     projection_channels:
-      type: "int"
+      type: int
       low: 1
-      high: 32
-
-# API Keys (to be set via environment variables)
+      high: 256
 api_keys:
-  wandb: ${WANDB_API_KEY}
+  wandb: '${WANDB_API_KEY}'
