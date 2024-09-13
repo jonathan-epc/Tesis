@@ -14,9 +14,15 @@ from modules.parameter_manager import ParameterManager
 from modules.steering_file_generator import SteeringFileGenerator
 
 def process_case(index, case, setup_data):
+    steering_file_path = Path(f"steering/{index}.cas")
+    
+    if steering_file_path.exists():
+        logger.info(f"Steering file for case {index} already exists. Skipping processing.")
+        return
+
     try:
         logger.debug(f"Processing case {index}")
-
+        
         # Generate geometry
         logger.debug(f"Generating geometry")
         geometry_generator = GeometryGenerator()
@@ -25,15 +31,12 @@ def process_case(index, case, setup_data):
             case["SLOPE"],
             case["BOTTOM"],
             setup_data["flat_mesh"],
-            setup_data["x"],
-            setup_data["y"],
-            setup_data["noise_grid_x"],
-            setup_data["noise_grid_y"],
             setup_data["constants"]["mesh"]["num_points_x"],
             setup_data["constants"]["mesh"]["num_points_y"],
             setup_data["constants"]["channel"]["length"],
+            setup_data["constants"]["channel"]["width"],
         )
-
+        
         # Get boundary conditions
         logger.debug(f"Getting boundary conditions")
         boundary_file, prescribed_elevations = (
@@ -44,7 +47,7 @@ def process_case(index, case, setup_data):
                 borders
             )
         )
-
+        
         # Generate steering file
         logger.debug(f"Getting steering file")
         steering_generator = SteeringFileGenerator()
@@ -60,13 +63,12 @@ def process_case(index, case, setup_data):
             prescribed_elevations=prescribed_elevations,
             friction_coefficient=case["n"],
         )
-
+        
         # Write the steering file content to a file
-        Path("steering").mkdir(parents=True, exist_ok=True)
-        with open(f"steering/{index}.cas", "w") as f:
-            f.write(steering_file_content)
+        steering_file_path.parent.mkdir(parents=True, exist_ok=True)
+        steering_file_path.write_text(steering_file_content)
         logger.debug(f"Wrote steering file for case {index}")
-
+    
     except Exception as e:
         logger.error(f"Error processing case {index}: {str(e)}")
 
