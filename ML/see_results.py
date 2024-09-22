@@ -154,10 +154,9 @@ def plot_results(outputs, targets, config, save_path=None, case_idx=None):
     num_points = len(outputs_np.flatten())
     n_bins = int(num_points ** (1 / 3))
     for i in range(num_channels):
-
         targets = targets_np[:, i].flatten()
         outputs = outputs_np[:, i].flatten()
-        
+
         ax = axes[i // cols, i % cols] if rows > 1 else axes[i]
         ax.hist2d(
             targets,
@@ -180,8 +179,15 @@ def plot_results(outputs, targets, config, save_path=None, case_idx=None):
             target_tensor = torch.tensor(targets, dtype=torch.float32)
             output_tensor = torch.tensor(outputs, dtype=torch.float32)
             r2 = r2_score(output_tensor, target_tensor)
-            ax.text(0.05, 0.95, f'R² = {r2:.4f}', transform=ax.transAxes,
-                    verticalalignment='top', fontsize=10, color='red')
+            ax.text(
+                0.05,
+                0.95,
+                f"R² = {r2:.4f}",
+                transform=ax.transAxes,
+                verticalalignment="top",
+                fontsize=10,
+                color="red",
+            )
         except Exception as e:
             print(f"Error calculating R² score: {e}")
 
@@ -355,6 +361,7 @@ def main(config, model_name: str, model_class, hparams: dict, case_idx: int = No
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
         normalize=config.data.normalize,
+        swap=config.data.swap,
         device=config.device,
     )
 
@@ -411,7 +418,8 @@ if __name__ == "__main__":
         "projection_channels": config.model.projection_channels,
         "batch_size": config.training.batch_size,
         "learning_rate": config.training.learning_rate,
+        "weight_decay": config.training.weight_decay,
         "accumulation_steps": config.training.accumulation_steps,
     }
     model_class = globals()[config.model.class_name]
-    main(config, "study2_FNOwRnet_trial_12", model_class, hparams)
+    main(config, "study2_FNOwRnet_trial_147", model_class, hparams)

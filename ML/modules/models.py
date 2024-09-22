@@ -28,7 +28,7 @@ class FNOnet(nn.Module):
         self.fno = FNO(
             n_modes=(self.n_modes_y, self.n_modes_x),
             hidden_channels=self.hidden_channels,
-            in_channels=5  ,  # 1 for the field channel and 1 for the embedded parameters
+            in_channels=self.parameters_n + 1,  # 1 for the field channel and 1 for the embedded parameters
             out_channels=self.variables_n,
             n_layers=self.n_layers,
             lifting_channels=self.lifting_channels,
@@ -48,6 +48,43 @@ class FNOnet(nn.Module):
 
 
         return output
+
+class FNOneti(nn.Module):
+    def __init__(
+        self,
+        parameters_n,
+        variables_n,
+        numpoints_x,
+        numpoints_y,
+        **kwargs
+    ):
+        super(FNOneti, self).__init__()
+        
+        self.parameters_n = parameters_n
+        self.variables_n = variables_n
+        self.numpoints_x = numpoints_x
+        self.numpoints_y = numpoints_y
+        
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        # FNO for 2D field
+        self.fno = FNO(
+            n_modes=(self.n_modes_y, self.n_modes_x),
+            hidden_channels=self.hidden_channels,
+            in_channels=self.variables_n,
+            out_channels=self.parameters_n,  # 1 for the field channel and 1 for the embedded parameters
+            n_layers=self.n_layers,
+            lifting_channels=self.lifting_channels,
+            projection_channels=self.projection_channels
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.fno(x)
+        x = x.squeeze(1)
+        
+        return x
+
 
 class UNetNet(nn.Module):
     def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y, **kwargs):

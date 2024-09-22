@@ -133,7 +133,7 @@ def get_default_hparams(config):
         "projection_channels": config.model.projection_channels,
         "batch_size": config.training.batch_size,
         "learning_rate": config.training.learning_rate,
-        "learning_rate": config.training.weight_decay,
+        "weight_decay": config.training.weight_decay,
         "accumulation_steps": config.training.accumulation_steps,
     }
 
@@ -203,3 +203,5 @@ if __name__ == "__main__" or is_jupyter():
             sys.exit(1)
         else:
             raise  # Re-raise the exception in Jupyter for better traceback
+
+

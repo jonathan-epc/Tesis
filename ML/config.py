@@ -19,6 +19,7 @@ class TrainingConfig(BaseModel):
     clip_grad_value: float = Field(1.0, gt=0)
     weight_decay: float = Field(0.01, gt=0)
     pretrained_model_name: Union[str, None] = None
+    time_limit: float = Field(86400, gt=0)
 
 class ModelConfig(BaseModel):
     name: str
@@ -35,6 +36,7 @@ class ModelConfig(BaseModel):
 class DataConfig(BaseModel):
     file_name: str
     normalize: List[bool] = [True, False]
+    swap: bool = False
     numpoints_x: int = Field(401, gt=0)
     numpoints_y: int = Field(11, gt=0)
     variables: List[str]

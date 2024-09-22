@@ -42,6 +42,7 @@ class Trainer:
         self.scaler = scaler
         self.device = device
         self.accumulation_steps = accumulation_steps
+        self.parameter_names = self.config.data.parameters
         self.variable_names = self.config.data.variables
         self.variable_units = self.config.data.variable_units
         self.pretrained_model_path = None
@@ -83,7 +84,12 @@ class Trainer:
             inputs = [input.to(self.device) for input in inputs]
         else:
             inputs = inputs.to(self.device)
-        return inputs, targets.to(self.device)
+
+        if isinstance(targets, (tuple, list)):
+            targets = [target.to(self.device) for target in targets]
+        else:
+            targets = targets.to(self.device)
+        return inputs, targets
 
     def _step_optimization(self):
         self.scaler.unscale_(self.optimizer)
@@ -121,10 +127,11 @@ class Trainer:
             plot_difference_im(
                 all_outputs, all_targets, f"{name}_validation", step, fold_n
             )
+        if self.config.data.swap:
+            metrics = compute_metrics(all_outputs, all_targets, self.parameter_names)
+        else:
+            metrics = compute_metrics(all_outputs, all_targets, self.variable_names)
 
-        metrics = compute_metrics(
-            all_outputs, all_targets, self.variable_names, self.variable_units
-        )
         metrics["loss"] = total_loss / len(dataloader)
         return metrics
 
@@ -137,7 +144,7 @@ class Trainer:
         fold_n,
         is_sweep,
         trial,
-        early_stopping,  # Pass EarlyStopping instance here
+        early_stopping,
     ):
         if self.config.logging.use_wandb:
             wandb.init(
@@ -145,7 +152,7 @@ class Trainer:
                 name=f"{name}_fold_{fold_n}",
                 group=name,
                 job_type="Sweep" if is_sweep else "Run",
-                config={"architecture": self.config.model.architecture},
+                config={"Architecture": self.config.model.architecture},
             )
 
         # Create progress bar for epochs
@@ -153,6 +160,22 @@ class Trainer:
 
         best_val_loss = float("inf")
         for epoch in epoch_pbar:
+            # Check estimated remaining time from tqdm
+            estimated_remaining_time = (
+                (epoch_pbar.total - epoch_pbar.n) / epoch_pbar.format_dict["rate"]
+                if epoch_pbar.format_dict["rate"] and epoch_pbar.total
+                else 0
+            )
+            # Check if the time limit is exceeded
+            if (
+                self.config.training.time_limit
+                and estimated_remaining_time > self.config.training.time_limit
+            ):
+                logger.info(
+                    f"Time limit exceeded for trial in fold {fold_n}. Pruning the trial."
+                )
+                raise optuna.TrialPruned()
+
             # Train epoch
             train_loss = self.train_epoch(train_dataloader)
 
@@ -358,6 +381,7 @@ def cross_validation_procedure(
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
         normalize=config.data.normalize,
+        swap=config.data.swap,
         device=config.device,
     )
 

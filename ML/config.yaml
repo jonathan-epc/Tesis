@@ -1,58 +1,61 @@
 device: cuda
 training:
   kfolds: 1
-  batch_size: 16
+  batch_size: 8
   num_epochs: 512
   num_workers: 0
   accumulation_steps: 1
-  learning_rate: 0.00014078191814745754
+  learning_rate: 0.0005883817003431483
   test_frac: 0.2
   early_stopping_patience: 32
-  pretrained_model_name: FNOwR_bump_20240907_122500
+  pretrained_model_name: 
   clip_grad_value: 1
-  weight_decay: 0.002640849756957605
+  weight_decay: 0.001176970859415568
+  time_limit: 86400
 model:
-  name: FNOwR_noise
-  architecture: FNOwRnet
-  class_name: FNOnet
-  n_layers: 4
-  n_modes_x: 145
-  n_modes_y: 116
-  hidden_channels: 47
-  lifting_channels: 242
-  projection_channels: 183
+  name: FNOi_noise
+  architecture: FNOi
+  class_name: FNOneti
+  n_layers: 1
+  n_modes_x: 194
+  n_modes_y: 187
+  hidden_channels: 28
+  lifting_channels: 93
+  projection_channels: 213
 data:
   file_name: data/noise.hdf5
   normalize:
     - true
     - false
+  swap: true
   numpoints_x: 401
   numpoints_y: 11
   variables:
-    - F
-    - H
-    - Q
-    - S
+    # - F
+    # - H
+    # - Q
+    # - S
     - U
     - V
   variable_units:
-    - dimensionless
-    - m
-    - m3s-1
-    - m
+    # - dimensionless
+    # - m
+    # - m3s-1
+    # - m
     - ms-1
     - ms-1
   parameters:
-    - H0
-    - Q0
-    - SLOPE
-    - 'n'
+    # - H0
+    # - Q0
+    # - SLOPE
+    # - n
+    - B
 seed: 43
 logging:
   use_wandb: true
   plot_enabled: false
 optuna:
-  study_name: study2
+  study_name: study3
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:

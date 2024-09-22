@@ -81,7 +81,7 @@ class HDF5Dataset(Dataset):
         data = {}
         with h5py.File(self.file_path, "r") as f:
             for key in self.keys:
-                case_data = {param: f[key].attrs[param] for param in self.parameters}
+                case_data = {param: f[key].attrs[param] for param in self.parameters if param != "B"}
                 case_data["B"] = torch.from_numpy(f[key]["B"][()]).float()
                 for var in self.variables:
                     case_data[var] = torch.from_numpy(f[key][var][()]).float()
@@ -107,16 +107,24 @@ class HDF5Dataset(Dataset):
         key = self.keys[idx]
         case = self.data[key]
 
-        # Load and process parameters
-        parameters = torch.tensor([case[param] for param in self.parameters], dtype=torch.float32)
+        # Load and process B field
         B_field = case["B"].reshape(self.numpoints_y, self.numpoints_x)
+
+        # Load and process other parameters if they exist
+        if len(self.parameters) > 1 or (len(self.parameters) == 1 and self.parameters[0] != "B"):
+            parameters = torch.tensor([case[param] for param in self.parameters if param != "B"], dtype=torch.float32)
+            if self.normalize_input:
+                parameters = self._normalize(parameters, [param for param in self.parameters if param != "B"])
+        else:
+            parameters = None
+
+        # Load and process outputs
         outputs = torch.stack(
             [case[var].reshape(self.numpoints_y, self.numpoints_x) for var in self.variables]
         )
 
         # Apply normalization if specified
         if self.normalize_input:
-            parameters = self._normalize(parameters, self.parameters)
             B_field = self._normalize(B_field, "B")
 
         if self.normalize_output:
@@ -129,17 +137,21 @@ class HDF5Dataset(Dataset):
 
         # Apply any specified transformations
         if self.transform:
-            parameters = self.transform(parameters)
+            if parameters is not None:
+                parameters = self.transform(parameters)
             B_field = self.transform(B_field)
 
         if self.target_transform:
             outputs = self.target_transform(outputs)
 
+        # Prepare input data
+        input_data = B_field.to(self.device) if parameters is None else [parameters.to(self.device), B_field.to(self.device)]
+
         # Return swapped inputs and outputs if specified
         if self.swap:
-            return outputs.to(self.device), [parameters.to(self.device), B_field.to(self.device)]
+            return outputs.to(self.device), input_data
         else:
-            return [parameters.to(self.device), B_field.to(self.device)], outputs.to(self.device)
+            return input_data, outputs.to(self.device)
 
     def _normalize(self, data: torch.Tensor, keys: Union[str, List[str]]) -> torch.Tensor:
         """

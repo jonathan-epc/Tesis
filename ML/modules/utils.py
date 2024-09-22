@@ -137,7 +137,6 @@ def compute_metrics(
     outputs: torch.Tensor,
     targets: torch.Tensor,
     variable_names: List[str],
-    variable_units: List[str],
 ) -> Dict[str, torch.Tensor]:
     outputs, targets = (
         outputs.view(-1, len(variable_names)),
@@ -163,7 +162,7 @@ def compute_metrics(
     epsilon = 1e-8  # Small value to avoid division by zero
 
     # Compute metrics for each variable
-    for i, (var_name, var_unit) in enumerate(zip(variable_names, variable_units)):
+    for i, var_name in enumerate(zip(variable_names)):
         var_outputs = outputs[:, i]
         var_targets = targets[:, i]
 
