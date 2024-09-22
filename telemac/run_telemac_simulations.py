@@ -57,7 +57,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--bottom", type=str,
         default="",
-        choices=["SLOPE", "NOISE", "BUMP"],
+        choices=["SLOPE", "NOISE", "BUMP","BARS"],
         help="Select a specific bottom value for simulation"
     )
     parser.add_argument(

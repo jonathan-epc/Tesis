@@ -41,8 +41,7 @@ class EnvironmentSetup:
         """
         self.constants = self._load_constants(constants_file)
         self._adjust_channel_dimensions()
-        self.flat_mesh, self.x, self.y = self._load_geometry_dataset(flat_mesh_path)
-        self.noise_grid_x, self.noise_grid_y = self._create_noise_grids()
+        self.flat_mesh = self._load_geometry_dataset(flat_mesh_path)
 
     def _load_constants(self, constants_file):
         """
@@ -87,32 +86,9 @@ class EnvironmentSetup:
             A tuple containing the flat mesh dataset, x-coordinates, and y-coordinates.
         """
         flat_mesh = xr.open_dataset(flat_mesh_path, engine="selafin")
-        x = flat_mesh["x"].values
-        y = flat_mesh["y"].values
         logger.info(f"Loaded geometry dataset from {flat_mesh_path}")
-        return flat_mesh, x, y
+        return flat_mesh
 
-    def _create_noise_grids(self):
-        """
-        Creates the noise grids based on the channel dimensions and mesh points.
-
-        Returns
-        -------
-        tuple
-            A tuple containing the x-coordinates and y-coordinates of the noise grid.
-        """
-        noise_grid_x = np.linspace(
-            0,
-            self.constants["channel"]["length"],
-            self.constants["mesh"]["num_points_x"]
-        )
-        noise_grid_y = np.linspace(
-            0,
-            self.constants["channel"]["width"],
-            self.constants["mesh"]["num_points_y"]
-        )
-        logger.info("Created noise grids")
-        return noise_grid_x, noise_grid_y
 
     def get_setup_data(self):
         """
@@ -127,8 +103,4 @@ class EnvironmentSetup:
         return {
             "constants": self.constants,
             "flat_mesh": self.flat_mesh,
-            "x": self.x,
-            "y": self.y,
-            "noise_grid_x": self.noise_grid_x,
-            "noise_grid_y": self.noise_grid_y
         }
