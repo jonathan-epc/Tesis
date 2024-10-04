@@ -124,12 +124,12 @@ class GeometryGenerator:
         return bump_amplitude * np.exp(-((xv - bump_center) ** 2) / (2 * bump_width**2))
 
     @staticmethod
-    def _step_variation(xv, yv, channel_length, channel_width, **kwargs):
+    def _abrupt_variation(xv, yv, channel_length, channel_width, **kwargs):
         randomize = kwargs.get("randomize", True)
-        step_position = kwargs.get("step_position", 0.5) + (
+        step_position = kwargs.get("abrupt_position", 0.5) + (
             np.random.uniform(-0.05, 0.05) if randomize else 0
         )
-        step_height = kwargs.get("step_height", 0.1) * (
+        step_height = kwargs.get("abrupt_height", 0.1) * (
             np.random.uniform(0.9, 1.1) if randomize else 1
         )
 
@@ -139,39 +139,38 @@ class GeometryGenerator:
         return step
 
     @staticmethod
-    def _smooth_step_variation(xv, yv, channel_length, channel_width, **kwargs):
+    def _step_variation(xv, yv, channel_length, channel_width, **kwargs):
         randomize = kwargs.get("randomize", True)
-        step_center = kwargs.get("step_position", 0.5) * channel_length + (
+        step_position = kwargs.get("step_position", 0.5) + (
+            np.random.uniform(-0.05, 0.05) if randomize else 0
+        )
+        step_height = kwargs.get("step_height", 0.05) * (
+            np.random.uniform(0.9, 1.1) if randomize else 1
+        )
+        step_width = kwargs.get("step_width", 0.01) * (
+            np.random.uniform(0.9, 1.1) if randomize else 1
+        )
+
+        step_index = int(step_position * xv.shape[0])
+        step_finish = int(step_width * xv.shape[0])
+        step = np.zeros_like(xv)
+        step[step_index:step_index+step_finish] = step[step_index]+step_height
+        return step
+
+    @staticmethod
+    def _smooth_variation(xv, yv, channel_length, channel_width, **kwargs):
+        randomize = kwargs.get("randomize", True)
+        step_center = kwargs.get("smooth_position", 0.5) * channel_length + (
             np.random.uniform(-0.05, 0.05) * channel_length if randomize else 0
         )
         step_width = (
             0.01 * channel_length * (np.random.uniform(0.9, 1.1) if randomize else 1)
         )
-        step_height = kwargs.get("step_height", 0.1) * (
+        step_height = kwargs.get("smooth_height", 0.1) * (
             np.random.uniform(0.9, 1.1) if randomize else 1
         )
 
         return step_height / (1 + np.exp(-(xv - step_center) / step_width))
-
-    @staticmethod
-    def _sinusoidal_variation(
-        xv, yv, channel_length, channel_width, dimension, **kwargs
-    ):
-        randomize = kwargs.get("randomize", True)
-        amplitude = kwargs.get("sinusoidal_amplitude", 0.1) * (
-            np.random.uniform(0.9, 1.1) if randomize else 1
-        )
-        frequency = kwargs.get("sinusoidal_frequency", 3) * (
-            np.random.uniform(0.9, 1.1) if randomize else 1
-        )
-
-        return amplitude * np.sin(
-            2
-            * np.pi
-            * frequency
-            * (xv if dimension == "x" else yv)
-            / (channel_length if dimension == "x" else channel_width)
-        )
 
     @staticmethod
     def _sinusoidal_x_variation(xv, yv, channel_length, channel_width, **kwargs):
