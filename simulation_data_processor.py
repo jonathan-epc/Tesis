@@ -27,7 +27,7 @@ def get_output_files(config: ProcessingConfig) -> Dict[str, Dict[str, str]]:
     base_path = os.path.join(config.base_dir, "ML")
     os.makedirs(base_path, exist_ok=True)
 
-    bottom_types = config.bottom_types or ["noise", "slope", "bump"]
+    bottom_types = config.bottom_types or ["NOISE", "SLOPE", "BUMP", "BARS"]
 
     files = {}
     for bottom_type in bottom_types:
@@ -90,7 +90,7 @@ def process_data(
     parameter_names: List[str],
 ):
     parameter_table = prepare_parameter_table(parameters, parameter_names)
-    bottom_types = config.bottom_types or ["noise", "slope", "bump"]
+    bottom_types = config.bottom_types or ["NOISE", "SLOPE", "BUMP", "BARS"]
 
     for bottom_type in bottom_types:
         if config.separate_critical_states:
@@ -197,7 +197,7 @@ def parse_args() -> ProcessingConfig:
         "--bottom_types",
         type=str,
         nargs="+",
-        choices=["noise", "slope", "bump"],
+        choices=["NOISE", "SLOPE", "BUMP", "BARS"],
         help="Bottom types to process (e.g., --bottom_types noise slope). Default is all.",
     )
 
