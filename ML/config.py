@@ -1,10 +1,10 @@
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import yaml
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 
 class TrainingConfig(BaseModel):
@@ -21,6 +21,7 @@ class TrainingConfig(BaseModel):
     pretrained_model_name: Union[str, None] = None
     time_limit: float = Field(86400, gt=0)
 
+
 class ModelConfig(BaseModel):
     name: str
     architecture: str
@@ -35,7 +36,7 @@ class ModelConfig(BaseModel):
 
 class DataConfig(BaseModel):
     file_name: str
-    normalize: List[bool] = [True, False]
+    normalize: Tuple[bool, bool] = (True, False)  # Fixed-length tuple
     swap: bool = False
     numpoints_x: int = Field(401, gt=0)
     numpoints_y: int = Field(11, gt=0)
@@ -80,8 +81,43 @@ class Config(BaseModel):
     def set_wandb_api_key(cls, v):
         if v is None:
             v = {}
+        elif not isinstance(v, dict):
+            raise ValueError("api_keys must be a dictionary")
         v["wandb"] = os.environ.get("WANDB_API_KEY", v.get("wandb"))
         return v
+
+    # Using a root validator to validate both 'optuna' and 'data'
+    @root_validator(pre=True)
+    def validate_optuna_and_data(cls, values):
+        optuna_config = values.get("optuna")
+        data_config = values.get("data")
+        print(data_config)
+
+        if optuna_config and data_config:
+            # Access numpoints_x and numpoints_y from data_config
+            numpoints_x = data_config.get("numpoints_x", 77)
+            numpoints_y = data_config.get("numpoints_y", 401)
+
+            hyperparameter_space = optuna_config.get("hyperparameter_space", {})
+
+            # Ensure n_modes_x and n_modes_y are within valid bounds
+            for mode, numpoints in zip(
+                ["n_modes_x", "n_modes_y"], [numpoints_x, numpoints_y]
+            ):
+                if mode in hyperparameter_space:
+                    hyperparameter_space[mode]["low"] = 2
+                    hyperparameter_space[mode]["high"] = min(
+                        numpoints, numpoints // 2 * 2
+                    )
+                    hyperparameter_space[mode]["step"] = (
+                        2  # Ensure only even numbers are suggested
+                    )
+
+            # Update the optuna config in values
+            optuna_config["hyperparameter_space"] = hyperparameter_space
+            values["optuna"] = optuna_config
+
+        return values
 
 
 def add_date_to_name(name: str) -> str:
@@ -90,8 +126,13 @@ def add_date_to_name(name: str) -> str:
 
 
 def load_config(config_path: str = "config.yaml") -> Config:
-    with open(config_path, "r") as file:
-        yaml_config = yaml.safe_load(file)
+    try:
+        with open(config_path, "r") as file:
+            yaml_config = yaml.safe_load(file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Config file not found at: {config_path}")
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Error parsing YAML file: {exc}")
 
     # Handle the 'class' key in model config
     if "model" in yaml_config and "class" in yaml_config["model"]:
@@ -103,15 +144,22 @@ def load_config(config_path: str = "config.yaml") -> Config:
     return Config(**yaml_config)
 
 
-# Global config instance
-config: Config = load_config()
+# Global variable to store config, initialized to None
+_config: Optional[Config] = None
 
 
 def get_config() -> Config:
-    return config
+    global _config
+    if _config is None:
+        try:
+            _config = load_config()
+        except Exception as e:
+            raise RuntimeError(f"Error loading config: {e}")
+    return _config
 
 
 if __name__ == "__main__":
+    config = get_config()  # Load the config when needed
     print(config.json(indent=2))
     print(f"Model name: {config.model.name}")
     print(f"Optuna study name: {config.optuna.study_name}")

@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+from scipy import stats
 from config import get_config
 from modules.data import HDF5Dataset
-from scipy import stats
 
 def load_dataset(config, file_path):
     return HDF5Dataset(
@@ -17,109 +17,68 @@ def load_dataset(config, file_path):
         device=config.device,
     )
 
-def extract_parameter_data(dataset, param_index):
-    return np.array([item[0][0][param_index].item() for item in dataset])
+def extract_data(dataset, config):
+    input_data = {param: [] for param in config.data.parameters}
+    output_data = {var: [] for var in config.data.variables}
 
-def extract_variable_data(dataset, var_index):
-    return torch.cat([item[1][var_index].flatten() for item in dataset]).cpu().numpy()
+    for case in dataset:
+        inputs, outputs = case
+        params, param_B = inputs
 
-def plot_distributions(data, titles, fig_size=(20, 15)):
-    fig, axes = plt.subplots(len(data), 1, figsize=fig_size)
-    for d, ax, title in zip(data, axes, titles):
-        mean, std = np.mean(d), np.std(d)
-        ax.hist(
-            d,
-            bins=200,
-            alpha=0.7,
-            label=f"{title} (mean={mean:.3f}, std={std:.3f})",
-        )
-        ax.legend()
-        ax.set_title(f"Distribution of {title}")
-        ax.set_xlabel("Value")
-        ax.set_ylabel("Frequency")
-    plt.tight_layout()
-    plt.show()
+        for i, param in enumerate(config.data.parameters):
+            input_data[param].append(param_B if param == "B" else params[i])
 
-def calculate_statistics(data):
-    mean = np.mean(data)
-    std = np.std(data)
+        for i, var in enumerate(config.data.variables):
+            output_data[var].append(outputs[i, :, :])
+
+    return {param: torch.stack(values) for param, values in input_data.items()}, \
+           {var: torch.stack(values) for var, values in output_data.items()}
+
+def compute_statistics(data):
+    numpy_data = data.cpu().numpy().flatten()
     return {
-        "Mean": mean,
-        "Std Dev": std,
-        "Min": np.min(data),
-        "P1": np.percentile(data, 1),
-        "P5": np.percentile(data, 5),
-        "P10": np.percentile(data, 10),
-        "P25": np.percentile(data, 25),
-        "Median": np.percentile(data, 50),
-        "P75": np.percentile(data, 75),
-        "P90": np.percentile(data, 90),
-        "P95": np.percentile(data, 95),
-        "P99": np.percentile(data, 99),
-        "Max": np.max(data),
-        "Skewness": stats.skew(data),
-        "Kurtosis": stats.kurtosis(data),
-        "IQR": np.percentile(data, 75) - np.percentile(data, 25),
-        "CV": std / mean if mean != 0 else np.nan,
-        "Shapiro-Wilk p-value": stats.shapiro(data[:5000])[1]
-        if len(data) > 5000
-        else stats.shapiro(data)[1],
-        "Range": np.ptp(data),
-        "n": len(data)
+        "mean": np.mean(numpy_data),
+        "std": np.std(numpy_data),
+        "min": np.min(numpy_data),
+        "max": np.max(numpy_data),
+        "skewness": stats.skew(numpy_data),
+        "kurtosis": stats.kurtosis(numpy_data),
+        "percentile_25": np.percentile(numpy_data, 25),
+        "median": np.median(numpy_data),
+        "percentile_75": np.percentile(numpy_data, 75),
     }
 
-def correlation_analysis(data, labels, max_points=10000):
-    if len(data[0]) > max_points:
-        indices = np.random.choice(len(data[0]), max_points, replace=False)
-        sampled_data = [d[indices] for d in data]
-    else:
-        sampled_data = data
-
-    corr_matrix = np.corrcoef(sampled_data)
-    plt.figure(figsize=(12, 10))
-    plt.imshow(corr_matrix, cmap="coolwarm", aspect="auto")
-    plt.colorbar()
-    plt.xticks(range(len(labels)), labels, rotation=45, ha="right")
-    plt.yticks(range(len(labels)), labels)
-    plt.title("Correlation Heatmap")
-    plt.tight_layout()
+def plot_distribution(data, title, xlabel):
+    plt.figure(figsize=(8, 5))
+    plt.hist(data.cpu().numpy().flatten(), bins=50, density=True, alpha=0.6, label="Histogram")
+    plt.title(f"Distribution of {title}")
+    plt.xlabel(xlabel)
+    plt.ylabel("Density")
+    plt.legend()
+    plt.grid(True)
     plt.show()
-    return corr_matrix
 
 def main():
     config = get_config()
-    dataset = load_dataset(config, "data/noise.hdf5")
-    parameters = dataset.parameters
-    variables = dataset.variables
+    dataset = load_dataset(config, "data/bars.hdf5")
+    input_data, output_data = extract_data(dataset, config)
+    plt.style.use('seaborn-v0_8-whitegrid')
 
-    # Extract parameter data
-    parameter_data = [
-        extract_parameter_data(dataset, i) for i in range(len(parameters))
-    ]
-    parameter_data.append(extract_variable_data(dataset, 0))
-    parameters.append("B")
+    stats_dict = {}
+    for param, data in input_data.items():
+        stats_dict[f"input_{param}"] = compute_statistics(data)
+        plot_distribution(data, f"Input Parameter: {param}", param)
 
-    plot_distributions(parameter_data, parameters)
-    stats = [calculate_statistics(data) for data in parameter_data]
-    df = pd.DataFrame(stats, index=parameters)
-    print("Parameter Statistics:")
-    print(df)
+    for var, data in output_data.items():
+        stats_dict[f"output_{var}"] = compute_statistics(data)
+        plot_distribution(data, f"Output Variable: {var}", var)
 
-    # Correlation analysis for parameters
-    print("\nParameter Correlation Matrix:")
-    # param_corr = correlation_analysis(parameter_data, parameters)
+    # Convert stats_dict to a pandas DataFrame
+    stats_df = pd.DataFrame(stats_dict).T
 
-    # Extract variable data
-    variable_data = [extract_variable_data(dataset, i) for i in range(len(variables))]
-    plot_distributions(variable_data, variables)
-    stats = [calculate_statistics(data) for data in variable_data]
-    df = pd.DataFrame(stats, index=variables)
-    print("\nVariable Statistics:")
-    print(df)
-
-    # Correlation analysis for variables
-    print("\nVariable Correlation Matrix:")
-    var_corr = correlation_analysis(variable_data, variables)
+    # Print the statistics as a table
+    print("\nStatistics Table:")
+    print(stats_df)
 
 if __name__ == "__main__":
     main()

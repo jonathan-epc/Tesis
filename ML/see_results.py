@@ -22,8 +22,6 @@ def load_model(model_path: str, model_class, config, hparams: dict) -> nn.Module
     model = model_class(
         len(config.data.parameters),
         len(config.data.variables),
-        config.data.numpoints_x,
-        config.data.numpoints_y,
         **hparams,
     ).to(config.device)
     model.load_state_dict(
@@ -163,7 +161,7 @@ def plot_results(outputs, targets, config, save_path=None, case_idx=None):
             outputs,
             bins=n_bins,
             cmap=cm,
-            range=[[ranges[i][1], ranges[i][9]], [ranges[i][1], ranges[i][9]]],
+            # range=[[ranges[i][1], ranges[i][9]], [ranges[i][1], ranges[i][9]]],
         )
         ax.set_xlabel("Target")
         ax.set_ylabel("Output")
@@ -422,4 +420,4 @@ if __name__ == "__main__":
         "accumulation_steps": config.training.accumulation_steps,
     }
     model_class = globals()[config.model.class_name]
-    main(config, "study2_FNOwRnet_trial_147", model_class, hparams)
+    main(config, "study11uvh_FNO_trial_15", model_class, hparams)

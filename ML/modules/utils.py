@@ -138,51 +138,56 @@ def compute_metrics(
     targets: torch.Tensor,
     variable_names: List[str],
 ) -> Dict[str, torch.Tensor]:
-    outputs, targets = (
-        outputs.view(-1, len(variable_names)),
-        targets.view(-1, len(variable_names)),
-    )
+    assert outputs.shape == targets.shape, "Outputs and targets must have the same shape"
+    assert outputs.shape[1] == len(variable_names), "Number of variables doesn't match tensor shape"
 
     metrics = {}
-
-    # Overall metrics
-    mse = mean_squared_error(targets, outputs)
-    rmse = torch.sqrt(mse)
-    mae = torch.mean(torch.abs(targets - outputs))
-    r2 = r2_score(targets, outputs)
-
-    metrics.update(
-        {
-            "mse": mse,
-            "rmse": rmse,
-            "mae": mae,
-            "r2": r2,
-        }
-    )
     epsilon = 1e-8  # Small value to avoid division by zero
 
+    # Compute overall metrics
+    mse = torch.mean((targets - outputs) ** 2)
+    rmse = torch.sqrt(mse)
+    mae = torch.mean(torch.abs(targets - outputs))
+    
+    # R2 score calculation
+    ss_tot = torch.sum((targets - torch.mean(targets, dim=0)) ** 2)
+    ss_res = torch.sum((targets - outputs) ** 2)
+    r2 = 1 - (ss_res / (ss_tot + epsilon))
+
+    metrics.update({
+        "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
+        "r2": r2,
+    })
+
     # Compute metrics for each variable
-    for i, var_name in enumerate(zip(variable_names)):
+    for i, var_name in enumerate(variable_names):
         var_outputs = outputs[:, i]
         var_targets = targets[:, i]
-
-        var_mse = mean_squared_error(var_targets, var_outputs)
+        
+        # If the variable is a 2D field, flatten it for metric computation
+        if var_outputs.dim() > 1:
+            var_outputs = var_outputs.flatten(1)
+            var_targets = var_targets.flatten(1)
+        
+        var_mse = torch.mean((var_targets - var_outputs) ** 2)
         var_rmse = torch.sqrt(var_mse)
         var_mae = torch.mean(torch.abs(var_targets - var_outputs))
-        var_r2 = r2_score(var_targets, var_outputs)
-        var_mape = (
-            torch.mean(torch.abs((var_targets - var_outputs) / (var_targets + epsilon)))
-            * 100
-        )
+        
+        # R2 score calculation
+        var_ss_tot = torch.sum((var_targets - torch.mean(var_targets, dim=0)) ** 2)
+        var_ss_res = torch.sum((var_targets - var_outputs) ** 2)
+        var_r2 = 1 - (var_ss_res / (var_ss_tot + epsilon))
+        
+        var_mape = torch.mean(torch.abs((var_targets - var_outputs) / (var_targets + epsilon))) * 100
 
-        metrics.update(
-            {
-                f"{var_name}_mse": var_mse,
-                f"{var_name}_rmse": var_rmse,
-                f"{var_name}_mae": var_mae,
-                f"{var_name}_r2": var_r2,
-                f"{var_name}_mape": var_mape,
-            }
-        )
+        metrics.update({
+            f"{var_name}_mse": var_mse,
+            f"{var_name}_rmse": var_rmse,
+            f"{var_name}_mae": var_mae,
+            f"{var_name}_r2": var_r2,
+            f"{var_name}_mape": var_mape,
+        })
 
     return metrics
