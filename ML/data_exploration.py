@@ -13,7 +13,7 @@ def load_dataset(config, file_path):
         parameters=config.data.parameters,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
-        normalize=(False, False),
+        normalize=(True, True),
         device=config.device,
     )
 

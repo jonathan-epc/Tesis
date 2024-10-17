@@ -1,27 +1,27 @@
 device: cuda
 training:
   kfolds: 1
-  batch_size: 32
+  batch_size: 64
   num_epochs: 256
   num_workers: 0
   accumulation_steps: 1
-  learning_rate: 0.0002444320710477584
+  learning_rate: 0.0008922994784464057
   test_frac: 0.2
   early_stopping_patience: 32
   pretrained_model_name: 
   clip_grad_value: 1
-  weight_decay: 0.0007633544310863183
+  weight_decay: 0.0010613266484649547
   time_limit: 86400
 model:
   name: FNO_bars
   architecture: FNO
   class_name: FNOnet
   n_layers: 16
-  n_modes_x: 166
+  n_modes_x: 118
   n_modes_y: 8
-  hidden_channels: 89
-  lifting_channels: 155
-  projection_channels: 252
+  hidden_channels: 51
+  lifting_channels: 46
+  projection_channels: 109
 data:
   file_name: data/bars.hdf5
   normalize:
@@ -31,18 +31,18 @@ data:
   numpoints_x: 401
   numpoints_y: 11
   variables:
-    # - F
+    - F
     - H
-    # - Q
-    # - S
+    - Q
+    - S
     - U
     - V
     - B
   variable_units:
-    # - dimensionless
+    - dimensionless
     - m
-    # - m3s-1
-    # - m
+    - m3s-1
+    - m
     - ms-1
     - ms-1
     - m
@@ -57,7 +57,7 @@ logging:
   use_wandb: true
   plot_enabled: false
 optuna:
-  study_name: study11uvh
+  study_name: study12
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
