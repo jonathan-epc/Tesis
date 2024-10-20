@@ -14,7 +14,7 @@ training:
   time_limit: 86400
 model:
   name: FNO_bars
-  architecture: FNO
+  architecture: FNOnet
   class_name: FNOnet
   n_layers: 16
   n_modes_x: 118
