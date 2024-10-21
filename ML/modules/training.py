@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import wandb
+import h5py
 from config import get_config
 from loguru import logger
 from sklearn.model_selection import KFold, train_test_split
@@ -46,10 +47,52 @@ class Trainer:
         self.variable_names = self.config.data.variables
         self.variable_units = self.config.data.variable_units
         self.pretrained_model_path = None
+        
+        # Load dataset statistics for denormalization
+        with h5py.File(self.config.data.file_name, "r") as f:
+            # Statistics for parameters and B field
+            self.stat_means = {
+                param: torch.tensor(f["statistics"].attrs[f"{param}_mean"], dtype=torch.float32)
+                for param in self.parameter_names  # Include B field
+            }
+            self.stat_stds = {
+                param: torch.tensor(
+                    np.sqrt(f["statistics"].attrs[f"{param}_variance"]), 
+                    dtype=torch.float32
+                )
+                for param in self.parameter_names  # Include B field
+            }
 
         if self.config.training.pretrained_model_name:
             self.pretrained_model_path = f"savepoints/{self.config.training.pretrained_model_name}_best_model.pth"
             self._load_pretrained_model()
+
+    def _denormalize_inputs(self, inputs):
+        """Denormalize both parameters and B field if they exist in the inputs"""
+        if isinstance(inputs, (tuple, list)):
+            # Handle case where inputs is [parameters, B_field]
+            parameters, b_field = inputs
+            
+            # Denormalize parameters (except B field parameter)
+            denorm_params = []
+            for i, param_name in enumerate(self.parameter_names):
+                if param_name != "B":  # Skip B field parameter
+                    mean = self.stat_means[param_name].to(self.device)
+                    std = self.stat_stds[param_name].to(self.device)
+                    denorm_params.append(parameters[:, i] * std + mean)
+            denorm_params = torch.stack(denorm_params, dim=1)
+            
+            # Denormalize B field
+            b_mean = self.stat_means["B"].to(self.device)
+            b_std = self.stat_stds["B"].to(self.device)
+            denorm_b_field = b_field * b_std + b_mean
+            
+            return [denorm_params, denorm_b_field]
+        else:
+            # Handle case where inputs is just B_field
+            b_mean = self.stat_means["B"].to(self.device)
+            b_std = self.stat_stds["B"].to(self.device)
+            return inputs * b_std + b_mean
 
     def train_epoch(self, dataloader):
         self.model.train()
@@ -58,14 +101,19 @@ class Trainer:
 
         for idx, (inputs, targets) in enumerate(dataloader):
             inputs, targets = self._move_to_device(inputs, targets)
-
+            
             with autocast(
                 device_type=self.device,
                 enabled=(self.device == "cuda"),
                 dtype=torch.float32,
             ):
                 outputs = self.model(inputs)
-                loss = self.criterion(outputs, targets)
+                # Get denormalized inputs for loss calculation
+                if self.config.data.normalize[0]:  # Only denormalize if inputs were normalized
+                    denorm_inputs = self._denormalize_inputs(inputs)
+                else:
+                    denorm_inputs = inputs
+                loss = self.criterion(outputs, targets, denorm_inputs)
 
             self.scaler.scale(loss).backward()
 
@@ -79,40 +127,28 @@ class Trainer:
 
         return total_loss / len(dataloader)
 
-    def _move_to_device(self, inputs, targets):
-        if isinstance(inputs, (tuple, list)):
-            inputs = [input.to(self.device) for input in inputs]
-        else:
-            inputs = inputs.to(self.device)
-
-        if isinstance(targets, (tuple, list)):
-            targets = [target.to(self.device) for target in targets]
-        else:
-            targets = targets.to(self.device)
-        return inputs, targets
-
-    def _step_optimization(self):
-        self.scaler.unscale_(self.optimizer)
-        clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        self.optimizer.zero_grad(set_to_none=True)
-        self.scheduler.step()
-
     @torch.no_grad()
     def validate(self, dataloader, name="", step=-1, fold_n=-1):
         self.model.eval()
         total_loss = 0.0
         all_outputs, all_targets = [], []
+        
         for inputs, targets in dataloader:
             inputs, targets = self._move_to_device(inputs, targets)
+            
             with autocast(
                 device_type=self.device,
                 enabled=self.device == "cuda",
                 dtype=torch.float32,
             ):
                 outputs = self.model(inputs)
-                loss = self.criterion(outputs, targets)
+                # Get denormalized inputs for loss calculation
+                if self.config.data.normalize[0]:  # Only denormalize if inputs were normalized
+                    denorm_inputs = self._denormalize_inputs(inputs)
+                else:
+                    denorm_inputs = inputs
+                loss = self.criterion(outputs, targets, denorm_inputs)
+                    
             total_loss += loss.item()
             all_outputs.append(outputs)
             all_targets.append(targets)
@@ -134,6 +170,26 @@ class Trainer:
 
         metrics["loss"] = total_loss / len(dataloader)
         return metrics
+
+    def _move_to_device(self, inputs, targets):
+        if isinstance(inputs, (tuple, list)):
+            inputs = [input.to(self.device) for input in inputs]
+        else:
+            inputs = inputs.to(self.device)
+
+        if isinstance(targets, (tuple, list)):
+            targets = [target.to(self.device) for target in targets]
+        else:
+            targets = targets.to(self.device)
+        return inputs, targets
+
+    def _step_optimization(self):
+        self.scaler.unscale_(self.optimizer)
+        clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.optimizer.zero_grad(set_to_none=True)
+        self.scheduler.step()
 
     def train(
         self,
@@ -297,8 +353,6 @@ def cross_validate(
         model = model_class(
             len(config.data.parameters),
             len(config.data.variables),
-            config.data.numpoints_x,
-            config.data.numpoints_y,
             **hparams,
         ).to(config.device)
 
@@ -421,8 +475,6 @@ def cross_validation_procedure(
     model = model_class(
         len(config.data.parameters),
         len(config.data.variables),
-        config.data.numpoints_x,
-        config.data.numpoints_y,
         **hparams,
     ).to(config.device)
     model.load_state_dict(

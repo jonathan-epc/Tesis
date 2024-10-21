@@ -22,8 +22,6 @@ def load_model(model_path: str, model_class, config, hparams: dict) -> nn.Module
     model = model_class(
         len(config.data.parameters),
         len(config.data.variables),
-        config.data.numpoints_x,
-        config.data.numpoints_y,
         **hparams,
     ).to(config.device)
     model.load_state_dict(
@@ -163,16 +161,16 @@ def plot_results(outputs, targets, config, save_path=None, case_idx=None):
             outputs,
             bins=n_bins,
             cmap=cm,
-            range=[[ranges[i][1], ranges[i][9]], [ranges[i][1], ranges[i][9]]],
+            # range=[[ranges[i][1], ranges[i][9]], [ranges[i][1], ranges[i][9]]],
         )
         ax.set_xlabel("Target")
         ax.set_ylabel("Output")
         ax.set_title(config.data.variables[i])
 
         # Add identity line
-        min_val = ranges[i][1]
-        max_val = ranges[i][9]
-        ax.plot([min_val, max_val], [min_val, max_val], "r--", lw=0.5)
+        # min_val = ranges[i][1]
+        # max_val = ranges[i][9]
+        # ax.plot([min_val, max_val], [min_val, max_val], "r--", lw=0.5)
 
         # Calculate and display R2 score
         try:
@@ -195,9 +193,12 @@ def plot_results(outputs, targets, config, save_path=None, case_idx=None):
         ax.set_aspect("equal", adjustable="box")
 
         # Set the x and y limits to be the same
-        ax.set_xlim(min_val, max_val)
-        ax.set_ylim(min_val, max_val)
-
+        # ax.set_xlim(min_val, max_val)
+        # ax.set_ylim(min_val, max_val)
+    # Remove empty subplots
+    if num_channels < rows * cols:
+        for j in range(num_channels, rows * cols):
+            fig.delaxes(axes.flatten()[j])
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path + ".png")  # Save the figure to the specified path
@@ -326,11 +327,14 @@ def plot_field_comparison(outputs, targets, config, save_path=None, case_idx=Non
         im3 = plot_2d_field(
             diff, f"Difference {variable_name} / {variable_unit}", diff_cmap, norm=norm
         )
-
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path + variable_name + ".png")
-        plt.show()
+    # Remove empty subplots
+    if num_channels < rows * cols:
+        for j in range(num_channels, rows * cols):
+            fig.delaxes(axes.flatten()[j])
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path + variable_name + ".png")
+    plt.show()
 
 def select_random_case(test_dataset) -> int:
     num_cases = len(test_dataset)
@@ -422,4 +426,4 @@ if __name__ == "__main__":
         "accumulation_steps": config.training.accumulation_steps,
     }
     model_class = globals()[config.model.class_name]
-    main(config, "study2_FNOwRnet_trial_147", model_class, hparams)
+    main(config, "study12_FNO_trial_6", model_class, hparams)

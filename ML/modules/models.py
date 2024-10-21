@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from neuralop.models import FNO, SFNO, UNO
+from neuralop.models import FNO, TFNO, SFNO, UNO
 from typing import Tuple
 
 class FNOnet(nn.Module):
@@ -10,16 +10,12 @@ class FNOnet(nn.Module):
         self,
         parameters_n,
         variables_n,
-        numpoints_x,
-        numpoints_y,
         **kwargs
     ):
         super(FNOnet, self).__init__()
         
         self.parameters_n = parameters_n
         self.variables_n = variables_n
-        self.numpoints_x = numpoints_x
-        self.numpoints_y = numpoints_y
         
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -28,7 +24,7 @@ class FNOnet(nn.Module):
         self.fno = FNO(
             n_modes=(self.n_modes_y, self.n_modes_x),
             hidden_channels=self.hidden_channels,
-            in_channels=self.parameters_n + 1,  # 1 for the field channel and 1 for the embedded parameters
+            in_channels=self.parameters_n,  # 1 for the field channel and n for the embedded parameters
             out_channels=self.variables_n,
             n_layers=self.n_layers,
             lifting_channels=self.lifting_channels,
@@ -38,7 +34,8 @@ class FNOnet(nn.Module):
     def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         x_params, x_field = x
         x_field = x_field.unsqueeze(1)
-        x_params = x_params.view(x_params.size(0), self.parameters_n, 1, 1).expand(-1, -1, self.numpoints_y, self.numpoints_x)
+        batch_size, _, height, width = x_field.shape
+        x_params = x_params.view(batch_size, self.parameters_n-1, 1, 1).expand(-1, -1, height, width)
         # Concatenate parameters and field along channel dimension
         x_combined = torch.cat([x_field, x_params], dim=1)
 
@@ -49,21 +46,71 @@ class FNOnet(nn.Module):
 
         return output
 
+class FNOnet2(nn.Module):
+    def __init__(
+        self,
+        parameters_n,
+        variables_n,
+        **kwargs
+    ):
+        super(FNOnet2, self).__init__()
+        
+        self.parameters_n = parameters_n
+        self.variables_n = variables_n
+        
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        # FNO for 2D field
+        self.fno = TFNO(
+            n_modes=(self.n_modes_y, self.n_modes_x),
+            hidden_channels=self.hidden_channels,
+            in_channels=self.parameters_n,  # 1 for the field channel and n for the embedded parameters
+            out_channels=self.variables_n,
+            n_layers=self.n_layers,
+            lifting_channels=self.lifting_channels,
+            projection_channels=self.projection_channels,
+            factorization='tucker',
+            implementation='factorized',
+            rank=0.05
+        )
+        
+        # Additional linear layer to learn linear combinations of the FNO outputs
+        self.linear_combination = nn.Conv2d(
+            in_channels=self.variables_n,  # Input channels = number of variables
+            out_channels=self.variables_n,  # Output channels = number of variables (unchanged)
+            kernel_size=1  # A 1x1 convolution for channel-wise transformation (essentially a linear layer)
+        )
+
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        x_params, x_field = x
+        x_field = x_field.unsqueeze(1)
+        batch_size, _, height, width = x_field.shape
+        x_params = x_params.view(batch_size, self.parameters_n-1, 1, 1).expand(-1, -1, height, width)
+        # Concatenate parameters and field along channel dimension
+        x_combined = torch.cat([x_field, x_params], dim=1)
+
+        # Forward pass through FNO
+        output = self.fno(x_combined)
+        output = output + x_field
+
+        # Pass through the additional linear combination layer
+        output = self.linear_combination(output)
+
+        return output
+
+
 class FNOneti(nn.Module):
     def __init__(
         self,
         parameters_n,
         variables_n,
-        numpoints_x,
-        numpoints_y,
         **kwargs
     ):
         super(FNOneti, self).__init__()
         
         self.parameters_n = parameters_n
         self.variables_n = variables_n
-        self.numpoints_x = numpoints_x
-        self.numpoints_y = numpoints_y
         
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -79,11 +126,15 @@ class FNOneti(nn.Module):
             projection_channels=self.projection_channels
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> list:
         x = self.fno(x)
-        x = x.squeeze(1)
         
-        return x
+        B = x[:, -1, :, :]  # Take the last channel as the 2D tensor (batch_size, height, width)
+        
+        parameters = x[:, :-1, :, :]  # Take all channels except the last (batch_size, parameters_n, height, width)
+        parameters = torch.mean(parameters, dim=[2, 3])  # Reduce height and width to get a 1D tensor (batch_size, parameters_n)
+        
+        return [parameters, B]  # Return a list with 1D and 2D tensors
 
 
 class UNetNet(nn.Module):

@@ -202,23 +202,3 @@ class HDF5Dataset(Dataset):
             std = std.view(-1, 1, 1)
 
         return data * std + mean
-
-    def __repr__(self) -> str:
-        """Return a string representation of the dataset."""
-        return (
-            f"HDF5Dataset(file_path='{self.file_path}', "
-            f"variables={self.variables}, parameters={self.parameters}, "
-            f"numpoints_x={self.numpoints_x}, numpoints_y={self.numpoints_y}, "
-            f"device='{self.device}', normalize_input={self.normalize_input}, "
-            f"normalize_output={self.normalize_output}, swap={self.swap})"
-        )
-
-    @property
-    def shape(self) -> Tuple[int, int, int]:
-        """
-        Return the shape of the dataset.
-
-        Returns:
-            Tuple[int, int, int]: (num_samples, numpoints_y, numpoints_x)
-        """
-        return len(self), self.numpoints_y, self.numpoints_x

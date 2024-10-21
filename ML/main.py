@@ -5,11 +5,10 @@ from typing import Type
 
 import optuna
 import torch.nn as nn
-from neuralop import LpLoss
 
 from config import get_config
 
-from modules.loss import FluidDynamicsLoss
+from modules.loss import PhysicsInformedLoss
 from modules.models import *
 from modules.training import cross_validation_procedure
 from modules.utils import is_jupyter, set_seed, setup_experiment, setup_logger
@@ -25,6 +24,11 @@ def create_hparams(trial, config):
     for param, space in config.optuna.hyperparameter_space.items():
         if space["type"] == "categorical":
             hparams[param] = trial.suggest_categorical(param, space["choices"])
+        elif "step" in space and space["step"] == 2:
+            # For parameters with step=2, ensure only even numbers are suggested
+            low = space["low"] if space["low"] % 2 == 0 else space["low"] + 1
+            high = space["high"] if space["high"] % 2 == 0 else space["high"] - 1
+            hparams[param] = trial.suggest_int(param, low, high, step=2)
         else:
             hparams[param] = getattr(trial, f"suggest_{space['type']}")(
                 param, space["low"], space["high"], log=space.get("log", False)
@@ -60,13 +64,15 @@ def objective(trial, config):
 
     # If hypertuning, skip using pretrained models
     config.training.pretrained_model_name = None
-
+    loss_function = PhysicsInformedLoss(
+        variables=config.data.variables, parameters=config.data.parameters
+    )
     try:
         result = cross_validation_procedure(
             name,
             config.data.file_name,
             model_class,
-            nn.HuberLoss(),
+            loss_function,
             kfolds=config.training.kfolds,
             hparams=hparams,
             is_sweep=True,
@@ -143,11 +149,15 @@ def run_single_training(config):
     model_class = getattr(sys.modules[__name__], config.model.class_name)
     hparams = get_default_hparams(config)
 
+    loss_function = PhysicsInformedLoss(
+        variables=config.data.variables, parameters=config.data.parameters
+    )
+
     test_loss = cross_validation_procedure(
         config.model.name,
         config.data.file_name,
         model_class,
-        nn.HuberLoss(),
+        loss_function,
         kfolds=config.training.kfolds,
         hparams=hparams,
         config=config,
@@ -180,7 +190,7 @@ def main(mode: str):
 if __name__ == "__main__" or is_jupyter():
     logger = setup_logger()
     if is_jupyter():
-        mode = "hypertuning"
+        mode = "training"
         logger.info(f"Running in Jupyter environment. Default mode: {mode}")
     else:
         parser = argparse.ArgumentParser(
@@ -203,5 +213,3 @@ if __name__ == "__main__" or is_jupyter():
             sys.exit(1)
         else:
             raise  # Re-raise the exception in Jupyter for better traceback
-
-
