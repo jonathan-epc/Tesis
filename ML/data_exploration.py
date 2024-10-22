@@ -9,32 +9,39 @@ from modules.data import HDF5Dataset
 def load_dataset(config, file_path):
     return HDF5Dataset(
         file_path=file_path,
-        variables=config.data.variables,
-        parameters=config.data.parameters,
+        input_vars=config.data.inputs,
+        output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
         normalize=(True, True),
-        device=config.device,
+        device='cpu',
     )
 
 def extract_data(dataset, config):
-    input_data = {param: [] for param in config.data.parameters}
-    output_data = {var: [] for var in config.data.variables}
+    """
+    Extract data from the dataset into separate dictionaries for inputs and outputs.
+    The dataset now returns (inputs, outputs) where each is a list of tensors.
+    """
+    input_data = {var: [] for var in config.data.inputs}
+    output_data = {var: [] for var in config.data.outputs}
 
-    for case in dataset:
-        inputs, outputs = case
-        params, param_B = inputs
+    for idx in range(len(dataset)):
+        inputs, outputs = dataset[idx]
+        
+        # Process inputs
+        for var_name, tensor in zip(config.data.inputs, inputs):
+            input_data[var_name].append(tensor)
+            
+        # Process outputs
+        for var_name, tensor in zip(config.data.outputs, outputs):
+            output_data[var_name].append(tensor)
 
-        for i, param in enumerate(config.data.parameters):
-            input_data[param].append(param_B if param == "B" else params[i])
-
-        for i, var in enumerate(config.data.variables):
-            output_data[var].append(outputs[i, :, :])
-
-    return {param: torch.stack(values) for param, values in input_data.items()}, \
-           {var: torch.stack(values) for var, values in output_data.items()}
+    # Stack tensors for each variable
+    return {var: torch.stack(tensors) for var, tensors in input_data.items()}, \
+           {var: torch.stack(tensors) for var, tensors in output_data.items()}
 
 def compute_statistics(data):
+    """Compute statistical measures for the input tensor."""
     numpy_data = data.cpu().numpy().flatten()
     return {
         "mean": np.mean(numpy_data),
@@ -49,6 +56,7 @@ def compute_statistics(data):
     }
 
 def plot_distribution(data, title, xlabel):
+    """Plot the distribution of the input tensor."""
     plt.figure(figsize=(8, 5))
     plt.hist(data.cpu().numpy().flatten(), bins=50, density=True, alpha=0.6, label="Histogram")
     plt.title(f"Distribution of {title}")
@@ -61,14 +69,22 @@ def plot_distribution(data, title, xlabel):
 def main():
     config = get_config()
     dataset = load_dataset(config, "data/bars.hdf5")
+    
+    # Extract and analyze the data
     input_data, output_data = extract_data(dataset, config)
+    
+    # Set plot style
     plt.style.use('seaborn-v0_8-whitegrid')
 
+    # Compute statistics and create plots
     stats_dict = {}
+    
+    # Process input variables
     for param, data in input_data.items():
         stats_dict[f"input_{param}"] = compute_statistics(data)
         plot_distribution(data, f"Input Parameter: {param}", param)
 
+    # Process output variables
     for var, data in output_data.items():
         stats_dict[f"output_{var}"] = compute_statistics(data)
         plot_distribution(data, f"Output Variable: {var}", var)

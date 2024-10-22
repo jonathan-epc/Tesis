@@ -27,30 +27,31 @@ data:
   normalize:
     - true
     - false
-  swap: false
   numpoints_x: 401
   numpoints_y: 11
-  variables:
+  inputs:
+    - H0
+    - Q0
+    - SLOPE
+    - n
+    # - F
+    # - H
+    # - Q
+    # - S
+    # - U
+    # - V
+    # - B
+  outputs:
+    # - H0
+    # - Q0
+    # - SLOPE
+    # - n
     - F
     - H
     - Q
     - S
     - U
     - V
-    - B
-  variable_units:
-    - dimensionless
-    - m
-    - m3s-1
-    - m
-    - ms-1
-    - ms-1
-    - m
-  parameters:
-    - H0
-    - Q0
-    - SLOPE
-    - n
     - B
 seed: 43
 logging:

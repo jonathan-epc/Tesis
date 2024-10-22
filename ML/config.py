@@ -37,12 +37,10 @@ class ModelConfig(BaseModel):
 class DataConfig(BaseModel):
     file_name: str
     normalize: Tuple[bool, bool] = (True, False)  # Fixed-length tuple
-    swap: bool = False
     numpoints_x: int = Field(401, gt=0)
     numpoints_y: int = Field(11, gt=0)
-    variables: List[str]
-    variable_units: List[str]
-    parameters: List[str]
+    inputs: List[str]
+    outputs: List[str]
 
 
 class LoggingConfig(BaseModel):
