@@ -190,7 +190,7 @@ def main(mode: str):
 if __name__ == "__main__" or is_jupyter():
     logger = setup_logger()
     if is_jupyter():
-        mode = "training"
+        mode = "hypertuning"
         logger.info(f"Running in Jupyter environment. Default mode: {mode}")
     else:
         parser = argparse.ArgumentParser(

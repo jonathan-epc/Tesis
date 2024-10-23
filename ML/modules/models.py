@@ -62,17 +62,14 @@ class FNOnet2(nn.Module):
             setattr(self, key, value)
 
         # FNO for 2D field
-        self.fno = TFNO(
+        self.fno = FNO(
             n_modes=(self.n_modes_y, self.n_modes_x),
             hidden_channels=self.hidden_channels,
             in_channels=self.parameters_n,  # 1 for the field channel and n for the embedded parameters
             out_channels=self.variables_n,
             n_layers=self.n_layers,
             lifting_channels=self.lifting_channels,
-            projection_channels=self.projection_channels,
-            factorization='tucker',
-            implementation='factorized',
-            rank=0.05
+            projection_channels=self.projection_channels
         )
         
         # Additional linear layer to learn linear combinations of the FNO outputs

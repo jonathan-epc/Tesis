@@ -426,4 +426,4 @@ if __name__ == "__main__":
         "accumulation_steps": config.training.accumulation_steps,
     }
     model_class = globals()[config.model.class_name]
-    main(config, "study12_FNO_trial_6", model_class, hparams)
+    main(config, "FNO_bars_20241019_234636", model_class, hparams)
