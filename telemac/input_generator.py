@@ -1,9 +1,9 @@
 import argparse
 import os
-import random
 from datetime import datetime
 from pathlib import Path
 import numpy as np
+import random
 
 from logger_config import setup_logger
 from loguru import logger
@@ -15,20 +15,16 @@ from modules.geometry_generator import GeometryGenerator
 from modules.parameter_manager import ParameterManager
 from modules.steering_file_generator import SteeringFileGenerator
 
-def process_case(index, case, setup_data):
+def process_case(index, case, setup_data, overwrite=False):
     steering_file_path = Path(f"steering/{index}.cas")
 
-    if steering_file_path.exists():
-        logger.info(
-            f"Steering file for case {index} already exists. Skipping processing."
-        )
+    if steering_file_path.exists() and not overwrite:
+        logger.info(f"Steering file for case {index} already exists. Skipping processing.")
         return
 
     try:
         logger.debug(f"Processing case {index}")
 
-        # Generate geometry
-        logger.debug(f"Generating geometry")
         geometry_generator = GeometryGenerator()
         borders = geometry_generator.generate_geometry(
             index,
@@ -39,18 +35,13 @@ def process_case(index, case, setup_data):
             setup_data["constants"]["mesh"]["num_points_y"],
             setup_data["constants"]["channel"]["length"],
             setup_data["constants"]["channel"]["width"],
+            h0=case["H0"]
         )
 
-        # Get boundary conditions
-        logger.debug(f"Getting boundary conditions")
-        boundary_file, prescribed_elevations = (
-            BoundaryConditions.get_boundary_and_elevations(
-                case["direction"], case["H0"], case["BOTTOM"], borders
-            )
+        boundary_file, prescribed_elevations = BoundaryConditions.get_boundary_and_elevations(
+            case["direction"], case["H0"], case["BOTTOM"], borders
         )
 
-        # Generate steering file
-        logger.debug(f"Getting steering file")
         steering_generator = SteeringFileGenerator()
         steering_file_content = steering_generator.generate_steering_file(
             geometry_file=f"geometry/3x3_{case['BOTTOM']}_{index}.slf",
@@ -65,7 +56,6 @@ def process_case(index, case, setup_data):
             friction_coefficient=case["n"],
         )
 
-        # Write the steering file content to a file
         steering_file_path.parent.mkdir(parents=True, exist_ok=True)
         steering_file_path.write_text(steering_file_content)
         logger.debug(f"Wrote steering file for case {index}")
@@ -73,29 +63,24 @@ def process_case(index, case, setup_data):
     except Exception as e:
         logger.error(f"Error processing case {index}: {str(e)}")
 
-def main(param_mode="add", sample_size=179**2) -> None:
-    logger.info(f"Starting main process with parameter mode: {param_mode}")
+def main(param_mode="add", sample_size=179**2, overwrite=False) -> None:
+    logger.info(f"Starting main process with parameter mode: {param_mode}, overwrite: {overwrite}")
 
-    # Set up the environment
     env_setup = EnvironmentSetup()
     setup_data = env_setup.get_setup_data()
     seed = setup_data["constants"]["seed"]
     random.seed(seed)
     np.random.seed(seed)
 
-    # Generate or load parameters
-    param_manager = ParameterManager(
-        setup_data["constants"], mode=param_mode, sample_size=sample_size
-    )
+    param_manager = ParameterManager(setup_data["constants"], mode=param_mode, sample_size=sample_size)
     parameters_df = param_manager.get_parameters()
+    
     subcritical_counts = parameters_df["subcritical"].value_counts()
-    print(f"Subcritical cases: {subcritical_counts[True]}")
-    print(f"Supercritical cases: {subcritical_counts[False]}")
-    # Process cases
-    for index, case in tqdm(
-        parameters_df.iterrows(), total=len(parameters_df), desc="Processing cases"
-    ):
-        process_case(index, case, setup_data)
+    logger.info(f"Subcritical cases: {subcritical_counts.get(True, 0)}")
+    logger.info(f"Supercritical cases: {subcritical_counts.get(False, 0)}")
+
+    for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df), desc="Processing cases"):
+        process_case(index, case, setup_data, overwrite)
 
     logger.info("Main process completed")
 
@@ -106,21 +91,13 @@ if __name__ == "__main__":
     log_name = f"{script_name}_{timestamp}_{process_id}"
     logger = setup_logger(log_name)
 
-    parser = argparse.ArgumentParser(
-        description="Run the main process with specified parameter mode."
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["new", "read", "add"],
-        default="add",
-        help="Mode for parameter management: 'new' to generate new, 'read' to only read existing, 'add' to add to existing",
-    )
-    parser.add_argument(
-        "--sample_size",
-        type=int,
-        default=179,
-        help="Sample size to be used, will be adjusted to the nearest square of a prime if necessary.",
-    )
+    parser = argparse.ArgumentParser(description="Run the main process with specified parameters.")
+    parser.add_argument("--mode", choices=["new", "read", "add"], default="add",
+                        help="Mode for parameter management: 'new' to generate new, 'read' to only read existing, 'add' to add to existing")
+    parser.add_argument("--sample_size", type=int, default=179,
+                        help="Sample size to be used, will be squared to get the total number of samples.")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Overwrite existing files instead of skipping them.")
     args = parser.parse_args()
 
-    main(param_mode=args.mode, sample_size=args.sample_size**2)
+    main(param_mode=args.mode, sample_size=args.sample_size**2, overwrite=args.overwrite)

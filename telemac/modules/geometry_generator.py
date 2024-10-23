@@ -4,6 +4,8 @@ from typing import Tuple, List
 from scipy.ndimage import gaussian_filter
 from scipy.interpolate import RegularGridInterpolator
 from loguru import logger
+import math
+import hashlib
 
 class GeometryGenerator:
     """
@@ -54,12 +56,17 @@ class GeometryGenerator:
         if variation_function:
             variation = variation_function(xv, yv, channel_length, channel_width, idx=idx, **kwargs)
             z += GeometryGenerator._normalize_variation(variation, kwargs.get('variation_min', 0.0), kwargs.get('variation_max', 0.1))
+        geometry_hash = hashlib.md5(z.tobytes()).hexdigest()
+        logger.debug(f"Geometry hash for idx {idx}, bottom_type {bottom_type}: {geometry_hash}")
         # Save the generated geometry to file
         flat_mesh["B"].values = z.T.reshape(1, flat_mesh.y.shape[0])
         flat_mesh.selafin.write(f"geometry/3x3_{bottom_type}_{idx}.slf")
 
         z_left = z[0::num_points_x].max()
         z_right = z[num_points_x - 1 :: num_points_x].max()
+        # Check for NaN values
+        if any(math.isnan(x) for x in [z_left, z_right]):
+            raise ValueError(f"NaN value encountered in elevation calculations. z={z_left, z_right}")
         return [z_left, z_right]
 
     @staticmethod
@@ -144,17 +151,15 @@ class GeometryGenerator:
         step_position = kwargs.get("step_position", 0.5) + (
             np.random.uniform(-0.05, 0.05) if randomize else 0
         )
-        step_height = kwargs.get("step_height", 0.05) * (
-            np.random.uniform(0.9, 1.1) if randomize else 1
-        )
-        step_width = kwargs.get("step_width", 0.01) * (
-            np.random.uniform(0.9, 1.1) if randomize else 1
+        step_height = kwargs.get("h0", 0.05) * 0.5
+        step_length = kwargs.get("h0", 0.01) * (
+            np.random.uniform(1.5, 3.0) if randomize else 1
         )
 
         step_index = int(step_position * xv.shape[0])
-        step_finish = int(step_width * xv.shape[0])
+        step_finish = step_index+int(np.ceil(step_length * xv.shape[0]/channel_length))
         step = np.zeros_like(xv)
-        step[step_index:step_index+step_finish] = step[step_index]+step_height
+        step[step_index:step_finish] = step[step_index]+step_height
         return step
 
     @staticmethod
