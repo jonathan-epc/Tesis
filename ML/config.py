@@ -41,6 +41,8 @@ class DataConfig(BaseModel):
     numpoints_y: int = Field(11, gt=0)
     inputs: List[str]
     outputs: List[str]
+    scalars: List[str]
+    non_scalars: List[str]
 
 
 class LoggingConfig(BaseModel):

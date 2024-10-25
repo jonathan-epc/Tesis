@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Tuple, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -65,121 +65,150 @@ class FluidDynamicsLoss(nn.Module):
 class PhysicsInformedLoss(nn.Module):
     def __init__(
         self,
-        variables: List[str],
-        parameters: List[str],
+        input_vars: List[str],
+        output_vars: List[str],
+        dataset,
+        config,
         spacing: List[float] = [0.03, 0.03],
-        g=9.81,
-        lambda_physics=0.5,
-        epsilon=1e-8
+        g: float = 9.81,
+        lambda_physics: float = 0.5,
+        epsilon: float = 1e-8
     ):
         super(PhysicsInformedLoss, self).__init__()
         self.g = g
         self.lambda_physics = lambda_physics
         self.data_loss = nn.HuberLoss()
-        self.variables = variables
-        self.parameters = parameters
+        self.input_vars = input_vars
+        self.output_vars = output_vars
+        self.dataset = dataset
+        self.config = config
         self.spacing = spacing
-        self.epsilon=epsilon
+        self.epsilon = epsilon
 
-    def forward(self, pred: torch.Tensor, target: torch.Tensor, params: torch.Tensor):
-        # Data loss
-        data_loss = self.data_loss(pred, target)
-
-        # Physics loss
-        physics_loss = self.compute_physics_loss(pred, params)
+    def forward(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
+                pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]], 
+                target: Tuple[List[torch.Tensor], List[torch.Tensor]]) -> torch.Tensor:
+        """
+        Forward method to compute the total loss (data + physics-informed).
+        """
+        field_target, scalar_target = target
+        field_pred, scalar_pred = pred
         
-        # Combine losses
-        total_loss = (
-            1 - self.lambda_physics
-        ) * data_loss + self.lambda_physics * physics_loss
+        # Compute data loss
+        total_data_loss = 0.0
+        
+        # Field predictions loss
+        if field_pred is not None and field_target:
+            field_target_tensor = torch.stack(field_target, dim=1)
+            if field_pred.shape != field_target_tensor.shape:
+                raise ValueError(f"Shape mismatch: pred {field_pred.shape}, target {field_target_tensor.shape}")
+            total_data_loss += self.data_loss(field_pred, field_target_tensor)
+        
+        # Scalar predictions loss
+        if scalar_pred is not None and scalar_target:
+            scalar_target_tensor = torch.stack(scalar_target, dim=1)
+            total_data_loss += self.data_loss(scalar_pred, scalar_target_tensor)
 
+        # Compute physics loss
+        physics_loss, missing_vars = self.compute_physics_loss(inputs, pred)
+        
+        if missing_vars:
+            logging.warning(f"Missing variables for physics loss: {', '.join(missing_vars)}")
+            return total_data_loss
+
+        # Combine losses
+        total_loss = (1 - self.lambda_physics) * total_data_loss + self.lambda_physics * physics_loss
         return total_loss
 
-    def compute_physics_loss(self, pred, params):
-        variables = self.assign_arrays_to_variables(pred)
-        parameters = self.assign_values_to_parameters(params)
+    def compute_physics_loss(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
+                           pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]):
+        """
+        Computes the physics-informed loss using the correct variable assignments.
+        """
+        # Get variables with correct assignment
+        variables, missing_vars = self.assign_variables(inputs, pred)
+        if missing_vars:
+            return None, missing_vars
 
+        # Extract and process variables
         H = variables["H"]
-        H = torch.clamp(H, min=self.epsilon)
         U = variables["U"]
         V = variables["V"]
-        n = parameters["n"]
-        n = n.unsqueeze(1).unsqueeze(2).expand_as(H)
-        z = parameters["B"]
+        B = variables["B"]
+        n = variables["n"]
+
+        # Ensure proper shapes
+        H = H.squeeze(1)
+        U = U.squeeze(1)
+        V = V.squeeze(1)
+        B = B.squeeze(1)
+        n = n.permute(1,0,2).expand_as(B)  # Expand n to match spatial dimensions
+        
+        # Apply minimum value to H for numerical stability
+        H = torch.clamp(H, min=self.epsilon)
 
         # Compute gradients
         dhudx, dhudy = torch.gradient(H * U, spacing=self.spacing, dim=(1, 2))
         dhvdx, dhvdy = torch.gradient(H * V, spacing=self.spacing, dim=(1, 2))
+        dhu2dx, dhu2dy = torch.gradient(H * U**2 + 0.5 * self.g * H**2, spacing=self.spacing, dim=(1, 2))
+        dhv2dx, dhv2dy = torch.gradient(H * V**2 + 0.5 * self.g * H**2, spacing=self.spacing, dim=(1, 2))
         dhuvdx, dhuvdy = torch.gradient(H * U * V, spacing=self.spacing, dim=(1, 2))
-        dhu2dx, dhu2dy = torch.gradient(
-            H * U**2 + 0.5 * self.g * H**2, spacing=self.spacing, dim=(1, 2)
-        )
-        dhv2dx, dhv2dy = torch.gradient(
-            H * V**2 + 0.5 * self.g * H**2, spacing=self.spacing, dim=(1, 2)
-        )
-        dzdx, dzdy = torch.gradient(z, spacing=self.spacing, dim=(1, 2))
+        dzdx, dzdy = torch.gradient(B, spacing=self.spacing, dim=(1, 2))
 
-        # Continuity equation ∂(hu)/∂x + ∂(hv)/∂y = 0
+        # Physics equations
         continuity_loss = dhudx + dhvdy
-
-        # Momentum equation in x-direction (∂(hu^2 + 0.5*gh^2)/∂x) + (∂(huv)/∂y) = gh * ((∂z/∂x) - (n^2 * u * sqrt(u^2 + v^2))/h^(4/3))
+        
         momentum_x_loss = (
-            dhu2dx
-            + dhuvdy
-            - self.g
-            * H
-            * (dzdx - (n**2 * U * torch.sqrt(U**2 + V**2)) / (H ** (4 / 3)))
+            dhu2dx + dhuvdy 
+            - self.g * H * (dzdx - (n**2 * U * torch.sqrt(U**2 + V**2)) / (H**(4/3)))
         )
-
-        # Momentum equation in y-direction (∂(huv)/∂x) + (∂(hv^2 + 0.5*gh^2)/∂y) = gh * ((∂z/∂y) - (n^2 * v * sqrt(u^2 + v^2))/h^(4/3))
+        
         momentum_y_loss = (
-            dhuvdx
-            + dhv2dy
-            - self.g
-            * H
-            * (dzdy - (n**2 * V * torch.sqrt(U**2 + V**2)) / (H ** (4 / 3)))
+            dhuvdx + dhv2dy 
+            - self.g * H * (dzdy - (n**2 * V * torch.sqrt(U**2 + V**2)) / (H**(4/3)))
         )
 
-        # Combine all physics losses
-        physics_loss = continuity_loss + momentum_x_loss + momentum_y_loss
-        physics_loss = self.data_loss(physics_loss, torch.zeros_like(physics_loss))
-        return physics_loss
+        # Combine physics losses
+        physics_loss = torch.stack([continuity_loss, momentum_x_loss, momentum_y_loss], dim=1)
+        return self.data_loss(physics_loss, torch.zeros_like(physics_loss)), []
 
-    def assign_arrays_to_variables(self, pred: torch.Tensor):
-        if pred.shape[1] != len(self.variables):
-            raise ValueError(
-                "The number of arrays must match the number of variable names."
-            )
+    def assign_variables(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
+                        pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]):
+        """
+        Assigns variables following the working reference code pattern.
+        """
+        variables = {}
+        missing_vars = []
+        field_inputs, scalar_inputs = inputs
+        field_pred, scalar_pred = pred
 
-        variables = {var_name: pred[:, i] for i, var_name in enumerate(self.variables)}
+        # First check if we have all required variables in input_vars and output_vars
+        required_vars = {"H", "U", "V", "B", "n"}
+        if not required_vars.issubset(set(self.input_vars).union(set(self.output_vars))):
+            missing = required_vars - set(self.input_vars).union(set(self.output_vars))
+            return None, list(missing)
 
-        return variables
-
-    def assign_values_to_parameters(self, parameters: torch.Tensor):
-        if len(parameters) != 2:
-            raise ValueError("Expected a list with exactly two elements: params and B.")
-
-        params, B = parameters  # params: [batch_size, num_params], B: [batch_size, ...]
-
-        if "B" not in self.parameters:
-            raise ValueError("'B' must be in self.parameters.")
-
-        # Check that the number of params matches the expected number of parameters excluding 'B'
-        batch_size, num_params = params.shape
-        if num_params != len(self.parameters) - 1:
-            raise ValueError(
-                f"params length must match the number of parameters excluding 'B'. "
-                f"Expected {len(self.parameters) - 1}, got {num_params}."
-            )
-
-        # Assign B for each batch
-        parameters_dict = {"B": B}
-
-        # Assign the other parameters, excluding B
-        param_names = [p for p in self.parameters if p != "B"]
-
-        # Now zip param names and params (batch-wise)
-        for i, param_name in enumerate(param_names):
-            parameters_dict[param_name] = params[:, i]
-
-        return parameters_dict
+        # Process input variables
+        all_inputs =  (field_inputs if field_inputs is not None else []) + (scalar_inputs if scalar_inputs is not None else [])
+        for var, tensor in zip([var for var in self.input_vars if var in self.config.data.non_scalars] + [var for var in self.input_vars if var in self.config.data.scalars], all_inputs):
+            if self.config.data.normalize[0]:
+                variables[var] = self.dataset._denormalize(tensor, [var])
+            else:
+                variables[var] = tensor
+        
+        # Stack tensors into all_preds
+        all_preds = torch.cat([field_pred, scalar_pred], dim=1) if field_pred is not None and scalar_pred is not None else field_pred if scalar_pred is None else scalar_pred
+        
+        
+        # Loop through output vars, matching with tensor slices from all_preds
+        output_non_scalars = [var for var in self.output_vars if var in self.config.data.non_scalars]
+        output_scalars = [var for var in self.output_vars if var in self.config.data.scalars]
+        
+        # Iterate through vars and tensors together, slicing stacked tensors in all_preds
+        for i, (var, tensor_slice) in enumerate(zip(output_non_scalars + output_scalars, torch.unbind(all_preds, dim=1))):
+            if self.config.data.normalize[1]:
+                variables[var] = self.dataset._denormalize(tensor_slice, [var])
+            else:
+                variables[var] = tensor_slice
+                
+        return variables, missing_vars

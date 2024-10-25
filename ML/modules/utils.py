@@ -1,6 +1,6 @@
 import os
 import random
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import numpy as np
 import torch
@@ -138,22 +138,43 @@ def compute_metrics(
     targets: torch.Tensor,
     variable_names: List[str],
 ) -> Dict[str, torch.Tensor]:
-    assert outputs.shape == targets.shape, "Outputs and targets must have the same shape"
-    assert outputs.shape[1] == len(variable_names), "Number of variables doesn't match tensor shape"
-
     metrics = {}
     epsilon = 1e-8  # Small value to avoid division by zero
 
-    # Compute overall metrics
-    mse = torch.mean((targets - outputs) ** 2)
+    # Determine if we're dealing with scalar or field data
+    is_scalar = len(outputs.shape) == 2  # Scalars are [batch_size, n_vars]
+
+    # Get the number of variables in the current tensors
+    batch_size = outputs.shape[0]
+    n_vars = outputs.shape[1]
+
+    # Check if there are enough variable names
+    assert len(variable_names) >= n_vars, "Insufficient variable names provided."
+
+    # Select the relevant variable names for this batch
+    current_var_names = variable_names[:n_vars]
+
+    # Reshape tensors based on scalar or field data
+    if is_scalar:
+        outputs_reshaped = outputs  # Already in shape [batch_size, n_vars]
+        targets_reshaped = targets
+    else:
+        # Reshape field data to [batch_size, n_vars, height * width]
+        outputs_reshaped = outputs.view(batch_size, n_vars, -1)
+        targets_reshaped = targets.view(batch_size, n_vars, -1)
+
+    # Overall metrics across all variables
+    mse = torch.mean((targets_reshaped - outputs_reshaped) ** 2)
     rmse = torch.sqrt(mse)
-    mae = torch.mean(torch.abs(targets - outputs))
-    
-    # R2 score calculation
-    ss_tot = torch.sum((targets - torch.mean(targets, dim=0)) ** 2)
-    ss_res = torch.sum((targets - outputs) ** 2)
+    mae = torch.mean(torch.abs(targets_reshaped - outputs_reshaped))
+
+    # Overall R2 score
+    targets_mean = torch.mean(targets_reshaped, dim=0, keepdim=True)  # Mean across batch
+    ss_tot = torch.sum((targets_reshaped - targets_mean) ** 2)
+    ss_res = torch.sum((targets_reshaped - outputs_reshaped) ** 2)
     r2 = 1 - (ss_res / (ss_tot + epsilon))
 
+    # Add overall metrics without prefix
     metrics.update({
         "mse": mse,
         "rmse": rmse,
@@ -161,26 +182,30 @@ def compute_metrics(
         "r2": r2,
     })
 
-    # Compute metrics for each variable
-    for i, var_name in enumerate(variable_names):
-        var_outputs = outputs[:, i]
-        var_targets = targets[:, i]
-        
-        # If the variable is a 2D field, flatten it for metric computation
-        if var_outputs.dim() > 1:
-            var_outputs = var_outputs.flatten(1)
-            var_targets = var_targets.flatten(1)
-        
+    # Compute per-variable metrics
+    for i, var_name in enumerate(current_var_names):
+        var_outputs = outputs_reshaped[:, i]  # [batch_size, height * width] or [batch_size]
+        var_targets = targets_reshaped[:, i]
+
+        # Flatten spatial dimensions for field data if not scalar
+        if not is_scalar:
+            var_outputs = var_outputs.view(batch_size, -1)  # [batch_size, height * width]
+            var_targets = var_targets.view(batch_size, -1)
+
+        # Per-variable metrics
         var_mse = torch.mean((var_targets - var_outputs) ** 2)
         var_rmse = torch.sqrt(var_mse)
         var_mae = torch.mean(torch.abs(var_targets - var_outputs))
-        
-        # R2 score calculation
-        var_ss_tot = torch.sum((var_targets - torch.mean(var_targets, dim=0)) ** 2)
+
+        # Per-variable R2 score
+        var_targets_mean = torch.mean(var_targets, dim=0, keepdim=True)
+        var_ss_tot = torch.sum((var_targets - var_targets_mean) ** 2)
         var_ss_res = torch.sum((var_targets - var_outputs) ** 2)
         var_r2 = 1 - (var_ss_res / (var_ss_tot + epsilon))
-        
-        var_mape = torch.mean(torch.abs((var_targets - var_outputs) / (var_targets + epsilon))) * 100
+
+        # MAPE calculation, ignoring values near zero
+        mask = var_targets.abs() > epsilon  # Mask for safe division
+        var_mape = torch.mean(torch.abs((var_targets[mask] - var_outputs[mask]) / var_targets[mask])) * 100
 
         metrics.update({
             f"{var_name}_mse": var_mse,

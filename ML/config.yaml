@@ -40,7 +40,7 @@ data:
     # - S
     # - U
     # - V
-    # - B
+    - B
   outputs:
     # - H0
     # - Q0
@@ -52,7 +52,26 @@ data:
     - S
     - U
     - V
+    # - B
+  scalars:
+    - H0
+    - Q0
+    - SLOPE
+    - n
+    - direction
+    - id
+    - subcritical
+    - yc
+    - yn
+  non_scalars:
+    - BOTTOM
     - B
+    - F
+    - H
+    - Q
+    - S
+    - U
+    - V
 seed: 43
 logging:
   use_wandb: true

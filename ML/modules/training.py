@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler, random_sp
 from tqdm.autonotebook import tqdm
 
 from modules.data import HDF5Dataset
+from modules.loss import PhysicsInformedLoss
 from modules.models import *
 from modules.plots import plot_hist as plot_difference
 from modules.plots import plot_im as plot_difference_im
@@ -43,56 +44,11 @@ class Trainer:
         self.scaler = scaler
         self.device = device
         self.accumulation_steps = accumulation_steps
-        self.parameter_names = self.config.data.parameters
-        self.variable_names = self.config.data.variables
-        self.variable_units = self.config.data.variable_units
         self.pretrained_model_path = None
         
-        # Load dataset statistics for denormalization
-        with h5py.File(self.config.data.file_name, "r") as f:
-            # Statistics for parameters and B field
-            self.stat_means = {
-                param: torch.tensor(f["statistics"].attrs[f"{param}_mean"], dtype=torch.float32)
-                for param in self.parameter_names  # Include B field
-            }
-            self.stat_stds = {
-                param: torch.tensor(
-                    np.sqrt(f["statistics"].attrs[f"{param}_variance"]), 
-                    dtype=torch.float32
-                )
-                for param in self.parameter_names  # Include B field
-            }
-
         if self.config.training.pretrained_model_name:
             self.pretrained_model_path = f"savepoints/{self.config.training.pretrained_model_name}_best_model.pth"
             self._load_pretrained_model()
-
-    def _denormalize_inputs(self, inputs):
-        """Denormalize both parameters and B field if they exist in the inputs"""
-        if isinstance(inputs, (tuple, list)):
-            # Handle case where inputs is [parameters, B_field]
-            parameters, b_field = inputs
-            
-            # Denormalize parameters (except B field parameter)
-            denorm_params = []
-            for i, param_name in enumerate(self.parameter_names):
-                if param_name != "B":  # Skip B field parameter
-                    mean = self.stat_means[param_name].to(self.device)
-                    std = self.stat_stds[param_name].to(self.device)
-                    denorm_params.append(parameters[:, i] * std + mean)
-            denorm_params = torch.stack(denorm_params, dim=1)
-            
-            # Denormalize B field
-            b_mean = self.stat_means["B"].to(self.device)
-            b_std = self.stat_stds["B"].to(self.device)
-            denorm_b_field = b_field * b_std + b_mean
-            
-            return [denorm_params, denorm_b_field]
-        else:
-            # Handle case where inputs is just B_field
-            b_mean = self.stat_means["B"].to(self.device)
-            b_std = self.stat_stds["B"].to(self.device)
-            return inputs * b_std + b_mean
 
     def train_epoch(self, dataloader):
         self.model.train()
@@ -108,12 +64,7 @@ class Trainer:
                 dtype=torch.float32,
             ):
                 outputs = self.model(inputs)
-                # Get denormalized inputs for loss calculation
-                if self.config.data.normalize[0]:  # Only denormalize if inputs were normalized
-                    denorm_inputs = self._denormalize_inputs(inputs)
-                else:
-                    denorm_inputs = inputs
-                loss = self.criterion(outputs, targets, denorm_inputs)
+                loss = self.criterion(inputs, outputs, targets)
 
             self.scaler.scale(loss).backward()
 
@@ -131,58 +82,96 @@ class Trainer:
     def validate(self, dataloader, name="", step=-1, fold_n=-1):
         self.model.eval()
         total_loss = 0.0
-        all_outputs, all_targets = [], []
+        all_field_outputs, all_scalar_outputs = [], []
+        all_field_targets, all_scalar_targets = [], []
+        all_field_inputs, all_scalar_inputs = [], []
+        has_scalar_data = False
         
-        for inputs, targets in dataloader:
-            inputs, targets = self._move_to_device(inputs, targets)
+        for batch in dataloader:
+            inputs, targets = batch
+            input_fields, input_scalars = inputs
+            target_fields, target_scalars = targets
+            
+            # Move inputs and targets to device
+            input_fields = [field.to(self.device) for field in input_fields]
+            input_scalars = [scalar.to(self.device) for scalar in input_scalars] if input_scalars else []
+            target_fields = [field.to(self.device) for field in target_fields]
+            target_scalars = [scalar.to(self.device) for scalar in target_scalars] if target_scalars else []
+            
+            # Reconstruct the tuples
+            inputs = (input_fields, input_scalars)
+            targets = (target_fields, target_scalars)
             
             with autocast(
                 device_type=self.device,
                 enabled=self.device == "cuda",
                 dtype=torch.float32,
             ):
+                # Forward pass
                 outputs = self.model(inputs)
-                # Get denormalized inputs for loss calculation
-                if self.config.data.normalize[0]:  # Only denormalize if inputs were normalized
-                    denorm_inputs = self._denormalize_inputs(inputs)
-                else:
-                    denorm_inputs = inputs
-                loss = self.criterion(outputs, targets, denorm_inputs)
+                
+                # Calculate loss
+                loss = self.criterion(inputs, outputs, targets)
                     
             total_loss += loss.item()
-            all_outputs.append(outputs)
-            all_targets.append(targets)
+    
+            # Collect field and scalar outputs and targets
+            field_outputs, scalar_outputs = outputs
 
-        all_outputs = torch.cat(all_outputs)
-        all_targets = torch.cat(all_targets)
-
+            if field_outputs is not None:
+                all_field_outputs.append(field_outputs)
+                if target_fields:
+                    all_field_targets.append(torch.stack(target_fields, dim=1))
+    
+            # Only collect scalar outputs and targets if they exist
+            if scalar_outputs is not None:
+                all_scalar_outputs.append(scalar_outputs)
+                if target_scalars:
+                    all_scalar_targets.append(torch.stack(target_scalars, dim=1))  # Stack to preserve batch structure
+    
+        # After processing all batches, concatenate outputs and targets along batch dimension
+        all_field_outputs = torch.cat(all_field_outputs, dim=0)  if all_field_outputs else None
+        all_field_targets = torch.cat(all_field_targets, dim=0)  if all_field_targets else None
+    
+         # Only concatenate scalar outputs if they exist
+        all_scalar_outputs = torch.cat(all_scalar_outputs, dim=0) if all_scalar_outputs else None
+        all_scalar_targets = torch.cat(all_scalar_targets, dim=0) if all_scalar_targets else None
+       
+        # Compute metrics
+        metrics = {}
+        if all_field_outputs is not None:  # If field outputs are present
+            metrics.update(compute_metrics(all_field_outputs, all_field_targets, variable_names=[var for var in self.config.data.outputs if var in self.config.data.non_scalars]))
+    
+        if all_scalar_outputs is not None:  # If scalar outputs are present
+            metrics.update(compute_metrics(all_scalar_outputs, all_scalar_targets, variable_names=[var for var in self.config.data.outputs if var in self.config.data.scalars]))
+    
+        # Generate plots if enabled
         if self.config.logging.plot_enabled:
             plot_difference(
-                all_outputs, all_targets, f"{name}_validation", step, fold_n
+                all_field_outputs, all_field_targets, f"{name}_validation", step, fold_n
             )
             plot_difference_im(
-                all_outputs, all_targets, f"{name}_validation", step, fold_n
+                all_field_outputs, all_field_targets, f"{name}_validation", step, fold_n
             )
-        if self.config.data.swap:
-            metrics = compute_metrics(all_outputs, all_targets, self.parameter_names)
-        else:
-            metrics = compute_metrics(all_outputs, all_targets, self.variable_names)
-
+    
+        # Calculate average loss
         metrics["loss"] = total_loss / len(dataloader)
+    
         return metrics
 
+
     def _move_to_device(self, inputs, targets):
-        if isinstance(inputs, (tuple, list)):
-            inputs = [input.to(self.device) for input in inputs]
-        else:
-            inputs = inputs.to(self.device)
-
-        if isinstance(targets, (tuple, list)):
-            targets = [target.to(self.device) for target in targets]
-        else:
-            targets = targets.to(self.device)
+        # inputs and targets are tuples containing two lists of tensors
+        inputs = tuple([
+            [tensor.to(self.device) for tensor in input_list] 
+            for input_list in inputs
+        ])
+        targets = tuple([
+            [tensor.to(self.device) for tensor in target_list]
+            for target_list in targets
+        ])
         return inputs, targets
-
+        
     def _step_optimization(self):
         self.scaler.unscale_(self.optimizer)
         clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
@@ -351,8 +340,10 @@ def cross_validate(
         )
 
         model = model_class(
-            len(config.data.parameters),
-            len(config.data.variables),
+            field_inputs_n=len([param for param in config.data.inputs if param in config.data.non_scalars]),
+            scalar_inputs_n=len([param for param in config.data.inputs if param in config.data.scalars]),
+            field_outputs_n=len([param for param in config.data.outputs if param in config.data.non_scalars]),
+            scalar_outputs_n=len([param for param in config.data.outputs if param in config.data.scalars]),
             **hparams,
         ).to(config.device)
 
@@ -419,7 +410,6 @@ def cross_validation_procedure(
     name,
     data_path,
     model_class,
-    criterion,
     kfolds=1,
     hparams=None,
     is_sweep=False,
@@ -430,12 +420,11 @@ def cross_validation_procedure(
 
     full_dataset = HDF5Dataset(
         file_path=data_path,
-        variables=config.data.variables,
-        parameters=config.data.parameters,
+        input_vars=config.data.inputs,
+        output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
         normalize=config.data.normalize,
-        swap=config.data.swap,
         device=config.device,
     )
 
@@ -451,6 +440,13 @@ def cross_validation_procedure(
         f"Dataset split into training/validation ({train_val_size} samples) and test ({test_size} samples)"
     )
 
+    criterion = PhysicsInformedLoss(
+        input_vars=config.data.inputs,
+        output_vars=config.data.outputs,
+        dataset=full_dataset,
+        config=config
+    )
+    
     avg_loss, avg_metrics = cross_validate(
         name,
         model_class,
@@ -473,10 +469,12 @@ def cross_validation_procedure(
         num_workers=config.training.num_workers,
     )
     model = model_class(
-        len(config.data.parameters),
-        len(config.data.variables),
-        **hparams,
-    ).to(config.device)
+            field_inputs_n=len([param for param in config.data.inputs if param in config.data.non_scalars]),
+            scalar_inputs_n=len([param for param in config.data.inputs if param in config.data.scalars]),
+            field_outputs_n=len([param for param in config.data.outputs if param in config.data.non_scalars]),
+            scalar_outputs_n=len([param for param in config.data.outputs if param in config.data.scalars]),
+            **hparams,
+        ).to(config.device)
     model.load_state_dict(
         torch.load(f"savepoints/{name}_best_model.pth", weights_only=True)
     )
