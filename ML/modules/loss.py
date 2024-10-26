@@ -136,14 +136,8 @@ class PhysicsInformedLoss(nn.Module):
         V = variables["V"]
         B = variables["B"]
         n = variables["n"]
-
-        # Ensure proper shapes
-        H = H.squeeze(1)
-        U = U.squeeze(1)
-        V = V.squeeze(1)
-        B = B.squeeze(1)
-        n = n.permute(1,0,2).expand_as(B)  # Expand n to match spatial dimensions
-        
+        n = n.view(-1, 1, 1) 
+       
         # Apply minimum value to H for numerical stability
         H = torch.clamp(H, min=self.epsilon)
 
@@ -181,34 +175,41 @@ class PhysicsInformedLoss(nn.Module):
         missing_vars = []
         field_inputs, scalar_inputs = inputs
         field_pred, scalar_pred = pred
-
+    
         # First check if we have all required variables in input_vars and output_vars
         required_vars = {"H", "U", "V", "B", "n"}
         if not required_vars.issubset(set(self.input_vars).union(set(self.output_vars))):
             missing = required_vars - set(self.input_vars).union(set(self.output_vars))
             return None, list(missing)
-
+    
         # Process input variables
-        all_inputs =  (field_inputs if field_inputs is not None else []) + (scalar_inputs if scalar_inputs is not None else [])
-        for var, tensor in zip([var for var in self.input_vars if var in self.config.data.non_scalars] + [var for var in self.input_vars if var in self.config.data.scalars], all_inputs):
+        all_inputs = (field_inputs if field_inputs is not None else []) + (scalar_inputs if scalar_inputs is not None else [])
+        sorted_input_names = [var for var in self.input_vars if var in self.config.data.non_scalars] + [var for var in self.input_vars if var in self.config.data.scalars]
+        for var, tensor in zip(sorted_input_names, all_inputs):
             if self.config.data.normalize[0]:
-                variables[var] = self.dataset._denormalize(tensor, [var])
-            else:
-                variables[var] = tensor
-        
-        # Stack tensors into all_preds
-        all_preds = torch.cat([field_pred, scalar_pred], dim=1) if field_pred is not None and scalar_pred is not None else field_pred if scalar_pred is None else scalar_pred
-        
-        
-        # Loop through output vars, matching with tensor slices from all_preds
-        output_non_scalars = [var for var in self.output_vars if var in self.config.data.non_scalars]
-        output_scalars = [var for var in self.output_vars if var in self.config.data.scalars]
-        
-        # Iterate through vars and tensors together, slicing stacked tensors in all_preds
-        for i, (var, tensor_slice) in enumerate(zip(output_non_scalars + output_scalars, torch.unbind(all_preds, dim=1))):
-            if self.config.data.normalize[1]:
-                variables[var] = self.dataset._denormalize(tensor_slice, [var])
-            else:
+                tensor = self.dataset._denormalize(tensor, [var])
+            # Reshape scalar inputs to (batch_size) if they are scalar
+            if var in self.config.data.scalars:
+                tensor = tensor.squeeze() if tensor.dim() > 1 else tensor
+            variables[var] = tensor
+    
+        # Separate processing for field_pred and scalar_pred
+        sorted_output_non_scalar_names = [var for var in self.output_vars if var in self.config.data.non_scalars]
+        if field_pred is not None:
+            # Process field_pred tensor, unbinding along dim=1 (the variable dimension for field variables)
+            for i, (var, tensor_slice) in enumerate(zip(sorted_output_non_scalar_names, torch.unbind(field_pred, dim=1))):
+                if self.config.data.normalize[1]:
+                    tensor_slice = self.dataset._denormalize(tensor_slice, [var])
                 variables[var] = tensor_slice
                 
+        sorted_output_scalar_names = [var for var in self.output_vars if var in self.config.data.scalars]
+        if scalar_pred is not None:
+            # Process scalar_pred tensor, unbinding along dim=1 (the variable dimension for scalar variables)
+            for i, (var, tensor_slice) in enumerate(zip(sorted_output_scalar_names, torch.unbind(scalar_pred, dim=1))):
+                if self.config.data.normalize[1]:
+                    tensor_slice = self.dataset._denormalize(tensor_slice, [var])
+                # Ensure output scalar variables have shape (batch_size)
+                tensor_slice = tensor_slice.squeeze() if tensor_slice.dim() > 1 else tensor_slice
+                variables[var] = tensor_slice
+    
         return variables, missing_vars
