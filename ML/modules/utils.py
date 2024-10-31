@@ -140,7 +140,7 @@ def compute_metrics(
     variable_names: List[str],
 ) -> Dict[str, torch.Tensor]:
     metrics = {}
-    epsilon = 1e-8  # Small value to avoid division by zero
+    epsilon = 1e-10  # Small value to avoid division by zero
 
     # Determine if we're dealing with scalar or field data
     is_scalar = len(outputs.shape) == 2  # Scalars are [batch_size, n_vars]
@@ -206,7 +206,7 @@ def compute_metrics(
 
         # MAPE calculation, ignoring values near zero
         mask = var_targets.abs() > epsilon  # Mask for safe division
-        var_mape = torch.mean(torch.abs((var_targets[mask] - var_outputs[mask]) / var_targets[mask])) * 100
+        var_mape = torch.mean(torch.abs((var_targets[mask] - var_outputs[mask]) / var_targets[mask]))
 
         metrics.update({
             f"{var_name}_mse": var_mse,

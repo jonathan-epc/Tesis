@@ -136,6 +136,7 @@ def get_default_hparams(config):
         "learning_rate": config.training.learning_rate,
         "weight_decay": config.training.weight_decay,
         "accumulation_steps": config.training.accumulation_steps,
+        "lambda_physics": config.training.lambda_physics
     }
 
 

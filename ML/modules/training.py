@@ -58,25 +58,32 @@ class Trainer:
         for idx, (inputs, targets) in enumerate(dataloader):
             inputs, targets = self._move_to_device(inputs, targets)
             
-            with autocast(
-                device_type=self.device,
-                enabled=(self.device == "cuda"),
-                dtype=torch.float32,
-            ):
-                outputs = self.model(inputs)
-                loss = self.criterion(inputs, outputs, targets)
+            # Check if inputs contain complex tensors
+            if any(isinstance(i, torch.Tensor) and i.dtype == torch.complex64 for i in inputs[0]):
+                # Disable AMP if complex tensors are present
+                with torch.cuda.amp.autocast(enabled=False):
+                    outputs = self.model(inputs)
+                    loss = self.criterion(inputs, outputs, targets)
+            else:
+                with autocast(device_type=self.device, enabled=(self.device == "cuda"), dtype=torch.float32):
+                    outputs = self.model(inputs)
+                    loss = self.criterion(inputs, outputs, targets)
 
-            self.scaler.scale(loss).backward()
-
-            if (idx + 1) % self.config.training.accumulation_steps == 0:
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
+            else:
+                loss.backward()
+                
+            if (idx + 1) % self.accumulation_steps == 0:
                 self._step_optimization()
 
             total_loss += loss.item()
 
-        if (idx + 1) % self.config.training.accumulation_steps != 0:
+        if (idx + 1) % self.accumulation_steps != 0:
             self._step_optimization()
 
         return total_loss / len(dataloader)
+
 
     @torch.no_grad()
     def validate(self, dataloader, name="", step=-1, fold_n=-1):
@@ -173,10 +180,14 @@ class Trainer:
         return inputs, targets
         
     def _step_optimization(self):
-        self.scaler.unscale_(self.optimizer)
-        clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
+        if self.scaler is not None and not any(isinstance(p, torch.Tensor) and p.dtype == torch.complex64 for p in self.model.parameters()):
+            self.scaler.unscale_(self.optimizer)
+            clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
+            self.optimizer.step()
         self.optimizer.zero_grad(set_to_none=True)
         self.scheduler.step()
 
@@ -357,11 +368,12 @@ def cross_validate(
             optimizer,
             max_lr=hparams["learning_rate"],
             steps_per_epoch=ceil(
-                len(train_loader) / config.training.accumulation_steps
+                len(train_loader) / hparams["accumulation_steps"]
             ),
             epochs=num_epochs,
         )
         scaler = GradScaler(enabled=(config.device == "cuda"))
+        # scaler = None
 
         trainer = Trainer(
             model,
@@ -370,7 +382,7 @@ def cross_validate(
             scheduler,
             scaler,
             config.device,
-            config.training.accumulation_steps,
+            hparams["accumulation_steps"],
             config,
         )
 
@@ -424,8 +436,10 @@ def cross_validation_procedure(
         output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
-        normalize=config.data.normalize,
+        normalize_input=config.data.normalize_input,
+        normalize_output=config.data.normalize_output,
         device=config.device,
+        preload=config.data.preload,
     )
 
     test_size = int(config.training.test_frac * len(full_dataset))
@@ -444,7 +458,8 @@ def cross_validation_procedure(
         input_vars=config.data.inputs,
         output_vars=config.data.outputs,
         dataset=full_dataset,
-        config=config
+        config=config,
+        lambda_physics=hparams["lambda_physics"]
     )
     
     avg_loss, avg_metrics = cross_validate(

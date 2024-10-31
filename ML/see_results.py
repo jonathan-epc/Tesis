@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+import optuna
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -302,6 +303,64 @@ def plot_field_comparisons(field_outputs, field_targets, field_names, case_idx=4
         plt.show()
 
 
+def plot_field_fourier(field_outputs, field_targets, field_names, case_idx=43):
+    """
+    Creates comparison plots for Fourier-transformed field variables showing expected, calculated,
+    phase differences, and magnitude differences (absolute and relative).
+    """
+    for i in range(field_outputs.size(1)):
+        # Retrieve fields and compute their Fourier transforms
+        target = field_targets[case_idx, i].cpu().numpy()
+        output = field_outputs[case_idx, i].cpu().numpy()
+
+        # Compute Fourier transforms
+        ft_target = np.fft.fftshift(np.fft.fft2(target))
+        ft_output = np.fft.fftshift(np.fft.fft2(output))
+
+        # Compute magnitude and phase
+        mag_target = np.abs(ft_target)
+        mag_output = np.abs(ft_output)
+        phase_target = np.angle(ft_target)
+        phase_output = np.angle(ft_output)
+
+        # Normalize magnitudes for better contrast in visualization
+        mag_target /= mag_target.max()
+        mag_output /= mag_output.max()
+
+        # Compute magnitude differences (absolute and relative)
+        mag_diff = mag_target - mag_output
+        rel_mag_diff = np.abs(mag_diff) / (
+            mag_target + 1e-10
+        )  # Prevent division by zero
+        phase_diff = phase_target - phase_output
+
+        # Set up plots
+        fig, axes = plt.subplots(5, 1, figsize=(25, 5))
+        fig.suptitle(f"Fourier Comparison for {field_names[i]}", fontsize=16)
+
+        # Plot Expected and Calculated Fourier Magnitudes
+        plots = [
+            (axes[0], np.log1p(mag_target), "Expected Fourier Magnitude", "turbo"),
+            (axes[1], np.log1p(mag_output), "Calculated Fourier Magnitude", "turbo"),
+            (
+                axes[2],
+                np.log1p(np.abs(mag_diff)),
+                "Absolute Magnitude Difference",
+                "seismic",
+            ),
+            (axes[3], rel_mag_diff, "Relative Magnitude Difference", "seismic"),
+            (axes[4], phase_diff, "Phase Difference", "twilight_shifted"),
+        ]
+
+        for ax, data, title, cmap in plots:
+            im = ax.imshow(data, cmap=cmap)
+            ax.set_title(title)
+            # plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, orientation="horizontal")
+
+        plt.tight_layout()
+        plt.show()
+
+
 def get_input_output_counts(config: Any) -> Dict[str, int]:
     """Calculate input and output dimensions based on configuration."""
     return {
@@ -386,14 +445,21 @@ def main() -> None:
     # Initial setup
     config = get_config()
     set_seed(config.seed)
-    hparams = get_hparams(config)
 
     # Get model dimensions and variable names
     io_counts = get_input_output_counts(config)
     output_names = get_output_names(config)
 
+    study = optuna.create_study(
+        study_name=config.optuna.study_name,
+        load_if_exists=True,
+        storage=config.optuna.storage,
+    )
+
     # Get model name from config or command line args
-    model_name = "FNO_bars_20241025_171541"  # Assuming it's in config, adjust as needed
+    model_name = "study14i_"  # Assuming it's in config, adjust as needed
+
+    hparams = study.trials[36].params
 
     # Setup model and data
     model = load_model(config, hparams, io_counts, model_name)
@@ -425,6 +491,7 @@ def main() -> None:
     )
 
     plot_field_comparisons(all_field_outputs, all_field_targets, output_names["field"])
+    plot_field_fourier(all_field_outputs, all_field_targets, output_names["field"])
 
 
 if __name__ == "__main__":

@@ -186,8 +186,8 @@ class PhysicsInformedLoss(nn.Module):
         all_inputs = (field_inputs if field_inputs is not None else []) + (scalar_inputs if scalar_inputs is not None else [])
         sorted_input_names = [var for var in self.input_vars if var in self.config.data.non_scalars] + [var for var in self.input_vars if var in self.config.data.scalars]
         for var, tensor in zip(sorted_input_names, all_inputs):
-            if self.config.data.normalize[0]:
-                tensor = self.dataset._denormalize(tensor, [var])
+            if self.config.data.normalize_input:
+                tensor = self.dataset._denormalize(tensor, var)
             # Reshape scalar inputs to (batch_size) if they are scalar
             if var in self.config.data.scalars:
                 tensor = tensor.squeeze() if tensor.dim() > 1 else tensor
@@ -198,16 +198,16 @@ class PhysicsInformedLoss(nn.Module):
         if field_pred is not None:
             # Process field_pred tensor, unbinding along dim=1 (the variable dimension for field variables)
             for i, (var, tensor_slice) in enumerate(zip(sorted_output_non_scalar_names, torch.unbind(field_pred, dim=1))):
-                if self.config.data.normalize[1]:
-                    tensor_slice = self.dataset._denormalize(tensor_slice, [var])
+                if self.config.data.normalize_output:
+                    tensor_slice = self.dataset._denormalize(tensor_slice,var)
                 variables[var] = tensor_slice
                 
         sorted_output_scalar_names = [var for var in self.output_vars if var in self.config.data.scalars]
         if scalar_pred is not None:
             # Process scalar_pred tensor, unbinding along dim=1 (the variable dimension for scalar variables)
             for i, (var, tensor_slice) in enumerate(zip(sorted_output_scalar_names, torch.unbind(scalar_pred, dim=1))):
-                if self.config.data.normalize[1]:
-                    tensor_slice = self.dataset._denormalize(tensor_slice, [var])
+                if self.config.data.normalize_output:
+                    tensor_slice = self.dataset._denormalize(tensor_slice, var)
                 # Ensure output scalar variables have shape (batch_size)
                 tensor_slice = tensor_slice.squeeze() if tensor_slice.dim() > 1 else tensor_slice
                 variables[var] = tensor_slice
