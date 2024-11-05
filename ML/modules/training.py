@@ -50,6 +50,11 @@ class Trainer:
             self.pretrained_model_path = f"savepoints/{self.config.training.pretrained_model_name}_best_model.pth"
             self._load_pretrained_model()
 
+        self.model_is_complex = self._model_uses_complex()
+
+    def _model_uses_complex(self):
+        return any(p.is_complex() for p in self.model.parameters())
+
     def train_epoch(self, dataloader):
         self.model.train()
         total_loss = 0.0
@@ -58,16 +63,9 @@ class Trainer:
         for idx, (inputs, targets) in enumerate(dataloader):
             inputs, targets = self._move_to_device(inputs, targets)
             
-            # Check if inputs contain complex tensors
-            if any(isinstance(i, torch.Tensor) and i.dtype == torch.complex64 for i in inputs[0]):
-                # Disable AMP if complex tensors are present
-                with torch.cuda.amp.autocast(enabled=False):
-                    outputs = self.model(inputs)
-                    loss = self.criterion(inputs, outputs, targets)
-            else:
-                with autocast(device_type=self.device, enabled=(self.device == "cuda"), dtype=torch.float32):
-                    outputs = self.model(inputs)
-                    loss = self.criterion(inputs, outputs, targets)
+            with autocast(self.device, enabled=(self.device == "cuda" and not self.model_is_complex)):
+                outputs = self.model(inputs)
+                loss = self.criterion(inputs, outputs, targets)
 
             if self.scaler is not None:
                 self.scaler.scale(loss).backward()
@@ -83,7 +81,6 @@ class Trainer:
             self._step_optimization()
 
         return total_loss / len(dataloader)
-
 
     @torch.no_grad()
     def validate(self, dataloader, name="", step=-1, fold_n=-1):
@@ -109,11 +106,7 @@ class Trainer:
             inputs = (input_fields, input_scalars)
             targets = (target_fields, target_scalars)
             
-            with autocast(
-                device_type=self.device,
-                enabled=self.device == "cuda",
-                dtype=torch.float32,
-            ):
+            with autocast(self.device, enabled=(self.device == "cuda" and not self.model_is_complex)):
                 # Forward pass
                 outputs = self.model(inputs)
                 
@@ -180,7 +173,8 @@ class Trainer:
         return inputs, targets
         
     def _step_optimization(self):
-        if self.scaler is not None and not any(isinstance(p, torch.Tensor) and p.dtype == torch.complex64 for p in self.model.parameters()):
+        # Unscale gradients and clip them only if AMP is enabled and model does not use complex parameters
+        if self.scaler is not None and not self.model_is_complex:
             self.scaler.unscale_(self.optimizer)
             clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
             self.scaler.step(self.optimizer)
@@ -188,6 +182,7 @@ class Trainer:
         else:
             clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
             self.optimizer.step()
+        
         self.optimizer.zero_grad(set_to_none=True)
         self.scheduler.step()
 
@@ -256,6 +251,9 @@ class Trainer:
             if is_sweep:
                 trial.report(val_loss, epoch)
                 if trial.should_prune():
+                    logger.info(
+                        f"Trial pruned for performance. Loss: {val_loss} at epoch {epoch}"
+                    )
                     raise optuna.TrialPruned()
 
             if self.config.logging.use_wandb:

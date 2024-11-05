@@ -78,7 +78,7 @@ logging:
   use_wandb: true
   plot_enabled: false
 optuna:
-  study_name: study15i
+  study_name: study16i
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
