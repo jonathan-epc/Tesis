@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 from typing import Any, Dict, List, Tuple
 
@@ -28,6 +29,7 @@ def calculate_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, flo
     pred_flat = pred.reshape(-1)
     target_flat = target.reshape(-1)
 
+    # Basic metrics
     mse = F.mse_loss(pred_flat, target_flat).item()
     mae = F.l1_loss(pred_flat, target_flat).item()
     rmse = torch.sqrt(torch.tensor(mse)).item()
@@ -37,7 +39,28 @@ def calculate_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, flo
     ss_res = torch.sum((target_flat - pred_flat) ** 2)
     r2 = (1 - ss_res / ss_tot).item()
 
-    return {"mse": mse, "rmse": rmse, "mae": mae, "r2": r2}
+    # Additional metrics
+    diff = torch.abs(pred_flat - target_flat)
+    
+    # Mean Absolute Percentage Error (MAPE)
+    mape = torch.mean(torch.abs(diff / target_flat)) * 100 if torch.all(target_flat != 0) else float('nan')
+
+    # Normalized Root Mean Square Error (NRMSE)
+    target_range = target_flat.max() - target_flat.min()
+    nrmse = rmse / target_range.item() if target_range != 0 else float('nan')
+
+    # Symmetric Mean Absolute Percentage Error (SMAPE)
+    smape = torch.mean(2 * torch.abs(diff) / (torch.abs(target_flat) + torch.abs(pred_flat))) * 100
+
+    return {
+        "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
+        "r2": r2,
+        "mape": mape,
+        "nrmse": nrmse,
+        "smape": smape
+    }
 
 
 def evaluate_predictions(
@@ -120,13 +143,9 @@ def evaluate_model(model, test_dataloader, config):
             inputs = (input_fields, input_scalars)
             targets = (target_fields, target_scalars)
 
-            with autocast(
-                device_type=config.device,
-                enabled=config.device == "cuda",
-                dtype=torch.float32,
-            ):
-                # Forward pass
-                outputs = model(inputs)
+            # No autocast context here, to prevent type conversion
+            # Forward pass
+            outputs = model(inputs)
 
             # Collect field and scalar outputs and targets
             field_outputs, scalar_outputs = outputs
@@ -267,7 +286,8 @@ def create_prediction_plots(
 
 def plot_field_comparisons(field_outputs, field_targets, field_names, case_idx=43):
     """
-    Creates comparison plots for field variables showing expected, calculated, and difference.
+    Creates comparison plots for field variables showing expected, calculated, and difference,
+    with added error metrics for the difference plot.
     """
     for i in range(field_outputs.size(1)):
         target = field_targets[case_idx, i].cpu().numpy()
@@ -278,6 +298,16 @@ def plot_field_comparisons(field_outputs, field_targets, field_names, case_idx=4
         vmax = max(target.max(), output.max())
         diff = target - output
         diff_max = max(abs(diff.min()), abs(diff.max()))
+
+        # Calculate error metrics
+        mae = np.mean(np.abs(diff))
+        max_error = np.max(np.abs(diff))
+        rmse = np.sqrt(np.mean(diff ** 2))
+        
+        # Normalized error metrics
+        mape = np.mean(np.abs(diff / target)) * 100 if np.all(target != 0) else np.nan
+        nrmse = rmse / (target.max() - target.min()) if target.max() != target.min() else np.nan
+        smape = np.mean(2 * np.abs(diff) / (np.abs(target) + np.abs(output))) * 100
 
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 5))
 
@@ -299,6 +329,19 @@ def plot_field_comparisons(field_outputs, field_targets, field_names, case_idx=4
             ax.set_title(f"{title} {field_names[i]}")
             plt.colorbar(im, ax=ax, fraction=0.2, pad=0.4, orientation="horizontal")
 
+        # Add error metrics to the Difference plot
+        ax3.text(
+            0.05, 0.95,
+            f"MAE: {mae:.4f}\nMax Error: {max_error:.4f}\nRMSE: {rmse:.4f}\n"
+            f"MAPE: {mape:.2f}%\nNRMSE: {nrmse:.4f}\nSMAPE: {smape:.2f}%",
+            ha="left",
+            va="top",
+            transform=ax3.transAxes,
+            fontsize=10,
+            bbox=dict(facecolor='white', alpha=0.8)
+        )
+
+        fig.suptitle(f"Case {case_idx}")
         plt.tight_layout()
         plt.show()
 
@@ -336,7 +379,9 @@ def plot_field_fourier(field_outputs, field_targets, field_names, case_idx=43):
 
         # Set up plots
         fig, axes = plt.subplots(5, 1, figsize=(25, 5))
-        fig.suptitle(f"Fourier Comparison for {field_names[i]}", fontsize=16)
+        fig.suptitle(
+            f"Fourier Comparison for {field_names[i]} for case {case_idx}", fontsize=16
+        )
 
         # Plot Expected and Calculated Fourier Magnitudes
         plots = [
@@ -397,8 +442,10 @@ def setup_datasets(
         output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
-        normalize=config.data.normalize,
+        normalize_input=config.data.normalize_input,
+        normalize_output=config.data.normalize_output,
         device=config.device,
+        preload=False,
     )
 
     # Split dataset
@@ -457,9 +504,9 @@ def main() -> None:
     )
 
     # Get model name from config or command line args
-    model_name = "study14i_"  # Assuming it's in config, adjust as needed
+    model_name = "study16i_FNOnet_trial_17"  # Assuming it's in config, adjust as needed
 
-    hparams = study.trials[36].params
+    hparams = study.trials[17].params
 
     # Setup model and data
     model = load_model(config, hparams, io_counts, model_name)
@@ -479,6 +526,7 @@ def main() -> None:
         config,
     )
 
+    random_idx = random.randint(0, len(all_field_outputs) - 1)
     # Generate visualization plots
     create_prediction_plots(
         all_field_outputs,
@@ -490,8 +538,12 @@ def main() -> None:
         metrics,
     )
 
-    plot_field_comparisons(all_field_outputs, all_field_targets, output_names["field"])
-    plot_field_fourier(all_field_outputs, all_field_targets, output_names["field"])
+    plot_field_comparisons(
+        all_field_outputs, all_field_targets, output_names["field"], case_idx=random_idx
+    )
+    plot_field_fourier(
+        all_field_outputs, all_field_targets, output_names["field"], case_idx=random_idx
+    )
 
 
 if __name__ == "__main__":

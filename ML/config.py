@@ -51,6 +51,7 @@ class DataConfig(BaseModel):
 class LoggingConfig(BaseModel):
     use_wandb: bool = True
     plot_enabled: bool = False
+    save_dir: str = "plots"
 
 
 class OptunaConfig(BaseModel):

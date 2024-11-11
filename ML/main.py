@@ -53,8 +53,6 @@ class HyperparameterOptimizer:
         trial_data = {
             "number": trial.number,
             "params": trial.params,
-            "value": trial.value,
-            "state": trial.state.name,
         }
         with open(f"studies/{study_name}/trial_{trial.number}.json", "w") as f:
             json.dump(trial_data, f, indent=2)

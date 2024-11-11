@@ -31,28 +31,28 @@ data:
   numpoints_y: 11
   preload: true
   inputs:
-    # - H0
-    # - Q0
-    # - SLOPE
-    # - n
+    - H0
+    - Q0
+    - SLOPE
+    - n
     # - F
     # - H
     # - Q
     # - S
-    - U
-    - V
-    # - B
+    # - U
+    # - V
+    - B
   outputs:
     # - H0
     # - Q0
     # - SLOPE
-    - n
-    # - F
+    # - n
+    - F
     - H
-    # - Q
-    # - S
-    # - U
-    # - V
+    - Q
+    - S
+    - U
+    - V
     - B
   scalars:
     - H0
@@ -77,8 +77,9 @@ seed: 43
 logging:
   use_wandb: true
   plot_enabled: false
+  save_dir: 'plots'
 optuna:
-  study_name: study16i
+  study_name: study17
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:

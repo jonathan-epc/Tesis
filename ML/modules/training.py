@@ -147,12 +147,18 @@ class Trainer:
     
         # Generate plots if enabled
         if self.config.logging.plot_enabled:
-            plot_difference(
-                all_field_outputs, all_field_targets, f"{name}_validation", step, fold_n
-            )
-            plot_difference_im(
-                all_field_outputs, all_field_targets, f"{name}_validation", step, fold_n
-            )
+            # Save tensors for later plotting
+            save_path = os.path.join(self.config.logging.save_dir, f"{name}_fold{fold_n}_validation_{step}")
+            os.makedirs(save_path, exist_ok=True)
+            
+            if all_field_outputs is not None:
+                torch.save(all_field_outputs, os.path.join(save_path, "field_outputs.pt"))
+            if all_field_targets is not None:
+                torch.save(all_field_targets, os.path.join(save_path, "field_targets.pt"))
+            if all_scalar_outputs is not None:
+                torch.save(all_scalar_outputs, os.path.join(save_path, "scalar_outputs.pt"))
+            if all_scalar_targets is not None:
+                torch.save(all_scalar_targets, os.path.join(save_path, "scalar_targets.pt"))
     
         # Calculate average loss
         metrics["loss"] = total_loss / len(dataloader)
@@ -223,7 +229,7 @@ class Trainer:
                 and estimated_remaining_time > self.config.training.time_limit
             ):
                 logger.info(
-                    f"Time limit exceeded for trial in fold {fold_n}. Pruning the trial."
+                    f"Time limit exceeded for trial in fold {fold_n}. Pruning the trial. ERT: {estimated_remaining_time} s"
                 )
                 raise optuna.TrialPruned()
 
@@ -247,15 +253,7 @@ class Trainer:
                     "LR": f"{self.scheduler.get_last_lr()[0]:.8f}",
                 }
             )
-
-            if is_sweep:
-                trial.report(val_loss, epoch)
-                if trial.should_prune():
-                    logger.info(
-                        f"Trial pruned for performance. Loss: {val_loss} at epoch {epoch}"
-                    )
-                    raise optuna.TrialPruned()
-
+            
             if self.config.logging.use_wandb:
                 wandb.log(
                     {
@@ -265,6 +263,14 @@ class Trainer:
                         **{f"Validation_{k}": v for k, v in val_metrics.items()},
                     }
                 )
+                
+            if is_sweep:
+                trial.report(val_loss, epoch)
+                if trial.should_prune():
+                    logger.info(
+                        f"Trial pruned for performance. Loss: {val_loss} at epoch {epoch}"
+                    )
+                    raise optuna.TrialPruned()
 
             early_stopping(val_loss, self.model, epoch)
             if early_stopping.early_stop:
@@ -272,7 +278,7 @@ class Trainer:
                     {
                         "Status": "Early Stopped",
                         "Best Epoch": f"{early_stopping.best_epoch}",
-                        "Best Val Loss": f"{early_stopping.best_score:.4f}",
+                        "Best Val Loss": f"{-early_stopping.best_score:.4f}",
                     }
                 )
                 logger.info(
