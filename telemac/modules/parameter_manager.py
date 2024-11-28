@@ -104,7 +104,7 @@ class ParameterManager:
             final_params = self._add_bottom_values(balanced_params)
 
             final_params["direction"] = np.where(
-                final_params["H0"] > final_params["yc"],
+                final_params["yn"] > final_params["yc"],
                 "Right to left",
                 "Left to right",
             )

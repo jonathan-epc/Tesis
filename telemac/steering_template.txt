@@ -16,11 +16,11 @@ RESULTS FILE                    = '{results_file}'
 /
 TITLE = '{title}'
 /
-VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,H,S,B,F,Q'
-NUMBER OF PRIVATE ARRAYS        = 6
+VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,H,D'
+NUMBER OF PRIVATE ARRAYS        = 4
 /
-GRAPHIC PRINTOUT PERIOD         = 100
-LISTING PRINTOUT PERIOD         = 100
+GRAPHIC PRINTOUT PERIOD         = 10000
+LISTING PRINTOUT PERIOD         = 10000
 /
 DURATION                        = {duration}
 /TIME STEP                       = {time_step}
