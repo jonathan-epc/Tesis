@@ -19,4 +19,4 @@ parameters:
   q0_max: 0.02
   h0_min: 0.01 
   h0_max: 0.25 
-  bottom_values: ["SLOPE","NOISE","BUMP"]
+  bottom_values: ["BARS"]
