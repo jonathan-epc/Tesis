@@ -1,308 +1,115 @@
+from typing import List, Optional, Tuple, Union
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from neuralop.models import FNO, TFNO, SFNO, UNO
-from typing import Tuple
+from neuralop.models import FNO, SFNO, TFNO, UNO
+
 
 class FNOnet(nn.Module):
     def __init__(
         self,
-        parameters_n,
-        variables_n,
-        **kwargs
+        field_inputs_n: int,
+        scalar_inputs_n: int,
+        field_outputs_n: int = 0,
+        scalar_outputs_n: int = 0,
+        **kwargs,
     ):
         super(FNOnet, self).__init__()
-        
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
-        
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+        self.field_inputs_n = field_inputs_n
+        self.scalar_inputs_n = scalar_inputs_n
+        self.field_outputs_n = field_outputs_n
+        self.scalar_outputs_n = scalar_outputs_n
 
-        # FNO for 2D field
+        # Unpack additional network hyperparameters from kwargs and set defaults if not present
+        self.n_modes_y = kwargs.get("n_modes_y", 16)
+        self.n_modes_x = kwargs.get("n_modes_x", 16)
+        self.hidden_channels = kwargs.get("hidden_channels", 64)
+        self.n_layers = kwargs.get("n_layers", 4)
+        self.lifting_channels = kwargs.get("lifting_channels", 32)
+        self.projection_channels = kwargs.get("projection_channels", 32)
+
+        # FNO Backbone (Fourier Neural Operator)
         self.fno = FNO(
             n_modes=(self.n_modes_y, self.n_modes_x),
+            max_n_modes=(self.n_modes_y, self.n_modes_x),
             hidden_channels=self.hidden_channels,
-            in_channels=self.parameters_n,  # 1 for the field channel and n for the embedded parameters
-            out_channels=self.variables_n,
-            n_layers=self.n_layers,
-            lifting_channels=self.lifting_channels,
-            projection_channels=self.projection_channels
-        )
-
-    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        x_params, x_field = x
-        x_field = x_field.unsqueeze(1)
-        batch_size, _, height, width = x_field.shape
-        x_params = x_params.view(batch_size, self.parameters_n-1, 1, 1).expand(-1, -1, height, width)
-        # Concatenate parameters and field along channel dimension
-        x_combined = torch.cat([x_field, x_params], dim=1)
-
-        # Forward pass through FNO
-        output = self.fno(x_combined)
-        output = output + x_field
-
-
-        return output
-
-class FNOnet2(nn.Module):
-    def __init__(
-        self,
-        parameters_n,
-        variables_n,
-        **kwargs
-    ):
-        super(FNOnet2, self).__init__()
-        
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
-        
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        # FNO for 2D field
-        self.fno = TFNO(
-            n_modes=(self.n_modes_y, self.n_modes_x),
-            hidden_channels=self.hidden_channels,
-            in_channels=self.parameters_n,  # 1 for the field channel and n for the embedded parameters
-            out_channels=self.variables_n,
+            in_channels=self.field_inputs_n + self.scalar_inputs_n,
+            out_channels=self.field_outputs_n + self.scalar_outputs_n,
             n_layers=self.n_layers,
             lifting_channels=self.lifting_channels,
             projection_channels=self.projection_channels,
-            factorization='tucker',
-            implementation='factorized',
-            rank=0.05
-        )
-        
-        # Additional linear layer to learn linear combinations of the FNO outputs
-        self.linear_combination = nn.Conv2d(
-            in_channels=self.variables_n,  # Input channels = number of variables
-            out_channels=self.variables_n,  # Output channels = number of variables (unchanged)
-            kernel_size=1  # A 1x1 convolution for channel-wise transformation (essentially a linear layer)
         )
 
-    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        x_params, x_field = x
-        x_field = x_field.unsqueeze(1)
-        batch_size, _, height, width = x_field.shape
-        x_params = x_params.view(batch_size, self.parameters_n-1, 1, 1).expand(-1, -1, height, width)
-        # Concatenate parameters and field along channel dimension
-        x_combined = torch.cat([x_field, x_params], dim=1)
+        # Optional head for field outputs
+        if self.field_outputs_n > 0:
+            self.field_head = nn.Conv2d(
+                in_channels=self.field_outputs_n + self.scalar_outputs_n,
+                out_channels=self.field_outputs_n,
+                kernel_size=1,
+            )
 
-        # Forward pass through FNO
-        output = self.fno(x_combined)
-        output = output + x_field
+        # Optional head for scalar outputs
+        if self.scalar_outputs_n > 0:
+            self.scalar_head = nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(
+                    self.field_outputs_n + self.scalar_outputs_n, self.scalar_outputs_n
+                ),
+            )
 
-        # Pass through the additional linear combination layer
-        output = self.linear_combination(output)
-
-        return output
-
-
-class FNOneti(nn.Module):
-    def __init__(
-        self,
-        parameters_n,
-        variables_n,
-        **kwargs
-    ):
-        super(FNOneti, self).__init__()
-        
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
-        
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        # FNO for 2D field
-        self.fno = FNO(
-            n_modes=(self.n_modes_y, self.n_modes_x),
-            hidden_channels=self.hidden_channels,
-            in_channels=self.variables_n,
-            out_channels=self.parameters_n,  # 1 for the field channel and 1 for the embedded parameters
-            n_layers=self.n_layers,
-            lifting_channels=self.lifting_channels,
-            projection_channels=self.projection_channels
+        # 1x1 convolution for matching output channels
+        self.residual_conv = nn.Conv2d(
+            in_channels=self.field_inputs_n + self.scalar_inputs_n,
+            out_channels=self.field_outputs_n + self.scalar_outputs_n,
+            kernel_size=1,
         )
 
-    def forward(self, x: torch.Tensor) -> list:
-        x = self.fno(x)
-        
-        B = x[:, -1, :, :]  # Take the last channel as the 2D tensor (batch_size, height, width)
-        
-        parameters = x[:, :-1, :, :]  # Take all channels except the last (batch_size, parameters_n, height, width)
-        parameters = torch.mean(parameters, dim=[2, 3])  # Reduce height and width to get a 1D tensor (batch_size, parameters_n)
-        
-        return [parameters, B]  # Return a list with 1D and 2D tensors
+    def forward(
+        self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]]
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+        field_inputs, scalar_inputs = inputs
+        batch_size = field_inputs[0].shape[0]
 
+        # Stack field inputs along the channel dimension
+        x_fields = torch.stack(field_inputs, dim=1)
 
-class UNetNet(nn.Module):
-    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y, **kwargs):
-        super(UNetNet, self).__init__()
+        # Expand scalar inputs to match field dimensions and concatenate along the channel dimension
+        if scalar_inputs:
+            h, w = x_fields.shape[
+                2:
+            ]  # Adjusted to [batch, channels, height, width] format
+            scalar_expanded = [
+                s.view(batch_size, 1, 1, 1).expand(-1, -1, h, w) for s in scalar_inputs
+            ]
+            x_combined = torch.cat([x_fields] + scalar_expanded, dim=1)
+        else:
+            x_combined = x_fields
 
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
-        self.numpoints_x = numpoints_x
-        self.numpoints_y = numpoints_y
+        # Save input for residual connection
+        residual = x_combined
 
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+        # Forward pass through the FNO backbone
+        fno_output = self.fno(x_combined)
 
-        self.conv1 = nn.Conv2d(5, self.hidden_channels, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(self.hidden_channels, self.hidden_channels * 2, kernel_size=3, padding=1)
-        self.downsample = nn.MaxPool2d(2)
-        self.upsample = nn.ConvTranspose2d(self.hidden_channels * 2, self.hidden_channels, kernel_size=2, stride=2)
-        self.conv_out = nn.Conv2d(self.hidden_channels, self.variables_n, kernel_size=2, padding=1)
+        # Match shapes for the residual connection
+        if fno_output.shape != residual.shape:
+            # Use a 1x1 convolution to match the output channels
+            residual = self.residual_conv(residual)
 
-    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        x_params, x_field = x
-        x_field = x_field.unsqueeze(1)
-        x_params = x_params.view(x_params.size(0), self.parameters_n, 1, 1).expand(-1, -1, self.numpoints_y, self.numpoints_x)
-        x_combined = torch.cat([x_field, x_params], dim=1)
+        # Add residual connection (ensuring shapes match)
+        fno_output = fno_output + residual
 
-        # Forward pass through UNet-like structure
-        x = self.conv1(x_combined)
-        x = self.downsample(x)
-        x = self.conv2(x)
-        x = self.upsample(x)
-        output = self.conv_out(x)
-
-        return output
-
-class TransformerNet(nn.Module):
-    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y, **kwargs):
-        super(TransformerNet, self).__init__()
-
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
-        self.numpoints_x = numpoints_x
-        self.numpoints_y = numpoints_y
-        self.num_heads = 5
-
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        self.embedding = nn.Linear(5, self.hidden_channels)
-        self.transformer = nn.Transformer(
-            d_model=self.hidden_channels,
-            nhead=self.num_heads,
-            num_encoder_layers=self.n_layers,
-            num_decoder_layers=self.n_layers
+        # Output heads for field and scalar outputs
+        field_output = self.field_head(fno_output) if self.field_outputs_n > 0 else None
+        scalar_output = (
+            self.scalar_head(fno_output) if self.scalar_outputs_n > 0 else None
         )
-        self.fc_out = nn.Linear(self.hidden_channels, self.variables_n)
 
-    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        x_params, x_field = x
-        x_field = x_field.unsqueeze(1)
-        x_params = x_params.view(x_params.size(0), self.parameters_n, 1, 1).expand(-1, -1, self.numpoints_y, self.numpoints_x)
-        x_combined = torch.cat([x_field, x_params], dim=1)
+        return field_output, scalar_output
 
-        # Flatten the 2D input into a sequence
-        x_flattened = x_combined.view(x_combined.size(0), -1, 5)
-        x_embedded = self.embedding(x_flattened)
-
-        # Transformer forward pass
-        transformer_output = self.transformer(x_embedded, x_embedded)
-        output = self.fc_out(transformer_output)
-
-        # Reshape output back to 2D
-        output = output.view(x_combined.size(0), self.variables_n, self.numpoints_y, self.numpoints_x)
-
-        return output
-
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ResidualBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += residual  # Add residual connection
-        out = self.relu(out)
-        return out
-
-class ResNet(nn.Module):
-    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y, **kwargs):
-        super(ResNet, self).__init__()
-
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
-        self.numpoints_x = numpoints_x
-        self.numpoints_y = numpoints_y
-
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        self.conv_in = nn.Conv2d(5, self.hidden_channels, kernel_size=3, padding=1)
-        self.res_block = ResidualBlock(self.hidden_channels, self.hidden_channels)
-        self.conv_out = nn.Conv2d(self.hidden_channels, self.variables_n, kernel_size=1)
-
-    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        x_params, x_field = x
-        x_field = x_field.unsqueeze(1)
-        x_params = x_params.view(x_params.size(0), self.parameters_n, 1, 1).expand(-1, -1, self.numpoints_y, self.numpoints_x)
-        x_combined = torch.cat([x_field, x_params], dim=1)
-
-        # Pass through residual block
-        x = self.conv_in(x_combined)
-        x = self.res_block(x)
-        output = self.conv_out(x)
-
-        return output
-
-class ConvLSTMCell(nn.Module):
-    def __init__(self, input_dim, hidden_dim, kernel_size):
-        super(ConvLSTMCell, self).__init__()
-
-        self.conv = nn.Conv2d(input_dim + hidden_dim, hidden_dim, kernel_size=kernel_size, padding=kernel_size // 2)
-
-    def forward(self, input_tensor, hidden_state):
-        h_cur = hidden_state
-
-        combined = torch.cat([input_tensor, h_cur], dim=1)
-        h_next = self.conv(combined)
-
-        return h_next
-
-class MLPNet(nn.Module):
-    def __init__(self, parameters_n, variables_n, numpoints_x, numpoints_y, **kwargs):
-        super(MLPNet, self).__init__()
-
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
-        self.numpoints_x = numpoints_x
-        self.numpoints_y = numpoints_y
-
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        self.fc1 = nn.Linear(self.numpoints_x * self.numpoints_y * 5, self.hidden_channels)
-        self.fc2 = nn.Linear(self.hidden_channels, self.hidden_channels)
-        self.fc_out = nn.Linear(self.hidden_channels, self.numpoints_x * self.numpoints_y * self.variables_n)
-
-    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        x_params, x_field = x
-        x_field = x_field.unsqueeze(1)
-        x_params = x_params.view(x_params.size(0), self.parameters_n, 1, 1).expand(-1, -1, self.numpoints_y, self.numpoints_x)
-        x_combined = torch.cat([x_field, x_params], dim=1)
-
-        x_flat = x_combined.view(x_combined.size(0), -1)  # Flatten
-        x = self.fc1(x_flat)
-        x = self.fc2(x)
-        output = self.fc_out(x)
-
-        output = output.view(x_combined.size(0), self.variables_n, self.numpoints_y, self.numpoints_x)
-        return output
 
 # ### Red neuronal
 
@@ -391,8 +198,8 @@ class MLP(nn.Module):
 class FNOold(nn.Module):
     def __init__(
         self,
-        parameters_n,
-        variables_n,
+        inputs_n,
+        outputs_n,
         numpoints_x,
         numpoints_y,
         modes1=4,
@@ -413,12 +220,12 @@ class FNOold(nn.Module):
         3. Project from the channel space to the output space by self.q (MLP layer).
         
         Input: the solution of the coefficient function and locations (a(x, y), x, y).
-        Input shape: (batchsize, x=s, y=s, c=parameters_n + 1).
+        Input shape: (batchsize, x=s, y=s, c=inputs_n + 1).
         Output: the solution.
-        Output shape: (batchsize, x=s, y=s, c=variables_n).
+        Output shape: (batchsize, x=s, y=s, c=outputs_n).
         """
-        self.parameters_n = parameters_n
-        self.variables_n = variables_n
+        self.inputs_n = inputs_n
+        self.outputs_n = outputs_n
         self.numpoints_x = numpoints_x
         self.numpoints_y = numpoints_y
 
@@ -460,10 +267,10 @@ class FNOold(nn.Module):
         x_field = x_field.unsqueeze(1)  # Add channel dimension to the field (batch, 1, H, W)
         
         # Expand the parameter tensor across the spatial dimensions
-        x_params = x_params.view(x_params.size(0), self.parameters_n, 1, 1).expand(-1, -1, self.numpoints_y, self.numpoints_x)
+        x_params = x_params.view(x_params.size(0), self.inputs_n, 1, 1).expand(-1, -1, self.numpoints_y, self.numpoints_x)
         
         # Concatenate parameters and field along the channel dimension
-        x_combined = torch.cat([x_field, x_params], dim=1)  # (batch, parameters_n + 1, H, W)
+        x_combined = torch.cat([x_field, x_params], dim=1)  # (batch, inputs_n + 1, H, W)
         
         # Generate spatial grid and concatenate it to the input
         grid = self.get_grid(x_combined.shape, x_combined.device)  # (batch, H, W, 2)

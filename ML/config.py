@@ -20,6 +20,7 @@ class TrainingConfig(BaseModel):
     weight_decay: float = Field(0.01, gt=0)
     pretrained_model_name: Union[str, None] = None
     time_limit: float = Field(86400, gt=0)
+    lambda_physics: float = Field(0.5, ge=0)
 
 
 class ModelConfig(BaseModel):
@@ -36,18 +37,21 @@ class ModelConfig(BaseModel):
 
 class DataConfig(BaseModel):
     file_name: str
-    normalize: Tuple[bool, bool] = (True, False)  # Fixed-length tuple
-    swap: bool = False
+    normalize_input: bool = True
+    normalize_output: bool = False
     numpoints_x: int = Field(401, gt=0)
     numpoints_y: int = Field(11, gt=0)
-    variables: List[str]
-    variable_units: List[str]
-    parameters: List[str]
+    preload: bool = True
+    inputs: List[str]
+    outputs: List[str]
+    scalars: List[str]
+    non_scalars: List[str]
 
 
 class LoggingConfig(BaseModel):
     use_wandb: bool = True
     plot_enabled: bool = False
+    save_dir: str = "plots"
 
 
 class OptunaConfig(BaseModel):

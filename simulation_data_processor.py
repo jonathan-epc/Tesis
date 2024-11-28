@@ -90,7 +90,7 @@ def process_data(
     parameter_names: List[str],
 ):
     parameter_table = prepare_parameter_table(parameters, parameter_names)
-    bottom_types = config.bottom_types or ["NOISE", "SLOPE", "BUMP", "BARS", "STEP"]
+    bottom_types = config.bottom_types or ["NOISE", "SLOPE", "BUMP", "BARS"]
 
     for bottom_type in bottom_types:
         if config.separate_critical_states:
