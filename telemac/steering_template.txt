@@ -25,10 +25,10 @@ LISTING PRINTOUT PERIOD         = 10000
 DURATION                        = {duration}
 /TIME STEP                       = {time_step}
 VARIABLE TIME-STEP              = YES
-DESIRED COURANT NUMBER          = 0.8
+DESIRED COURANT NUMBER          = 0.9
 MASS-BALANCE                    = YES
 /STOP IF A STEADY STATE IS REACHED = YES
-/STOP CRITERIA                   = 1e-8; 1e-8; 1e-8
+/STOP CRITERIA                   = 1e-5; 1e-5; 1e-5
 /
 /----------------------------------------------
 /  INITIAL CONDITIONS
@@ -51,6 +51,7 @@ PRESCRIBED ELEVATIONS           = {prescribed_elevations[0]} ; {prescribed_eleva
 LAW OF BOTTOM FRICTION          = 4
 FRICTION COEFFICIENT            = {friction_coefficient}
 TURBULENCE MODEL                = 1
+VELOCITY DIFFUSIVITY            = {viscosity}
 /
 /----------------------------------------------
 /  NUMERICAL PARAMETERS

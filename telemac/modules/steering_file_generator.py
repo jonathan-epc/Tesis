@@ -22,6 +22,7 @@ class SteeringFileGenerator:
         prescribed_flowrates: List[float] = None,
         prescribed_elevations: List[float] = None,
         friction_coefficient: float = 0.0025,
+        viscosity: float = 0.00001,
     ) -> str:
         """
         Generates a steering file based on the provided parameters.
@@ -98,6 +99,7 @@ class SteeringFileGenerator:
             prescribed_flowrates=prescribed_flowrates,
             prescribed_elevations=prescribed_elevations,
             friction_coefficient=friction_coefficient,
+            viscosity=viscosity,
         )
 
         return steering_text

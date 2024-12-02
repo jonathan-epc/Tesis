@@ -160,6 +160,7 @@ class ParameterManager:
             params["Q0"], self.constants["channel"]["width"]
         )
         params["subcritical"] = params["yn"] > params["yc"]
+        params["nut"] = 0.41 * params["yn"] / 2 * np.sqrt(9.81 * params["SLOPE"] * params["yn"] * (self.constants["channel"]["width"])/(2*params["yn"] + self.constants["channel"]["width"]))
         return params
 
     def _balance_samples(self, params):

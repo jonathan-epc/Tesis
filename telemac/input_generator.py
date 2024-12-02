@@ -54,6 +54,7 @@ def process_case(index, case, setup_data, overwrite=False):
             prescribed_flowrates=(0.0, case["Q0"]),
             prescribed_elevations=prescribed_elevations,
             friction_coefficient=case["n"],
+            viscosity=case["nut"]+1e-6
         )
 
         steering_file_path.parent.mkdir(parents=True, exist_ok=True)
