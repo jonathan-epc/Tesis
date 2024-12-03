@@ -10,8 +10,8 @@ class HDF5Dataset(Dataset):
     Optimized PyTorch Dataset for FNO training with HDF5 files.
     """
     
-    VARIABLES = ['B', 'F', 'H', 'Q', 'S', 'U', 'V']
-    NUMERIC_PARAMETERS = ['H0', 'Q0', 'SLOPE', 'n']
+    VARIABLES = ['B', 'F', 'H', 'Q', 'S', 'U', 'V', 'D']
+    NUMERIC_PARAMETERS = ['H0', 'Q0', 'SLOPE', 'n', 'nut']
     NON_NUMERIC_PARAMETERS = ['BOTTOM', 'direction', 'id', 'subcritical', 'yc', 'yn']
     PARAMETERS = NUMERIC_PARAMETERS + NON_NUMERIC_PARAMETERS
 
@@ -43,6 +43,14 @@ class HDF5Dataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.augment = augment
+
+        combined_vars = set(input_vars + output_vars)
+
+        #Update variables and parameters
+        self.VARIABLES = [var for var in self.VARIABLES if var in combined_vars]
+        self.NUMERIC_PARAMETERS = [param for param in self.NUMERIC_PARAMETERS if param in combined_vars]
+        self.NON_NUMERIC_PARAMETERS = [param for param in self.NON_NUMERIC_PARAMETERS if param in combined_vars]
+        self.PARAMETERS = self.NUMERIC_PARAMETERS + self.NON_NUMERIC_PARAMETERS
 
         with h5py.File(self.file_path, 'r') as f:
             self.keys = [key for key in f.keys() if key != 'statistics']

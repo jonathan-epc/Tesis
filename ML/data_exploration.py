@@ -7,15 +7,30 @@ from scipy import stats
 
 from modules.data import HDF5Dataset
 
+def test():
+        config = get_config()
+        dataset = load_dataset(config, "data/bars.hdf5")
+        for data in dataset:
+            inputs, outputs = data
+            field_inputs, scalar_inputs = inputs
+            field_outputs, scalar_outputs = outputs
+            print(scalar_inputs)
+            plt.imshow(field_inputs[0])
+            plt.show()
+            for field_output in field_outputs:
+                plt.imshow(field_output)
+                plt.show()
+
+
 def load_dataset(config, file_path):
     return HDF5Dataset(
-        file_path=file_path,
+        file_path="data/test.hdf5",
         input_vars=config.data.inputs,
         output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
-        normalize_input=True,
-        normalize_output=True,
+        normalize_input=False,
+        normalize_output=False,
         device="cpu",
         preload=True,
     )

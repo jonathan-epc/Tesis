@@ -3,6 +3,8 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+import yaml
+
 import h5py
 import pandas as pd
 from loguru import logger
@@ -19,9 +21,15 @@ class ProcessingConfig:
     base_dir: str
     generate_normalized: bool = False
     separate_critical_states: bool = False
-    bottom_types: Optional[List[str]] = (
-        None  # Specify which bottom types to process (None for all)
-    )
+    bottom_types: Optional[List[str]] = None
+    parameter_names: Optional[List[str]] = None
+    variable_names: Optional[List[str]] = None
+
+def load_yaml_config(file_path: str) -> Dict:
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Configuration file not found: {file_path}")
+    with open(file_path, "r") as yaml_file:
+        return yaml.safe_load(yaml_file)
 
 def get_output_files(config: ProcessingConfig) -> Dict[str, Dict[str, str]]:
     base_path = os.path.join(config.base_dir, "ML")
@@ -67,7 +75,11 @@ def load_and_validate_data(
     if not result_files:
         raise ValueError(f"No result files found in {results_dir}")
 
-    return parameters, result_files, ["F", "B", "H", "Q", "S", "U", "V"]
+    return (
+        parameters,
+        result_files,
+        config.variable_names or ["H", "U", "V"],
+    )
 
 def prepare_parameter_table(
     parameters: pd.DataFrame, parameter_names: List[str]
@@ -157,29 +169,47 @@ def process_data(
                         result_files,
                     )
 
-def process_simulation_results(config: ProcessingConfig) -> None:
+def process_simulation_results(config: ProcessingConfig, yaml_config: Dict) -> None:
     logger.info("Processing started")
 
     try:
+        config.bottom_types = yaml_config.get(
+            "bottom_types", ["NOISE", "SLOPE", "BUMP", "BARS"]
+        )
+        config.parameter_names = yaml_config.get(
+            "parameter_names", ["H0", "Q0", "SLOPE", "n"]
+        )
+        config.variable_names = yaml_config.get("variable_names", ["H", "U", "V"])
+
         parameters, result_files, variable_names = load_and_validate_data(config)
-        parameter_names = ["H0", "Q0", "SLOPE", "n"]
         files = get_output_files(config)
 
         process_data(
-            config, files, parameters, result_files, variable_names, parameter_names
+            config,
+            files,
+            parameters,
+            result_files,
+            variable_names,
+            config.parameter_names,
         )
 
         logger.success("Processing completed successfully")
     except Exception as e:
         logger.error(f"An error occurred during processing: {str(e)}")
 
-def parse_args() -> ProcessingConfig:
+def parse_args() -> Tuple[ProcessingConfig, str]:
     parser = argparse.ArgumentParser(description="Process simulation data.")
     parser.add_argument(
         "--base_dir",
         type=str,
-        default= "telemac",
+        default="telemac",
         help="Base directory for the simulation data",
+    )
+    parser.add_argument(
+        "--config_file",
+        type=str,
+        default="config.yml",
+        help="Path to the YAML configuration file",
     )
     parser.add_argument(
         "--generate_normalized",
@@ -193,28 +223,28 @@ def parse_args() -> ProcessingConfig:
         action="store_true",
         help="Flag to separate subcritical and supercritical states",
     )
-    parser.add_argument(
-        "--bottom_types",
-        type=str,
-        nargs="+",
-        choices=["NOISE", "SLOPE", "BUMP", "BARS"],
-        help="Bottom types to process (e.g., --bottom_types noise slope). Default is all.",
-    )
 
     args = parser.parse_args()
 
-    return ProcessingConfig(
-        base_dir=args.base_dir,
-        generate_normalized=args.generate_normalized,
-        separate_critical_states=args.separate_critical_states,
-        bottom_types=args.bottom_types,
+    return (
+        ProcessingConfig(
+            base_dir=args.base_dir,
+            generate_normalized=args.generate_normalized,
+            separate_critical_states=args.separate_critical_states,
+        ),
+        args.config_file,
     )
 
 if __name__ == "__main__":
     logger.remove()
     logger.add(
-        "simulation_data_processor.log", format="{time} {level} {message}", level="INFO"
+        "simulation_data_processor.log",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name} | {function} | {line} | {message}",
+        level="DEBUG",
+        rotation="00:00",  # Rotate the log file at midnight
+        retention= 1,  # Keep only the most recent log file
     )
 
-    config = parse_args()
-    process_simulation_results(config)
+    config, config_file = parse_args()
+    yaml_config = load_yaml_config(config_file)
+    process_simulation_results(config, yaml_config)

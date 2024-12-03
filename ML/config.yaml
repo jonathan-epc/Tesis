@@ -35,6 +35,7 @@ data:
     - Q0
     - SLOPE
     - n
+    - nut
     # - F
     # - H
     # - Q
@@ -47,18 +48,19 @@ data:
     # - Q0
     # - SLOPE
     # - n
-    - F
+    # - F
     - H
-    - Q
-    - S
+    # - Q
+    # - S
     - U
     - V
-    - B
+    # - B
   scalars:
     - H0
     - Q0
     - SLOPE
     - n
+    - nut
     - direction
     - id
     - subcritical
@@ -73,6 +75,7 @@ data:
     - S
     - U
     - V
+    - D
 seed: 43
 logging:
   use_wandb: true

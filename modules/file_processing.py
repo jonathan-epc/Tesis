@@ -35,22 +35,48 @@ def process_and_save(
                 logger.info(f"Skipping file: {result_file} for not being {condition}")
                 continue
 
+            # Open the primary result file
             result = xr.open_dataset(
                 os.path.join(base_dir, "results", result_file), engine="selafin"
             )
+            logger.debug(f"Opened {result_file} succesfully")
+            
+            # Dynamically construct the path for the geometry file to fetch variable B
+            bottom_type = parameters.iloc[i]["BOTTOM"]
+            geometry_path = os.path.join(
+                base_dir, "geometry", f"3x3_{bottom_type}_{i}.slf"
+            )
+            logger.debug(f"Constructed path for {result_file} geometry succesfully")
+            
+            # Open the geometry file and extract variable B
+            geometry_data = xr.open_dataset(geometry_path, engine="selafin")
+            variable_B = geometry_data["B"][0]
+            logger.debug(f"Extracted geometry for {result_file} succesfully")
+
+            # Create simulation group in the HDF5 file
             simulation_parameters = parameters.iloc[i]
             simulation_group = hdf5_file.create_group(f"simulation_{i}")
+            logger.debug(f"Created simulation group in the HDF5 file for {result_file} succesfully")
 
             variable_stats = {}
             for variable_name, variable_data in result.items():
-                simulation_group.create_dataset(variable_name, data=variable_data[-1])
-                variable_stats[variable_name] = calculate_statistics(
-                    pd.Series(variable_data[-1].values)
-                )
+                if variable_name in variable_names:
+                    simulation_group.create_dataset(variable_name, data=variable_data[-1])
+                    variable_stats[variable_name] = calculate_statistics(
+                        pd.Series(variable_data[-1].values)
+                    )
+
+            logger.debug(f"Added variable data to HDF5 file for {result_file} succesfully")
+
+            # Add variable B to the simulation group
+            simulation_group.create_dataset("B", data=variable_B.values)
+            variable_stats["B"] = calculate_statistics(pd.Series(variable_B.values))
+            logger.debug(f"Added geometry data to HDF5 file for {result_file} succesfully")
 
             for parameter_name, parameter_value in simulation_parameters.items():
                 simulation_group.attrs[parameter_name] = parameter_value
 
+            # Update overall statistics
             if idx == 0 or not overall_stats:
                 overall_stats = variable_stats
             else:
@@ -60,11 +86,17 @@ def process_and_save(
                     )
                     for var_name in variable_names
                 }
+                if "B" in variable_stats:
+                    overall_stats["B"] = combine_statistics(
+                        overall_stats.get("B", {}), variable_stats["B"]
+                    )
+            logger.debug(f"Updated overall statistics for {result_file} succesfully")
             logger.info(f"Processed file: {result_file}")
 
         except Exception as e:
             logger.error(f"An error occurred when processing {result_file}: {e}")
 
+    # Create the variable table and save statistics
     variable_table = (
         pd.DataFrame(overall_stats).T.reset_index().rename(columns={"index": "names"})
     )
@@ -75,6 +107,7 @@ def process_and_save(
             statistics_group.attrs[f"{name}_{stat}"] = table.loc[
                 table["names"] == name
             ][stat].item()
+    logger.info(f"Saved statistics of {result_file}")
     return table
 
 
@@ -96,19 +129,39 @@ def process_and_save_normalized(
                 logger.info(f"Skipping file: {result_file} for not being {condition}")
                 continue
 
+            # Open the primary result file
             result = xr.open_dataset(
                 os.path.join(base_dir, "results", result_file), engine="selafin"
             )
+            logger.debug(f"Opened {result_file} succesfully")
+
+            # Dynamically construct the path for the geometry file to fetch variable B
+            bottom_type = parameters.iloc[i]["BOTTOM"]
+            geometry_path = os.path.join(
+                base_dir, "geometry", f"3x3_{bottom_type}_{i}.slf"
+            )
+            logger.debug(f"Constructed path for geometry of {result_file} succesfully")
+            
+            # Open the geometry file and extract variable B
+            geometry_data = xr.open_dataset(geometry_path, engine="selafin")
+            variable_B = geometry_data["B"]
+            logger.debug(f"Extracted geometry for {result_file} succesfully")
+
+            # Retrieve simulation parameters
             simulation_parameters = parameters.iloc[i]
 
+            # Create a simulation group in the HDF5 file
             simulation_group = hdf5_file.create_group(f"simulation_{i}")
 
             for variable_name, variable_data in result.items():
                 normalized_data = normalize_statistics(
                     variable_data[-1], variable_name, table
                 )
-
                 simulation_group.create_dataset(variable_name, data=normalized_data)
+
+            # Normalize and save variable B
+            normalized_B = normalize_statistics(variable_B, "B", table)
+            simulation_group.create_dataset("B", data=normalized_B)
 
             for parameter_name, parameter_value in simulation_parameters.items():
                 if parameter_name in parameter_names:
@@ -118,11 +171,13 @@ def process_and_save_normalized(
                     simulation_group.attrs[parameter_name] = normalized_value
                 else:
                     simulation_group.attrs[parameter_name] = parameter_value
+
             logger.info(f"Processed file: {result_file}")
 
         except Exception as e:
             logger.error(f"An error occurred when processing {result_file}: {e}")
 
+    # Create a statistics group and store statistics in HDF5 attributes
     statistics_group = hdf5_file.create_group("statistics")
     for name in table["names"]:
         for stat in ["count", "min", "max", "variance", "mean"]:
