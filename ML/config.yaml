@@ -82,7 +82,7 @@ logging:
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: study17
+  study_name: study21
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
