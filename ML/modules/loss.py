@@ -4,64 +4,6 @@ import torch
 import torch.nn as nn
 
 
-class FluidDynamicsLoss(nn.Module):
-    def __init__(self, variables: List[str], loss_weights: dict = None):
-        super(FluidDynamicsLoss, self).__init__()
-        self.variables = variables
-        self.mse_loss = nn.MSELoss()
-        self.loss_weights = (
-            loss_weights
-            if loss_weights is not None
-            else {var: 1.0 for var in variables}
-        )
-
-    def forward(self, outputs: torch.Tensor, targets: torch.Tensor, B: torch.Tensor):
-        loss = 0.0
-        output_dict = {var: outputs[:, i] for i, var in enumerate(self.variables)}
-        target_dict = {var: targets[:, i] for i, var in enumerate(self.variables)}
-
-        for var in self.variables:
-            var_loss = self.mse_loss(output_dict[var], target_dict[var])
-            loss += self.loss_weights.get(var, 1.0) * var_loss
-
-        if "U" in self.variables and "V" in self.variables:
-            U_pred = output_dict["U"]
-            V_pred = output_dict["V"]
-            velocity_sq = U_pred**2 + V_pred**2
-
-        if all(var in self.variables for var in ["Q", "H", "U", "V"]):
-            Q_pred = output_dict["Q"]
-            H_pred = output_dict["H"]
-            Q_derived = H_pred * torch.sqrt(velocity_sq)
-            loss += self.loss_weights.get("Q_penalty", 1.0) * self.mse_loss(
-                Q_pred, Q_derived
-            )
-
-        if "H" in self.variables and "S" in self.variables:
-            H_pred = output_dict["H"]
-            S_pred = output_dict["S"]
-            H_derived = S_pred - B
-            loss += self.loss_weights.get("H_penalty", 1.0) * self.mse_loss(
-                H_pred, H_derived
-            )
-
-        if all(var in self.variables for var in ["F", "H", "U", "V"]):
-            F_pred = output_dict["F"]
-            H_pred = output_dict["H"]
-            F_derived = torch.sqrt(velocity_sq / (9.81 * torch.clamp(H_pred, min=1e-6)))
-            loss += self.loss_weights.get("F_penalty", 1.0) * self.mse_loss(
-                F_pred, F_derived
-            )
-
-        if torch.isnan(loss).any():
-            print("NaN detected in loss computation")
-            loss = torch.tensor(
-                float("inf")
-            )  # Optionally handle it by setting a large loss
-
-        return loss
-
-
 class PhysicsInformedLoss(nn.Module):
     def __init__(
         self,
@@ -131,36 +73,44 @@ class PhysicsInformedLoss(nn.Module):
             return None, missing_vars
 
         # Extract and process variables
-        H = variables["H"]
-        U = variables["U"]
-        V = variables["V"]
-        B = variables["B"]
+        h = variables["H"]
+        u = variables["U"]
+        v = variables["V"]
+        b = variables["B"]
         n = variables["n"]
+        nut = variables["nut"]
         n = n.view(-1, 1, 1) 
+        nut = nut.view(-1, 1, 1) 
        
         # Apply minimum value to H for numerical stability
-        H = torch.clamp(H, min=self.epsilon)
+        h = torch.clamp(h, min=self.epsilon)
 
-        # Compute gradients
-        dhudx, dhudy = torch.gradient(H * U, spacing=self.spacing, dim=(1, 2))
-        dhvdx, dhvdy = torch.gradient(H * V, spacing=self.spacing, dim=(1, 2))
-        dhu2dx, dhu2dy = torch.gradient(H * U**2 + 0.5 * self.g * H**2, spacing=self.spacing, dim=(1, 2))
-        dhv2dx, dhv2dy = torch.gradient(H * V**2 + 0.5 * self.g * H**2, spacing=self.spacing, dim=(1, 2))
-        dhuvdx, dhuvdy = torch.gradient(H * U * V, spacing=self.spacing, dim=(1, 2))
-        dzdx, dzdy = torch.gradient(B, spacing=self.spacing, dim=(1, 2))
+        absU = torch.sqrt(u**2 + v**2)
 
-        # Physics equations
-        continuity_loss = dhudx + dhvdy
+        # Compute gradients for continuity loss
+
+        d_u_dx, d_u_dy = torch.gradient(u, spacing=self.spacing, dim=(1, 2))
+        d_v_dx, d_v_dy = torch.gradient(v, spacing=self.spacing, dim=(1, 2))
+        d_z_dx, d_z_dy = torch.gradient(h+b, spacing=self.spacing, dim=(1, 2))
         
-        momentum_x_loss = (
-            dhu2dx + dhuvdy 
-            - self.g * H * (dzdx - (n**2 * U * torch.sqrt(U**2 + V**2)) / (H**(4/3)))
-        )
-        
-        momentum_y_loss = (
-            dhuvdx + dhv2dy 
-            - self.g * H * (dzdy - (n**2 * V * torch.sqrt(U**2 + V**2)) / (H**(4/3)))
-        )
+        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
+        d_hv_dx, d_hv_dy = torch.gradient(h * v, spacing=self.spacing, dim=(1, 2))
+
+        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
+        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
+
+        d_hdudx_dx, d_hdudx_dy = torch.gradient(h * d_u_dx, spacing=self.spacing, dim=(1, 2))
+        d_hdvdx_dx, d_hdvdx_dy = torch.gradient(h * d_v_dx, spacing=self.spacing, dim=(1, 2))
+        d_hdudy_dx, d_hdudy_dy = torch.gradient(h * d_u_dy, spacing=self.spacing, dim=(1, 2))
+        d_hdvdy_dx, d_hdvdy_dy = torch.gradient(h * d_v_dy, spacing=self.spacing, dim=(1, 2))
+
+        d_h_dx, d_h_dy = torch.gradient(h, spacing=self.spacing, dim=(1, 2))
+
+        continuity_loss = d_hu_dx + d_hv_dy
+
+        momentum_x_loss = u * d_u_dx + v * d_u_dy + self.g * d_z_dx - nut/h*(d_hdudx_dx + d_hdudy_dy) + self.g * (n**2) / (h ** (4/3))*u
+
+        momentum_y_loss = u * d_v_dx + v * d_v_dy + self.g * d_z_dx - nut/h*(d_hdvdx_dx + d_hdvdy_dy) + self.g * (n**2) / (h ** (4/3))*v
 
         # Combine physics losses
         physics_loss = torch.stack([continuity_loss, momentum_x_loss, momentum_y_loss], dim=1)
@@ -177,7 +127,7 @@ class PhysicsInformedLoss(nn.Module):
         field_pred, scalar_pred = pred
     
         # First check if we have all required variables in input_vars and output_vars
-        required_vars = {"H", "U", "V", "B", "n"}
+        required_vars = {"H", "U", "V", "B", "n", "nut"}
         if not required_vars.issubset(set(self.input_vars).union(set(self.output_vars))):
             missing = required_vars - set(self.input_vars).union(set(self.output_vars))
             return None, list(missing)

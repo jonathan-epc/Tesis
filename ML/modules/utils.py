@@ -129,7 +129,13 @@ def is_jupyter():
 
 def setup_logger():
     logger.remove()
-    logger.add("logs/file_{time}.log", rotation="500 MB")
+    logger.add(
+        "logs/file_{time}.log",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name} | {function} | {line} | {message}",
+        level="INFO",
+        rotation="00:00",  # Rotate the log file at midnight
+        retention= 1,  # Keep only the most recent log file
+    )
     # logger.add(lambda msg: tqdm.write(msg, end=""), level="INFO")
     return logger
 
