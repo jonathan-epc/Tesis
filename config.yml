@@ -1,0 +1,15 @@
+bottom_types:
+  # - NOISE
+  # - SLOPE
+  - BARS
+parameter_names:
+  - H0
+  - Q0
+  - SLOPE
+  - n
+  - nut
+variable_names:
+  - H
+  - U
+  - V
+  - B

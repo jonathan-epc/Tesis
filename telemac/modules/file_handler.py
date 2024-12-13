@@ -37,7 +37,7 @@ def add_continuation_lines(steering_file, i):
 
 def update_duration(steering_file):
     """
-    Updates the duration in the steering file by adding 60 units.
+    Updates the duration in the steering file by adding 30 seconds.
 
     Parameters
     ----------
@@ -54,7 +54,7 @@ def update_duration(steering_file):
     for idx, line in enumerate(content):
         if line.strip().startswith("DURATION"):
             current_duration = int(line.split("=")[1].strip())
-            new_duration = current_duration + 60
+            new_duration = current_duration + 30
             content[idx] = f"DURATION = {new_duration}\n"
             break
 

@@ -2,6 +2,7 @@ import os
 
 from loguru import logger
 from tqdm import tqdm
+from typing import List
 
 from modules.file_handler import prepare_steering_file
 from modules.file_utils import move_file, setup_output_dir
@@ -70,17 +71,15 @@ def run_single_simulation(i, filename, case_parameters, output_dir, steering_fol
         move_file(dst_file, src_file)
 
     return True
-
-def run_telemac2d_on_files(start, end, parameters, output_dir, steering_folder):
+    
+def run_telemac2d_on_files(file_list: List[str], parameters, output_dir, steering_folder):
     """
-    Run Telemac2D simulations on a range of files.
+    Run Telemac2D simulations on a list of files.
 
     Parameters
     ----------
-    start : int
-        The starting index of the simulation cases.
-    end : int
-        The ending index of the simulation cases.
+    file_list : List[str]
+        List of steering file names to process.
     parameters : pandas.DataFrame
         A DataFrame containing the parameters for each simulation case.
     output_dir : str
@@ -94,17 +93,15 @@ def run_telemac2d_on_files(start, end, parameters, output_dir, steering_folder):
     """
     setup_output_dir(output_dir)
 
-    # Filter the parameters DataFrame to match the selected range.
-    filtered_parameters = parameters.iloc[start:end]
-    total_files = len(filtered_parameters)
+    total_files = len(file_list)
 
     with tqdm(total=total_files, unit="case", dynamic_ncols=True) as pbar:
-        for i, (index, case_parameters) in enumerate(filtered_parameters.iterrows()):
-            filename = f"{index}.cas"  # Use the original index as part of the filename
+        for i, filename in enumerate(file_list):
+            case_parameters = parameters.loc[int(os.path.splitext(filename)[0])]
 
             pbar.set_description(f"Processing {filename}")
             simulation_run = run_single_simulation(
-                index, filename, case_parameters, output_dir, steering_folder
+                i, filename, case_parameters, output_dir, steering_folder
             )
 
             if simulation_run:
@@ -114,3 +111,4 @@ def run_telemac2d_on_files(start, end, parameters, output_dir, steering_folder):
                 pbar.refresh()
 
     logger.info("All Telemac2D simulations completed")
+
