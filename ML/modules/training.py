@@ -210,6 +210,7 @@ class Trainer:
                 group=name,
                 job_type="Sweep" if is_sweep else "Run",
                 config={"Architecture": self.config.model.architecture},
+                notes=self.config.optuna.study_notes,
             )
 
         # Create progress bar for epochs
@@ -440,6 +441,8 @@ def cross_validation_procedure(
         output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
+        channel_length=config.channel.length,
+        channel_width=config.channel.width,
         normalize_input=config.data.normalize_input,
         normalize_output=config.data.normalize_output,
         device=config.device,
@@ -513,6 +516,7 @@ def cross_validation_procedure(
             config=hparams,
             group=name,
             job_type="Sweep" if is_sweep else "Run",
+            notes= config.optuna.study_notes,
         )
         wandb.config.update(
             {

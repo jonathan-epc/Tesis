@@ -14,7 +14,7 @@ class PhysicsInformedLoss(nn.Module):
         spacing: List[float] = [0.03, 0.03],
         g: float = 9.81,
         lambda_physics: float = 0.5,
-        epsilon: float = 1e-8
+        epsilon: float = 1e-10
     ):
         super(PhysicsInformedLoss, self).__init__()
         self.g = g
@@ -24,7 +24,10 @@ class PhysicsInformedLoss(nn.Module):
         self.output_vars = output_vars
         self.dataset = dataset
         self.config = config
-        self.spacing = spacing
+        if self.config.data.adimensional:
+            self.spacing = spacing[0]/self.config.channel.length, spacing[1]/self.config.channel.width
+        else:
+            self.spacing = spacing
         self.epsilon = epsilon
 
     def forward(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
@@ -52,10 +55,13 @@ class PhysicsInformedLoss(nn.Module):
             total_data_loss += self.data_loss(scalar_pred, scalar_target_tensor)
 
         # Compute physics loss
-        physics_loss, missing_vars = self.compute_physics_loss(inputs, pred)
+        if self.config.data.adimensional:
+            physics_loss, missing_vars = self.compute_adimensional_physics_loss(inputs, pred)
+        else:
+            physics_loss, missing_vars = self.compute_physics_loss(inputs, pred)
         
         if missing_vars:
-            logging.warning(f"Missing variables for physics loss: {', '.join(missing_vars)}")
+            logger.warning(f"Missing variables for physics loss: {', '.join(missing_vars)}")
             return total_data_loss
 
         # Combine losses
@@ -87,30 +93,103 @@ class PhysicsInformedLoss(nn.Module):
 
         absU = torch.sqrt(u**2 + v**2)
 
-        # Compute gradients for continuity loss
-
+        # Compute gradients for continuity loss       
+        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
+        d_hv_dx, d_hv_dy = torch.gradient(h * v, spacing=self.spacing, dim=(1, 2))
+        d_h_dx, d_h_dy = torch.gradient(h, spacing=self.spacing, dim=(1, 2))
         d_u_dx, d_u_dy = torch.gradient(u, spacing=self.spacing, dim=(1, 2))
         d_v_dx, d_v_dy = torch.gradient(v, spacing=self.spacing, dim=(1, 2))
         d_z_dx, d_z_dy = torch.gradient(h+b, spacing=self.spacing, dim=(1, 2))
-        
-        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
-        d_hv_dx, d_hv_dy = torch.gradient(h * v, spacing=self.spacing, dim=(1, 2))
-
-        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
-        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
-
-        d_hdudx_dx, d_hdudx_dy = torch.gradient(h * d_u_dx, spacing=self.spacing, dim=(1, 2))
-        d_hdvdx_dx, d_hdvdx_dy = torch.gradient(h * d_v_dx, spacing=self.spacing, dim=(1, 2))
-        d_hdudy_dx, d_hdudy_dy = torch.gradient(h * d_u_dy, spacing=self.spacing, dim=(1, 2))
-        d_hdvdy_dx, d_hdvdy_dy = torch.gradient(h * d_v_dy, spacing=self.spacing, dim=(1, 2))
-
-        d_h_dx, d_h_dy = torch.gradient(h, spacing=self.spacing, dim=(1, 2))
+        d_u_dx2, d_u_dxdy = torch.gradient(d_u_dx, spacing=self.spacing, dim=(1, 2))
+        d_v_dx2, d_v_dxdy = torch.gradient(d_v_dx, spacing=self.spacing, dim=(1, 2))
+        d_u_dydx, d_u_dy2 = torch.gradient(d_u_dy, spacing=self.spacing, dim=(1, 2))
+        d_v_dydx, d_v_dy2 = torch.gradient(d_v_dy, spacing=self.spacing, dim=(1, 2))
 
         continuity_loss = d_hu_dx + d_hv_dy
 
-        momentum_x_loss = u * d_u_dx + v * d_u_dy + self.g * d_z_dx - nut/h*(d_hdudx_dx + d_hdudy_dy) + self.g * (n**2) / (h ** (4/3))*u
+        advection_x = u * d_u_dx + v * d_u_dy
+        advection_y = u * d_v_dx + v * d_v_dy
 
-        momentum_y_loss = u * d_v_dx + v * d_v_dy + self.g * d_z_dx - nut/h*(d_hdvdx_dx + d_hdvdy_dy) + self.g * (n**2) / (h ** (4/3))*v
+        pressure_x = -self.g * d_z_dx
+        pressure_y = -self.g * d_z_dy
+
+        friction_x = -self.g * (n ** 2) / (h ** (4/3)) * absU * u
+        friction_y = -self.g * (n ** 2) / (h ** (4/3)) * absU * v
+
+        diffusion_x = nut/h * (d_h_dx * d_u_dx + d_h_dy * d_u_dy + h * (d_u_dx2 + d_u_dy2))
+        diffusion_y = nut/h * (d_h_dx * d_v_dx + d_h_dy * d_v_dy + h * (d_v_dx2 + d_v_dy2))
+
+        momentum_x_loss = h * (advection_x - (pressure_x + friction_x + diffusion_x))
+        momentum_y_loss = h * (advection_y - (pressure_y + friction_y + diffusion_y))
+
+        # Combine physics losses
+        physics_loss = torch.stack([continuity_loss, momentum_x_loss, momentum_y_loss], dim=1)
+        return self.data_loss(physics_loss, torch.zeros_like(physics_loss)), []
+
+    def compute_adimensional_physics_loss(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
+                           pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]):
+        """
+        Computes the physics-informed loss using the correct variable assignments.
+        """
+        # Get variables with correct assignment
+        variables, missing_vars = self.assign_variables(inputs, pred)
+        if missing_vars:
+            return None, missing_vars
+
+        # Extract and process variables
+        h = variables["H*"]
+        u = variables["U*"]
+        v = variables["V*"]
+        b = variables["B*"]
+        
+        # Vr = variables["Vr"]
+        Vr = 1
+        Fr = variables["Fr"]
+        Re = variables["Re"]
+        # Ar = variables["Ar"]
+        Ar = 40
+        Hr = variables["Hr"]
+        M = variables["M"]
+
+        # Vr = Vr.view(-1, 1, 1) 
+        Fr = Fr.view(-1, 1, 1) 
+        Re = Re.view(-1, 1, 1) 
+        # Ar = Ar.view(-1, 1, 1) 
+        Hr = Hr.view(-1, 1, 1) 
+        M = M.view(-1, 1, 1) 
+       
+        # Apply minimum value to H for numerical stability
+        h = torch.clamp(h, min=self.epsilon)
+        absU = torch.sqrt(u**2 + (v/Vr)**2)
+
+        # Compute gradients for continuity loss       
+        d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
+        d_hv_dx, d_hv_dy = torch.gradient(h * v, spacing=self.spacing, dim=(1, 2))
+        d_h_dx, d_h_dy = torch.gradient(h, spacing=self.spacing, dim=(1, 2))
+        d_u_dx, d_u_dy = torch.gradient(u, spacing=self.spacing, dim=(1, 2))
+        d_v_dx, d_v_dy = torch.gradient(v, spacing=self.spacing, dim=(1, 2))
+        d_z_dx, d_z_dy = torch.gradient(Hr * h + b, spacing=self.spacing, dim=(1, 2))
+        d_u_dx2, d_u_dxdy = torch.gradient(d_u_dx, spacing=self.spacing, dim=(1, 2))
+        d_v_dx2, d_v_dxdy = torch.gradient(d_v_dx, spacing=self.spacing, dim=(1, 2))
+        d_u_dydx, d_u_dy2 = torch.gradient(d_u_dy, spacing=self.spacing, dim=(1, 2))
+        d_v_dydx, d_v_dy2 = torch.gradient(d_v_dy, spacing=self.spacing, dim=(1, 2))
+
+        continuity_loss = d_hu_dx + Ar/Vr * d_hv_dy
+
+        advection_x = u * d_u_dx + Ar/Vr * v * d_u_dy
+        advection_y = u * d_v_dx + Ar/Vr * v * d_v_dy
+
+        pressure_x = -1/Fr**2 * d_z_dx
+        pressure_y = -Ar*Vr/Fr**2 * d_z_dy
+
+        friction_x = -M * u / (h ** (4/3)) * absU
+        friction_y = -M * v / (h ** (4/3)) * absU
+
+        diffusion_x = 1/h/Re * (d_h_dx * d_u_dx + Ar**2 * d_h_dy * d_u_dy + h * (d_u_dx2 + Ar**2 * d_u_dy2))
+        diffusion_y = 1/h/Re * (d_h_dx * d_v_dx + Ar**2 * d_h_dy * d_v_dy + h * (d_v_dx2 + Ar**2 * d_v_dy2))
+
+        momentum_x_loss =  h * (advection_x - (pressure_x + friction_x + diffusion_x))
+        momentum_y_loss =  h * (advection_y - (pressure_y + friction_y + diffusion_y))
 
         # Combine physics losses
         physics_loss = torch.stack([continuity_loss, momentum_x_loss, momentum_y_loss], dim=1)
@@ -127,10 +206,14 @@ class PhysicsInformedLoss(nn.Module):
         field_pred, scalar_pred = pred
     
         # First check if we have all required variables in input_vars and output_vars
-        required_vars = {"H", "U", "V", "B", "n", "nut"}
+        if self.config.data.adimensional:
+            required_vars = {"H*", "U*", "V*", "B*","Fr","Hr","Re","M"} # "Ar","Vr" removed because they are constant in this case
+        else:
+            required_vars = {"H", "U", "V", "B", "n", "nut"}
         if not required_vars.issubset(set(self.input_vars).union(set(self.output_vars))):
             missing = required_vars - set(self.input_vars).union(set(self.output_vars))
             return None, list(missing)
+
     
         # Process input variables
         all_inputs = (field_inputs if field_inputs is not None else []) + (scalar_inputs if scalar_inputs is not None else [])

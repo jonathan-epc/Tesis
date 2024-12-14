@@ -3,12 +3,14 @@ import json
 import os
 import pickle
 import sys
+import traceback
 from typing import Any, Dict, Type
 
 import optuna
 import torch.nn as nn
 
 from config import get_config
+from torch.cuda import empty_cache
 
 from modules.models import *
 from modules.training import cross_validation_procedure
@@ -26,7 +28,6 @@ class HyperparameterOptimizer:
 
     def __init__(self, config):
         self.config = config
-        self.logger = setup_logger()
 
     def create_hparams(self, trial) -> Dict[str, Any]:
         """Generate hyperparameters based on Optuna trial suggestions."""
@@ -63,7 +64,7 @@ class HyperparameterOptimizer:
         model_class = getattr(sys.modules[__name__], self.config.model.class_name)
         name = f"{self.config.optuna.study_name}_{self.config.model.architecture}_trial_{trial.number}"
 
-        self.logger.info(f"Starting trial {trial.number} with parameters: {hparams}")
+        logger.info(f"Starting trial {trial.number} with parameters: {hparams}")
 
         self.config.training.pretrained_model_name = None
         try:
@@ -77,14 +78,22 @@ class HyperparameterOptimizer:
                 trial=trial,
                 config=self.config,
             )
-            self.save_trial_params(trial)
+            # self.save_trial_params(trial)
             return result
         except KeyboardInterrupt:
-            self.logger.info(f"Skipping trial {trial.number} due to interruption.")
+            logger.info(f"Skipping trial {trial.number} due to interruption.")
             raise TrialSkippedException()
         except Exception as e:
-            self.logger.error(f"Error during trial {trial.number}: {e}")
+            # Capture and truncate the traceback
+            full_traceback = traceback.format_exception(type(e), e, e.__traceback__)
+            truncated_traceback = "".join(full_traceback[-5:])  # Keep last 5 frames
+            logger.error(
+                f"Error during trial {trial.number}: {e}\nTruncated Traceback:\n{truncated_traceback}"
+            )
             raise optuna.exceptions.TrialPruned()
+        finally:
+            empty_cache()
+            logger.info(f"GPU cache cleared after trial {trial.number}.")
 
     def save_study_artifacts(self, study):
         """Save Optuna study artifacts."""
@@ -93,12 +102,12 @@ class HyperparameterOptimizer:
                 f"studies/{self.config.optuna.study_name}_{artifact}.pkl", "wb"
             ) as f:
                 pickle.dump(getattr(study, artifact), f)
-        self.logger.info(f"Artifacts saved for {self.config.optuna.study_name}")
+        logger.info(f"Artifacts saved for {self.config.optuna.study_name}")
 
     def log_best_trial(self, study):
         """Log details of the best trial."""
         best_trial = study.best_trial
-        self.logger.info(
+        logger.info(
             f"Best trial value: {best_trial.value}\nParameters: {best_trial.params}"
         )
 
@@ -118,7 +127,7 @@ class HyperparameterOptimizer:
                 catch=(TrialSkippedException,),
             )
         except KeyboardInterrupt:
-            self.logger.info("Optimization interrupted by user.")
+            logger.info("Optimization interrupted by user.")
         finally:
             self.save_study_artifacts(study)
             self.log_best_trial(study)

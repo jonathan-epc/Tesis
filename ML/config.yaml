@@ -2,7 +2,7 @@ device: cuda
 training:
   kfolds: 1
   batch_size: 8
-  num_epochs: 256
+  num_epochs: 512
   num_workers: 0
   accumulation_steps: 1
   learning_rate: 0.00002586397472413228
@@ -11,10 +11,10 @@ training:
   pretrained_model_name: 
   clip_grad_value: 1
   weight_decay: 0.002813124652123972
-  lambda_physics: 0.5
+  lambda_physics: 0.1
   time_limit: 86400
 model:
-  name: FNO_bars
+  name: FNO
   architecture: FNOnet
   class_name: FNOnet
   n_layers: 5
@@ -23,44 +23,80 @@ model:
   hidden_channels: 40
   lifting_channels: 20
   projection_channels: 20
+channel:
+  width: 0.3  # in m
+  length: 12  # in m
+  depth: 0.3  # in m
+  wall_thickness: 0.00  # in m
 data:
   file_name: data/bars.hdf5
-  normalize_input: true
+  normalize_input: false
   normalize_output: false
+  adimensional: true
   numpoints_x: 401
   numpoints_y: 11
   preload: true
   inputs:
     - H0
     - Q0
-    - SLOPE
+    # - SLOPE
     - n
     - nut
+    # - Ar
+    # - Hr
+    # - M
+    - B
     # - F
     # - H
     # - Q
     # - S
     # - U
     # - V
-    - B
+    # - D
+    # - Vr
+    # - Fr
+    # - Re
+    # - B*
+    # - H*
+    # - U*
+    # - V*
   outputs:
     # - H0
     # - Q0
     # - SLOPE
     # - n
+    # - nut
+    # - Ar
+    # - Hr
+    # - M
+    # - B
     # - F
     - H
-    # - Q
-    # - S
     - U
     - V
-    # - B
+    # - D
+    # - Q
+    # - S
+    # - Ar
+    # - Vr
+    # - Fr
+    # - Re
+    # - B*
+    # - H*
+    # - U*
+    # - V*
   scalars:
     - H0
     - Q0
     - SLOPE
     - n
     - nut
+    - Ar
+    - Hr
+    - Vr
+    - Fr
+    - Re
+    - M
     - direction
     - id
     - subcritical
@@ -76,13 +112,18 @@ data:
     - U
     - V
     - D
+    - B*
+    - H*
+    - U*
+    - V*
 seed: 43
 logging:
   use_wandb: true
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: study21
+  study_name: ddb_study1
+  study_notes: 'Direct problem, dimensional, bars'
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:

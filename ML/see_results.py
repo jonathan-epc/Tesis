@@ -442,6 +442,8 @@ def setup_datasets(
         output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
+        channel_length=config.channel.length,
+        channel_width=config.channel.width,
         normalize_input=config.data.normalize_input,
         normalize_output=config.data.normalize_output,
         device=config.device,

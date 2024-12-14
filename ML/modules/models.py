@@ -235,7 +235,7 @@ class FNOold(nn.Module):
         self.padding = 9  # Pad the domain if the input is non-periodic
 
         # Adjusting input and output channels
-        self.input_channels = 5  # Field + parameters (1 field + 4 parameters in this case)
+        self.input_channels = inputs_n  # Field + parameters (1 field + 4 parameters in this case)
         self.output_channels = output_channels
 
         # Linear layer to lift the input to the desired channel dimension

@@ -34,11 +34,17 @@ class ModelConfig(BaseModel):
     lifting_channels: int = Field(62, gt=0)
     projection_channels: int = Field(51, gt=0)
 
+class ChannelConfig(BaseModel):
+    width: float = Field(0.3, gt=0)
+    length: float = Field(12, gt=0)
+    depth: float = Field(0.3, gt=0)
+    wall_thickness: float = Field(0, ge=0)
 
 class DataConfig(BaseModel):
     file_name: str
     normalize_input: bool = True
     normalize_output: bool = False
+    adimensional: bool = False
     numpoints_x: int = Field(401, gt=0)
     numpoints_y: int = Field(11, gt=0)
     preload: bool = True
@@ -56,6 +62,7 @@ class LoggingConfig(BaseModel):
 
 class OptunaConfig(BaseModel):
     study_name: str
+    study_notes: str
     n_trials: int = Field(100, gt=0)
     hyperparameter_space: Dict[str, Dict[str, Any]]
     base_storage_path: str = "sqlite:///studies/"
@@ -76,6 +83,7 @@ class Config(BaseModel):
     training: TrainingConfig
     model: ModelConfig
     data: DataConfig
+    channel: ChannelConfig
     seed: int = 43
     logging: LoggingConfig
     optuna: OptunaConfig

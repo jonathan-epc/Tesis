@@ -24,11 +24,13 @@ def test():
 
 def load_dataset(config, file_path):
     return HDF5Dataset(
-        file_path="data/test.hdf5",
+        file_path="data/bars.hdf5",
         input_vars=config.data.inputs,
         output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
         numpoints_y=config.data.numpoints_y,
+        channel_length=config.channel.length,
+        channel_width=config.channel.width,        
         normalize_input=False,
         normalize_output=False,
         device="cpu",
