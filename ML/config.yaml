@@ -30,9 +30,9 @@ channel:
   wall_thickness: 0.00  # in m
 data:
   file_name: data/bars.hdf5
-  normalize_input: false
+  normalize_input: true
   normalize_output: false
-  adimensional: true
+  adimensional: false
   numpoints_x: 401
   numpoints_y: 11
   preload: true
@@ -122,8 +122,8 @@ logging:
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: ddb_study1
-  study_notes: 'Direct problem, dimensional, bars'
+  study_name: s1ddb
+  study_notes: 'Study 1: Direct problem, dimensional, bars'
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:

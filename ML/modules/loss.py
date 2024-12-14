@@ -2,7 +2,7 @@ from typing import List, Dict, Tuple, Optional, Union
 
 import torch
 import torch.nn as nn
-
+from loguru import logger
 
 class PhysicsInformedLoss(nn.Module):
     def __init__(
