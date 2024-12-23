@@ -9,8 +9,8 @@ class PhysicsInformedLoss(nn.Module):
         self,
         input_vars: List[str],
         output_vars: List[str],
-        dataset,
         config,
+        dataset,
         spacing: List[float] = [0.03, 0.03],
         g: float = 9.81,
         lambda_physics: float = 0.5,
@@ -22,15 +22,16 @@ class PhysicsInformedLoss(nn.Module):
         self.data_loss = nn.HuberLoss()
         self.input_vars = input_vars
         self.output_vars = output_vars
-        self.dataset = dataset
         self.config = config
+        self.dataset = dataset
         if self.config.data.adimensional:
             self.spacing = spacing[0]/self.config.channel.length, spacing[1]/self.config.channel.width
         else:
             self.spacing = spacing
         self.epsilon = epsilon
 
-    def forward(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
+    def forward(self, 
+                inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
                 pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]], 
                 target: Tuple[List[torch.Tensor], List[torch.Tensor]]) -> torch.Tensor:
         """
@@ -38,35 +39,33 @@ class PhysicsInformedLoss(nn.Module):
         """
         field_target, scalar_target = target
         field_pred, scalar_pred = pred
-        
+    
         # Compute data loss
         total_data_loss = 0.0
-        
-        # Field predictions loss
+    
         if field_pred is not None and field_target:
             field_target_tensor = torch.stack(field_target, dim=1)
             if field_pred.shape != field_target_tensor.shape:
-                raise ValueError(f"Shape mismatch: pred {field_pred.shape}, target {field_target_tensor.shape}")
+                raise ValueError(f"Shape mismatch: field_pred {field_pred.shape}, field_target {field_target_tensor.shape}")
             total_data_loss += self.data_loss(field_pred, field_target_tensor)
-        
-        # Scalar predictions loss
+    
         if scalar_pred is not None and scalar_target:
             scalar_target_tensor = torch.stack(scalar_target, dim=1)
+            if scalar_pred.shape != scalar_target_tensor.shape:
+                raise ValueError(f"Shape mismatch: scalar_pred {scalar_pred.shape}, scalar_target {scalar_target_tensor.shape}")
             total_data_loss += self.data_loss(scalar_pred, scalar_target_tensor)
-
+    
         # Compute physics loss
-        if self.config.data.adimensional:
-            physics_loss, missing_vars = self.compute_adimensional_physics_loss(inputs, pred)
-        else:
-            physics_loss, missing_vars = self.compute_physics_loss(inputs, pred)
-        
+        compute_physics = self.compute_adimensional_physics_loss if self.config.data.adimensional else self.compute_physics_loss
+        physics_loss, missing_vars = compute_physics(inputs, pred)
+    
         if missing_vars:
             logger.warning(f"Missing variables for physics loss: {', '.join(missing_vars)}")
             return total_data_loss
-
+    
         # Combine losses
         total_loss = (1 - self.lambda_physics) * total_data_loss + self.lambda_physics * physics_loss
-        return total_loss
+        return total_loss, total_data_loss, physics_loss
 
     def compute_physics_loss(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
                            pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]):
@@ -90,6 +89,7 @@ class PhysicsInformedLoss(nn.Module):
        
         # Apply minimum value to H for numerical stability
         h = torch.clamp(h, min=self.epsilon)
+        h = torch.where(h.abs() < self.epsilon, h.sign() * self.epsilon, h)
 
         absU = torch.sqrt(u**2 + v**2)
 

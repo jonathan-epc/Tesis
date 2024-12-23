@@ -1,28 +1,28 @@
 device: cuda
 training:
   kfolds: 1
-  batch_size: 8
+  batch_size: 16
   num_epochs: 512
   num_workers: 0
   accumulation_steps: 1
-  learning_rate: 0.00002586397472413228
+  learning_rate: 0.0007496053599414719
   test_frac: 0.2
   early_stopping_patience: 32
-  pretrained_model_name: 
+  pretrained_model_name:
   clip_grad_value: 1
-  weight_decay: 0.002813124652123972
-  lambda_physics: 0.1
+  weight_decay: 0.0023836541443711034
+  lambda_physics: 0.0014685266764651844
   time_limit: 86400
 model:
-  name: FNO
+  name: FNOnet
   architecture: FNOnet
   class_name: FNOnet
-  n_layers: 5
-  n_modes_x: 88
-  n_modes_y: 10
-  hidden_channels: 40
-  lifting_channels: 20
-  projection_channels: 20
+  n_layers: 6
+  n_modes_x: 250
+  n_modes_y: 2
+  hidden_channels: 169
+  lifting_channels: 139
+  projection_channels: 233
 channel:
   width: 0.3  # in m
   length: 12  # in m
@@ -37,21 +37,21 @@ data:
   numpoints_y: 11
   preload: true
   inputs:
-    - H0
-    - Q0
+    # - H0
+    # - Q0
     # - SLOPE
-    - n
-    - nut
+    # - n
+    # - nut
     # - Ar
     # - Hr
     # - M
-    - B
+    # - B
     # - F
     # - H
     # - Q
     # - S
-    # - U
-    # - V
+    - U
+    - V
     # - D
     # - Vr
     # - Fr
@@ -64,16 +64,16 @@ data:
     # - H0
     # - Q0
     # - SLOPE
-    # - n
-    # - nut
+    - n
+    - nut
     # - Ar
     # - Hr
     # - M
-    # - B
+    - B
     # - F
     - H
-    - U
-    - V
+    # - U
+    # - V
     # - D
     # - Q
     # - S
@@ -122,8 +122,8 @@ logging:
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: s1ddb
-  study_notes: 'Study 1: Direct problem, dimensional, bars'
+  study_name: study4i
+  study_notes: 'Study 4: Inverse problem, dimensional, bars. Changed the denormalization, now it only denormalizes for metric calculations'
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:

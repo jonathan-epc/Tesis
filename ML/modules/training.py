@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import wandb
 import h5py
+import os
 from config import get_config
 from loguru import logger
 from sklearn.model_selection import KFold, train_test_split
@@ -21,7 +22,7 @@ from modules.loss import PhysicsInformedLoss
 from modules.models import *
 from modules.plots import plot_hist as plot_difference
 from modules.plots import plot_im as plot_difference_im
-from modules.utils import EarlyStopping, compute_metrics, setup_logger
+from modules.utils import EarlyStopping, compute_metrics, setup_logger, denormalize_outputs_and_targets
 
 
 class Trainer:
@@ -35,6 +36,7 @@ class Trainer:
         device,
         accumulation_steps,
         config,
+        full_dataset
     ):
         self.config = config
         self.model = model
@@ -45,6 +47,7 @@ class Trainer:
         self.device = device
         self.accumulation_steps = accumulation_steps
         self.pretrained_model_path = None
+        self.full_dataset = full_dataset
         
         if self.config.training.pretrained_model_name:
             self.pretrained_model_path = f"savepoints/{self.config.training.pretrained_model_name}_best_model.pth"
@@ -65,7 +68,8 @@ class Trainer:
             
             with autocast(self.device, enabled=(self.device == "cuda" and not self.model_is_complex)):
                 outputs = self.model(inputs)
-                loss = self.criterion(inputs, outputs, targets)
+                
+                loss, _, _ = self.criterion(inputs, outputs, targets)
 
             if self.scaler is not None:
                 self.scaler.scale(loss).backward()
@@ -86,6 +90,9 @@ class Trainer:
     def validate(self, dataloader, name="", step=-1, fold_n=-1):
         self.model.eval()
         total_loss = 0.0
+        total_data_loss = 0.0
+        total_physics_loss = 0.0
+    
         all_field_outputs, all_scalar_outputs = [], []
         all_field_targets, all_scalar_targets = [], []
         all_field_inputs, all_scalar_inputs = [], []
@@ -109,13 +116,22 @@ class Trainer:
             with autocast(self.device, enabled=(self.device == "cuda" and not self.model_is_complex)):
                 # Forward pass
                 outputs = self.model(inputs)
-                
+        
                 # Calculate loss
-                loss = self.criterion(inputs, outputs, targets)
+                loss, data_loss, physics_loss = self.criterion(inputs, outputs, targets)
                     
             total_loss += loss.item()
-    
-            # Collect field and scalar outputs and targets
+            total_data_loss += data_loss.item()
+            total_physics_loss += physics_loss.item()
+
+            outputs, targets = denormalize_outputs_and_targets(
+                outputs, 
+                targets, 
+                self.full_dataset, 
+                self.config
+            )        
+            
+            target_fields, target_scalars = targets
             field_outputs, scalar_outputs = outputs
 
             if field_outputs is not None:
@@ -162,6 +178,8 @@ class Trainer:
     
         # Calculate average loss
         metrics["loss"] = total_loss / len(dataloader)
+        metrics["data_loss"] = total_data_loss / len(dataloader)
+        metrics["physics_loss"] = total_physics_loss / len(dataloader)
     
         return metrics
 
@@ -315,6 +333,7 @@ def cross_validate(
     is_sweep,
     trial,
     config,
+    full_dataset
 ):
     if k_folds > 1:
         splits = KFold(n_splits=k_folds, shuffle=True, random_state=config.seed).split(
@@ -389,6 +408,7 @@ def cross_validate(
             config.device,
             hparams["accumulation_steps"],
             config,
+            full_dataset,
         )
 
         # Reset early stopping for each fold, but keep the best model across folds
@@ -464,9 +484,10 @@ def cross_validation_procedure(
     criterion = PhysicsInformedLoss(
         input_vars=config.data.inputs,
         output_vars=config.data.outputs,
-        dataset=full_dataset,
         config=config,
+        dataset=full_dataset,
         lambda_physics=hparams["lambda_physics"]
+        
     )
     
     avg_loss, avg_metrics = cross_validate(
@@ -480,6 +501,7 @@ def cross_validation_procedure(
         is_sweep,
         trial,
         config,
+        full_dataset
     )
 
     logger.info(f"Cross-validation completed. Avg loss: {avg_loss:.4f}")
@@ -502,7 +524,7 @@ def cross_validation_procedure(
     )
 
     trainer = Trainer(
-        model, criterion, None, None, None, config.device, 1, config=config
+        model, criterion, None, None, None, config.device, 1, config=config, full_dataset=full_dataset
     )
     test_metrics = trainer.validate(test_loader)
     logger.info(

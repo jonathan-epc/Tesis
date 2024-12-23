@@ -1,6 +1,6 @@
 import os
 import random
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 import numpy as np
 import torch
@@ -223,3 +223,65 @@ def compute_metrics(
         })
 
     return metrics
+
+def denormalize_outputs_and_targets(
+    outputs: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]],
+    targets: Tuple[List[torch.Tensor], List[torch.Tensor]],
+    dataset,
+    config,
+) -> Tuple[Tuple[Optional[torch.Tensor], Optional[torch.Tensor]], 
+           Tuple[List[torch.Tensor], List[torch.Tensor]]]:
+    """
+    Denormalize model outputs and targets.
+
+    Args:
+        outputs: Tuple of field and scalar predictions
+        targets: Tuple of field and scalar targets
+        dataset: Dataset object with _denormalize method
+        output_vars: List of output variable names
+        normalize_output: Whether output normalization is enabled
+
+    Returns:
+        Tuple of denormalized outputs and targets
+    """
+    output_vars = config.data.outputs
+
+    normalize_output = config.data.normalize_output
+    
+    # If normalization is not enabled, return original data
+    if not normalize_output:
+        return outputs, targets
+
+    field_outputs, scalar_outputs = outputs
+    field_targets, scalar_targets = targets
+
+    scalar_vars = [var for var in output_vars if var in config.data.scalars]
+    non_scalar_vars = [var for var in output_vars if var in config.data.non_scalars]
+    
+    # Denormalize field outputs and targets
+    if field_outputs is not None:
+        field_outputs = torch.stack([
+            dataset._denormalize(p, var) 
+            for p, var in zip(torch.unbind(field_outputs, dim=1), non_scalar_vars)
+        ], dim=1)
+
+    if field_targets is not None:
+        field_targets = [
+            dataset._denormalize(t, var) 
+            for t, var in zip(field_targets, non_scalar_vars)
+        ]
+
+    # Denormalize scalar outputs and targets
+    if scalar_outputs is not None:
+        scalar_outputs = torch.stack([
+            dataset._denormalize(p, var) 
+            for p, var in zip(torch.unbind(scalar_outputs, dim=1), scalar_vars)
+        ], dim=1)
+
+    if scalar_targets is not None:
+        scalar_targets = [
+            dataset._denormalize(t, var) 
+            for t, var in zip(scalar_targets, scalar_vars)
+        ]
+
+    return (field_outputs, scalar_outputs), (field_targets, scalar_targets)
