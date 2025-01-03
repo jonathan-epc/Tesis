@@ -31,8 +31,8 @@ def load_dataset(config, file_path):
         numpoints_y=config.data.numpoints_y,
         channel_length=config.channel.length,
         channel_width=config.channel.width,        
-        normalize_input=True,
-        normalize_output=False,
+        normalize_input=config.data.normalize_input,
+        normalize_output=config.data.normalize_output,
         device="cpu",
         preload=True,
     )

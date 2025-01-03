@@ -11,7 +11,7 @@ training:
   pretrained_model_name:
   clip_grad_value: 1
   weight_decay: 0.0023836541443711034
-  lambda_physics: 0.0014685266764651844
+  lambda_physics: 0.5
   time_limit: 86400
 model:
   name: FNOnet
@@ -31,27 +31,27 @@ channel:
 data:
   file_name: data/bars.hdf5
   normalize_input: true
-  normalize_output: false
+  normalize_output: true
   adimensional: false
   numpoints_x: 401
   numpoints_y: 11
   preload: true
   inputs:
-    # - H0
-    # - Q0
+    - H0
+    - Q0
     # - SLOPE
-    # - n
-    # - nut
+    - n
+    - nut
     # - Ar
     # - Hr
     # - M
-    # - B
+    - B
     # - F
     # - H
     # - Q
     # - S
-    - U
-    - V
+    # - U
+    # - V
     # - D
     # - Vr
     # - Fr
@@ -64,16 +64,16 @@ data:
     # - H0
     # - Q0
     # - SLOPE
-    - n
-    - nut
+    # - n
+    # - nut
     # - Ar
     # - Hr
     # - M
-    - B
+    # - B
     # - F
     - H
-    # - U
-    # - V
+    - U
+    - V
     # - D
     # - Q
     # - S
@@ -122,8 +122,8 @@ logging:
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: study4i
-  study_notes: 'Study 4: Inverse problem, dimensional, bars. Changed the denormalization, now it only denormalizes for metric calculations'
+  study_name: study6
+  study_notes: 'Study 6: Direct problem, dimensional, bars. Capped lambda at 0.95'
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
@@ -140,7 +140,7 @@ optuna:
     lambda_physics:
       type: float
       low: 0
-      high: 1
+      high: 0.95
       log: false
     batch_size:
       type: categorical
