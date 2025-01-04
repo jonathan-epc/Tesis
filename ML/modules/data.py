@@ -54,15 +54,17 @@ class HDF5Dataset(Dataset):
             self.len = len(self.keys)
 
             # Dynamically filter FIELDS and SCALARS based on dataset content
-            available_fields = set()
-            available_scalars = set()
-            for key in self.keys:
-                group = f[key]
-                available_fields.update(var for var in self.FIELDS if var in group)
-                available_scalars.update(scalar for scalar in self.SCALARS if scalar in group.attrs)
+            if self.keys:
+                first_key = self.keys[0]
+                group = f[first_key]
+                available_fields = {var for var in self.FIELDS if var in group}
+                available_scalars = {scalar for scalar in self.SCALARS if scalar in group.attrs}
+            else:
+                available_fields = set()
+                available_scalars = set()
 
-            self.FIELDS = list(available_fields) + self.ADIMENSIONAL_FIELDS
-            self.SCALARS = list(available_scalars) + self.ADIMENSIONAL_SCALARS
+            self.FIELDS = list(available_fields)
+            self.SCALARS = list(available_scalars)
 
             self.stats = self._load_stats(f) if (self.normalize_input or self.normalize_output) else ({}, {})
 
@@ -98,7 +100,7 @@ class HDF5Dataset(Dataset):
     def _load_case(self, group) -> dict:
         case = {param: group.attrs[param] for param in self.SCALARS if param in group.attrs}
         case.update({var: torch.from_numpy(group[var][()]).float() for var in self.FIELDS if var in group})
-        case.update(self._compute_adimensional_numbers(case))
+        # case.update(self._compute_adimensional_numbers(case))
         return case
 
     def _get_case(self, idx: int) -> dict:
