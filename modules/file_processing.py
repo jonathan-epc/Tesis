@@ -23,7 +23,29 @@ def process_and_save(
     parameter_names,
     variable_names,
     result_files,
+    channel_length,
+    channel_width,
 ):
+    def _compute_adimensional_numbers(case):
+        g = 9.81
+        H0, Q0, n, nut, SLOPE = case['H0'], case['Q0'], case['n'], case['nut'], case['SLOPE']
+        xc, yc = channel_length, channel_width
+        bc, hc = SLOPE * xc, H0
+        uc = Q0 / (H0 * yc)
+
+        return {
+            'Ar': xc / yc,
+            'Vr': 1,
+            'Fr': uc / (g * hc)**0.5,
+            'Hr': bc / hc,
+            'Re': (uc * xc) / nut,
+            'M': g * n**2 * xc / (hc**(4 / 3)),
+            'H*': case['H'] / hc,
+            'U*': case['U'] / uc,
+            'V*': case['V'] / uc,
+            'B*': case['B'] / bc,
+        }
+
     overall_stats = {}
     for idx, result_file in enumerate(
         tqdm(result_files, desc="Processing files"),
@@ -39,25 +61,21 @@ def process_and_save(
             result = xr.open_dataset(
                 os.path.join(base_dir, "results", result_file), engine="selafin"
             )
-            logger.debug(f"Opened {result_file} succesfully")
+            logger.debug(f"Opened {result_file} successfully")
             
             # Dynamically construct the path for the geometry file to fetch variable B
             bottom_type = parameters.iloc[i]["BOTTOM"]
             geometry_path = os.path.join(
                 base_dir, "geometry", f"3x3_{bottom_type}_{i}.slf"
             )
-            logger.debug(f"Constructed path for {result_file} geometry succesfully")
-            
-            # Open the geometry file and extract variable B
             geometry_data = xr.open_dataset(geometry_path, engine="selafin")
             variable_B = geometry_data["B"][0]
-            logger.debug(f"Extracted geometry for {result_file} succesfully")
 
             # Create simulation group in the HDF5 file
             simulation_parameters = parameters.iloc[i]
             simulation_group = hdf5_file.create_group(f"simulation_{i}")
-            logger.debug(f"Created simulation group in the HDF5 file for {result_file} succesfully")
 
+            # Extract variables and calculate their statistics
             variable_stats = {}
             for variable_name, variable_data in result.items():
                 if variable_name in variable_names:
@@ -66,13 +84,30 @@ def process_and_save(
                         pd.Series(variable_data[-1].values)
                     )
 
-            logger.debug(f"Added variable data to HDF5 file for {result_file} succesfully")
-
-            # Add variable B to the simulation group
+            # Add variable B and its stats
             simulation_group.create_dataset("B", data=variable_B.values)
             variable_stats["B"] = calculate_statistics(pd.Series(variable_B.values))
-            logger.debug(f"Added geometry data to HDF5 file for {result_file} succesfully")
 
+            # Prepare case dictionary for adimensional numbers
+            case = {
+                "H0": simulation_parameters["H0"],
+                "Q0": simulation_parameters["Q0"],
+                "n": simulation_parameters["n"],
+                "nut": simulation_parameters["nut"],
+                "SLOPE": simulation_parameters["SLOPE"],
+                "H": result["H"][-1].values,
+                "U": result["U"][-1].values,
+                "V": result["V"][-1].values,
+                "B": variable_B.values,
+            }
+
+            # Compute and save adimensional numbers
+            adimensional_numbers = _compute_adimensional_numbers(case)
+            for adim_name, adim_value in adimensional_numbers.items():
+                simulation_group.create_dataset(adim_name, data=adim_value)
+                variable_stats[adim_name] = calculate_statistics(pd.Series(adim_value))
+
+            # Add simulation parameters as attributes
             for parameter_name, parameter_value in simulation_parameters.items():
                 simulation_group.attrs[parameter_name] = parameter_value
 
@@ -84,13 +119,9 @@ def process_and_save(
                     var_name: combine_statistics(
                         overall_stats[var_name], variable_stats[var_name]
                     )
-                    for var_name in variable_names
+                    for var_name in {**variable_stats, **overall_stats}
                 }
-                if "B" in variable_stats:
-                    overall_stats["B"] = combine_statistics(
-                        overall_stats.get("B", {}), variable_stats["B"]
-                    )
-            logger.debug(f"Updated overall statistics for {result_file} succesfully")
+
             logger.info(f"Processed file: {result_file}")
 
         except Exception as e:
@@ -107,7 +138,7 @@ def process_and_save(
             statistics_group.attrs[f"{name}_{stat}"] = table.loc[
                 table["names"] == name
             ][stat].item()
-    logger.info(f"Saved statistics of {result_file}")
+    logger.info("Saved statistics to HDF5 file")
     return table
 
 
