@@ -21,6 +21,8 @@ class ProcessingConfig:
     base_dir: str
     generate_normalized: bool = False
     separate_critical_states: bool = False
+    channel_length: float = 12
+    channel_width: float = 0.3
     bottom_types: Optional[List[str]] = None
     parameter_names: Optional[List[str]] = None
     variable_names: Optional[List[str]] = None
@@ -75,16 +77,34 @@ def load_and_validate_data(
     if not result_files:
         raise ValueError(f"No result files found in {results_dir}")
 
+    # Compute adimensional numbers
+    def compute_adimensional_numbers(row):
+        g = 9.81
+        xc, yc = config.channel_length, config.channel_width
+        bc, hc = row["SLOPE"] * xc, row["H0"]
+        uc = row["Q0"] / (hc * yc)
+        nut = row["nut"]
+
+        return {
+            "Ar": xc / yc,
+            "Vr": 1,
+            "Fr": uc / (g * hc) ** 0.5,
+            "Hr": bc / hc,
+            "Re": (uc * xc) / nut,
+            "M": g * row["n"]**2 * xc / (hc ** (4 / 3)),
+        }
+
+    adim_params = parameters.apply(compute_adimensional_numbers, axis=1, result_type="expand")
+    parameters = pd.concat([parameters, adim_params], axis=1)
     return (
         parameters,
         result_files,
         config.variable_names or ["H", "U", "V"],
     )
 
-def prepare_parameter_table(
-    parameters: pd.DataFrame, parameter_names: List[str]
-) -> pd.DataFrame:
-    parameter_stats = {param: parameters[param].describe() for param in parameter_names}
+def prepare_parameter_table(parameters: pd.DataFrame, parameter_names: List[str], config: ProcessingConfig) -> pd.DataFrame:
+    # Compute stats for all parameters (including adimensional)
+    parameter_stats = {param: parameters[param].describe() for param in parameters.columns if param in parameter_names}
     parameter_table = (
         pd.DataFrame(parameter_stats)
         .T.reset_index()
@@ -92,6 +112,7 @@ def prepare_parameter_table(
     )
     parameter_table["variance"] = parameter_table["variance"] ** 2
     return parameter_table
+
 
 def process_data(
     config: ProcessingConfig,
@@ -101,7 +122,7 @@ def process_data(
     variable_names: List[str],
     parameter_names: List[str],
 ):
-    parameter_table = prepare_parameter_table(parameters, parameter_names)
+    parameter_table = prepare_parameter_table(parameters, parameter_names, config)
     bottom_types = config.bottom_types or ["NOISE", "SLOPE", "BUMP", "BARS"]
 
     for bottom_type in bottom_types:
@@ -122,6 +143,8 @@ def process_data(
                         hdf5_file,
                         bottom_type.upper(),
                         config.base_dir,
+                        config.channel_width,
+                        config.channel_length,
                         filtered_parameters,
                         parameter_table,
                         parameter_names,
@@ -138,6 +161,8 @@ def process_data(
                             bottom_type.upper(),
                             None,
                             config.base_dir,
+                            config.channel_width,
+                            config.channel_length,
                             filtered_parameters,
                             parameter_names,
                             variable_names,
@@ -149,6 +174,8 @@ def process_data(
                     hdf5_file,
                     bottom_type.upper(),
                     config.base_dir,
+                    config.channel_width,
+                    config.channel_length,
                     parameters,
                     parameter_table,
                     parameter_names,
@@ -163,6 +190,8 @@ def process_data(
                         bottom_type.upper(),
                         table,
                         config.base_dir,
+                        config.channel_width,
+                        config.channel_length,
                         parameters,
                         parameter_names,
                         variable_names,
@@ -180,6 +209,10 @@ def process_simulation_results(config: ProcessingConfig, yaml_config: Dict) -> N
             "parameter_names", ["H0", "Q0", "SLOPE", "n"]
         )
         config.variable_names = yaml_config.get("variable_names", ["H", "U", "V"])
+        
+        config.channel_length = yaml_config.get("channel_length", 12)
+
+        config.channel_width = yaml_config.get("channel_width", 12)
 
         parameters, result_files, variable_names = load_and_validate_data(config)
         files = get_output_files(config)

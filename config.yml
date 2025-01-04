@@ -1,6 +1,8 @@
+channel_length: 12
+channel_width: 0.3
 bottom_types:
-  # - NOISE
-  # - SLOPE
+  - NOISE
+  - SLOPE
   - BARS
 parameter_names:
   - H0
@@ -8,8 +10,14 @@ parameter_names:
   - SLOPE
   - n
   - nut
+  - Ar
+  - Vr
+  - Hr
+  - Fr
+  - Re
+  - M
 variable_names:
   - H
   - U
   - V
-  - B
+  #- B

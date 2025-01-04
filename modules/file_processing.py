@@ -18,13 +18,13 @@ def process_and_save(
     hdf5_file,
     condition,
     base_dir,
+    channel_length,
+    channel_width,
     parameters,
     parameter_table,
     parameter_names,
     variable_names,
     result_files,
-    channel_length,
-    channel_width,
 ):
     def _compute_adimensional_numbers(case):
         g = 9.81
@@ -34,12 +34,6 @@ def process_and_save(
         uc = Q0 / (H0 * yc)
 
         return {
-            'Ar': xc / yc,
-            'Vr': 1,
-            'Fr': uc / (g * hc)**0.5,
-            'Hr': bc / hc,
-            'Re': (uc * xc) / nut,
-            'M': g * n**2 * xc / (hc**(4 / 3)),
             'H*': case['H'] / hc,
             'U*': case['U'] / uc,
             'V*': case['V'] / uc,
@@ -101,11 +95,20 @@ def process_and_save(
                 "B": variable_B.values,
             }
 
+            
             # Compute and save adimensional numbers
             adimensional_numbers = _compute_adimensional_numbers(case)
+            
+            # Define adimensional numbers to be added as groups
+            grouped_adim_numbers = {"B*", "H*", "U*", "V*"}
             for adim_name, adim_value in adimensional_numbers.items():
-                simulation_group.create_dataset(adim_name, data=adim_value)
-                variable_stats[adim_name] = calculate_statistics(pd.Series(adim_value))
+                if adim_name in grouped_adim_numbers:
+                    # Add specific adimensional numbers as datasets
+                    simulation_group.create_dataset(adim_name, data=adim_value)
+                    variable_stats[adim_name] = calculate_statistics(pd.Series(adim_value))
+                else:
+                    # Add other adimensional numbers as simulation attributes
+                    simulation_group.attrs[adim_name] = adim_value
 
             # Add simulation parameters as attributes
             for parameter_name, parameter_value in simulation_parameters.items():
