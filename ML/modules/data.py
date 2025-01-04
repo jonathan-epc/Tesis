@@ -10,9 +10,11 @@ class HDF5Dataset(Dataset):
     Optimized PyTorch Dataset for FNO training with HDF5 files.
     """
 
-    FIELDS = ['B', 'F', 'H', 'Q', 'S', 'U', 'V', 'D', 'Vr', 'Fr', 'Re', 'B*', 'H*', 'U*', 'V*']
-    NUMERIC_SCALARS = ['H0', 'Q0', 'SLOPE', 'n', 'nut', 'Ar', 'Hr', 'M']
+    FIELDS = ['B', 'F', 'H', 'Q', 'S', 'U', 'V', 'D', 'B*', 'H*', 'U*', 'V*']
+    NUMERIC_SCALARS = ['H0', 'Q0', 'SLOPE', 'n', 'nut','Vr', 'Fr', 'Re', 'Ar', 'Hr', 'M']
     NON_NUMERIC_SCALARS = ['BOTTOM', 'direction', 'id', 'subcritical', 'yc', 'yn']
+    ADIMENSIONAL_FIELDS = ['H*', 'U*', 'V*', 'B*']
+    ADIMENSIONAL_SCALARS = ['Ar', 'Vr', 'Fr', 'Hr', 'Re', 'M']
     SCALARS = NUMERIC_SCALARS + NON_NUMERIC_SCALARS
 
     def __init__(
@@ -59,8 +61,8 @@ class HDF5Dataset(Dataset):
                 available_fields.update(var for var in self.FIELDS if var in group)
                 available_scalars.update(scalar for scalar in self.SCALARS if scalar in group.attrs)
 
-            self.FIELDS = list(available_fields)
-            self.SCALARS = list(available_scalars)
+            self.FIELDS = list(available_fields) + self.ADIMENSIONAL_FIELDS
+            self.SCALARS = list(available_scalars) + self.ADIMENSIONAL_SCALARS
 
             self.stats = self._load_stats(f) if (self.normalize_input or self.normalize_output) else ({}, {})
 
@@ -73,9 +75,13 @@ class HDF5Dataset(Dataset):
         self._validate_variables(input_vars + output_vars)
 
     def _validate_variables(self, vars_to_check: List[str]):
-        invalid_vars = set(vars_to_check) - set(self.FIELDS + self.SCALARS)
+        # Combine FIELDS, SCALARS, and ADIMENSIONAL_VARIABLES for validation
+        valid_variables = set(self.FIELDS + self.SCALARS)
+        
+        # Check for invalid variables
+        invalid_vars = set(vars_to_check) - valid_variables
         if invalid_vars:
-            raise ValueError(f"Unknown variables/parameters: {invalid_vars}")
+            raise ValueError(f"Unknown variables/parameters: {invalid_vars}")   
 
     def _load_stats(self, f) -> Tuple[dict, dict]:
         if 'statistics' in f:

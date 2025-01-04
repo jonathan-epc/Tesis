@@ -30,61 +30,51 @@ channel:
   wall_thickness: 0.00  # in m
 data:
   file_name: data/bars.hdf5
-  normalize_input: true
-  normalize_output: true
-  adimensional: false
+  normalize_input: false
+  normalize_output: false
+  adimensional: true
   numpoints_x: 401
   numpoints_y: 11
   preload: true
   inputs:
-    - H0
-    - Q0
-    # - SLOPE
-    - n
-    - nut
-    # - Ar
-    # - Hr
-    # - M
-    - B
-    # - F
+    # - H0
+    # - Q0
+    # - n
+    # - nut
+    # - B
     # - H
-    # - Q
-    # - S
     # - U
     # - V
-    # - D
+    - B*
+    # - Ar
     # - Vr
-    # - Fr
-    # - Re
-    # - B*
+    - Hr
+    - Fr
+    - M
+    - Re
     # - H*
     # - U*
     # - V*
   outputs:
     # - H0
     # - Q0
-    # - SLOPE
     # - n
     # - nut
-    # - Ar
-    # - Hr
-    # - M
     # - B
-    # - F
-    - H
-    - U
-    - V
+    # - H
+    # - U
+    # - V
     # - D
-    # - Q
-    # - S
     # - Ar
     # - Vr
+    # - Hr
     # - Fr
+    # - M
     # - Re
     # - B*
-    # - H*
-    # - U*
-    # - V*
+    - H*
+    - U*
+    - V*
   scalars:
     - H0
     - Q0
@@ -122,8 +112,8 @@ logging:
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: study6
-  study_notes: 'Study 6: Direct problem, dimensional, bars. Capped lambda at 0.95'
+  study_name: study7
+  study_notes: 'Study 7: Direct problem, adimensional, bars'
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
