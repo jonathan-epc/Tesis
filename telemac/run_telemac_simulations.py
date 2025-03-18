@@ -19,31 +19,23 @@ def main():
     logger = setup_logging()
 
     try:
-        # Load and validate parameters
         parameters = load_and_validate_parameters(PARAMETERS_FILE, logger)
-
-        # Determine the range of files to process
         start_index, end_index = determine_file_range(args, STEERING_FOLDER)
-        cas_files = get_cas_files(STEERING_FOLDER)
+        cas_files = get_cas_files(STEERING_FOLDER, args.adimensional)
         selected_files = cas_files[start_index:end_index]
 
-        # Apply bottom filter if specified
         if args.bottom is not None:
-            # Filter parameters by the specified bottom value
             parameters = filter_parameters_by_bottom(parameters, args.bottom, logger)
-
-            # Ensure selected files are filtered based on IDs in the filtered parameters
             parameter_ids = set(parameters.index.astype(str))
             selected_files = [
                 file
                 for file in selected_files
                 if os.path.splitext(file)[0] in parameter_ids
             ]
-            # Pre-check flux balance for the filtered range of files
+
         unbalanced_files = filter_unbalanced_files(
             selected_files, args.output_dir, logger
         )
-
         if args.dry_run:
             logger.info(f"Dry run: would process files {unbalanced_files}")
             logger.info(f"Number of unbalanced files: {len(unbalanced_files)}")
@@ -52,7 +44,6 @@ def main():
                 unbalanced_files, parameters, args.output_dir, STEERING_FOLDER
             )
             logger.info("Telemac2D simulations completed successfully")
-
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
         sys.exit(1)
@@ -133,6 +124,11 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Perform a dry run without actually running simulations",
     )
+    parser.add_argument(
+        "--adimensional",
+        action="store_true",
+        help="Filter files to start with 'a' and end with '.cas'",
+    )
     return parser.parse_args()
 
 def setup_logging():
@@ -169,19 +165,29 @@ def determine_file_range(
     args: argparse.Namespace, steering_folder: str
 ) -> Tuple[int, int]:
     if args.start == 0 and args.end == 0:
-        cas_files = get_cas_files(steering_folder)
+        cas_files = get_cas_files(steering_folder, args.adimensional)
         return 0, len(cas_files)
     elif args.start < 0 or args.end < args.start:
         raise ValueError("Invalid start or end index")
     else:
         return args.start, args.end
 
-def get_cas_files(folder: str) -> List[str]:
+def get_cas_files(folder: str, adimensional: bool) -> List[str]:
     if not os.path.isdir(folder):
         raise FileNotFoundError(f"Steering folder not found: {folder}")
-    cas_files = [f for f in os.listdir(folder) if f.endswith(".cas")]
+
+    if adimensional:
+        cas_files = [
+            f for f in os.listdir(folder) if f.startswith("a") and f.endswith(".cas")
+        ]
+    else:
+        cas_files = [f for f in os.listdir(folder) if f.endswith(".cas")]
+
     if not cas_files:
-        raise ValueError(f"No .cas files found in {folder}")
+        raise ValueError(
+            f"No {'adimensional ' if adimensional else ''}.cas files found in {folder}"
+        )
+
     return cas_files
 
 def filter_parameters_by_bottom(

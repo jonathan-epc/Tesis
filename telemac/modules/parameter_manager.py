@@ -60,7 +60,6 @@ class ParameterManager:
         self.sample_size = sample_size
         self.mode = mode
         self.parameters_df = self._load_or_generate_parameters()
-
     def _load_old_parameters(self):
         """
         Load existing parameters from a CSV file.
@@ -95,26 +94,26 @@ class ParameterManager:
         logger.info(f"Generating new parameters. Sample size: {self.sample_size}")
 
         try:
-            new_params = self._generate_base_parameters()
-
-            new_params = self._calculate_hydraulic_properties(new_params)
-
-            balanced_params = self._balance_samples(new_params)
-
-            final_params = self._add_bottom_values(balanced_params)
-
-            final_params["direction"] = np.where(
-                final_params["yn"] > final_params["yc"],
-                "Right to left",
-                "Left to right",
-            )
-
-            return final_params
-
+            if self.constants["adimensional"]:
+                # Generate a sampling of the nondimensional numbers
+                new_params = self._generate_adimensional_parameters()
+                # Invert them to obtain the physical parameters.
+                new_params = self._calculate_from_adimensionals(new_params)
+                new_params = self._calculate_hydraulic_properties(new_params)
+            else:
+                # Generate base parameters and then calculate hydraulic and adimensional properties.
+                new_params = self._generate_base_parameters()
+                new_params = self._calculate_hydraulic_properties(new_params)
+                new_params = self._balance_samples(new_params)
+                new_params = self._calculate_adimensionals(new_params)
+            # Here, add a simple direction flag based on a comparison of two hydraulic depths.
+            new_params["direction"] = np.where(new_params["yn"] > new_params["yc"], "Right to left", "Left to right")
+            new_params = self._add_bottom_values(new_params)
+            return new_params
         except Exception as e:
             logger.error(f"Error generating new parameters: {str(e)}")
             raise
-
+    
     def _generate_base_parameters(self):
         """
         Generate base parameters.
@@ -124,18 +123,54 @@ class ParameterManager:
         pandas.DataFrame
             DataFrame containing the base parameters.
         """
-        return SampleGenerator.sample_combinations(
-            self.sample_size,
-            self.constants["parameters"]["slope_min"],
-            self.constants["parameters"]["slope_max"],
-            self.constants["parameters"]["n_min"],
-            self.constants["parameters"]["n_max"],
-            self.constants["parameters"]["q0_min"],
-            self.constants["parameters"]["q0_max"],
-            self.constants["parameters"]["h0_min"],
-            self.constants["parameters"]["h0_max"],
-        )
+        param_ranges = {
+            "SLOPE": (self.constants["parameters"]["slope_min"], self.constants["parameters"]["slope_max"]),
+            "n": (self.constants["parameters"]["n_min"], self.constants["parameters"]["n_max"]),
+            "Q0": (self.constants["parameters"]["q0_min"], self.constants["parameters"]["q0_max"]),
+            "H0": (self.constants["parameters"]["h0_min"], self.constants["parameters"]["h0_max"]),
+        }
+        return SampleGenerator.sample_combinations(self.sample_size, param_ranges)
+    def _generate_adimensional_parameters(self):
+        # Sample 5 nondimensional numbers: Ar, Hr, Fr, Re, M.
+        # Note: The ranges here are illustrative; adjust as needed.
+        param_ranges = {
+            "Ar": (self.constants["parameters"]["Ar_min"], self.constants["parameters"]["Ar_max"]),
+            "Hr": (self.constants["parameters"]["Hr_min"], self.constants["parameters"]["Hr_max"]),
+            "Fr": (self.constants["parameters"]["Fr_min"], self.constants["parameters"]["Fr_max"]),
+            "Re": (self.constants["parameters"]["Re_min"], self.constants["parameters"]["Re_max"]),
+            "M": (self.constants["parameters"]["M_min"], self.constants["parameters"]["M_max"]),
+        }
+        return SampleGenerator.sample_combinations(self.sample_size, param_ranges)
 
+    def _calculate_adimensionals(self, params):
+        # Calculate the nondimensional numbers from the physical parameters.
+        g = self.constants["gravity"]
+        xc = params["L"]
+        yc = params["W"]
+        bc = params["L"]*params["SLOPE"]
+        hc = params["H0"]
+        uc = params["Q0"]/(params["H0"]*params["W"])
+        vc = params["Q0"]/(params["H0"]*params["L"])
+        
+        params["Ar"] = xc / yc
+        params["Vr"] = uc / vc
+        params["Hr"] = bc / hc
+        params["Fr"] = uc / (np.sqrt(g * hc))
+        params["Re"] = uc * xc / (params["nut"])
+        params["M"] = g * (params["n"]**2) * xc / (hc**(4/3))
+        return params
+        
+    def _calculate_from_adimensionals(self, params):
+        g = self.constants["gravity"]
+        params["W"] = 1.0
+        params["H0"] = 0.1
+        params["Vr"] = params["Ar"]
+        params["L"] = params["Ar"]
+        params["Q0"] = params["Fr"] * params["H0"] * params["W"] * np.sqrt(g * params["H0"])
+        params["SLOPE"] = (params["Hr"] * params["H0"]) / (params["Ar"] * params["W"])
+        params["n"] = (params["H0"]**(2/3) * np.sqrt(params["M"])) / (np.sqrt(params["Ar"]) * np.sqrt(g) * np.sqrt(params["W"]))
+        return params
+        
     def _calculate_hydraulic_properties(self, params):
         """
         Calculate hydraulic properties for the given parameters.
@@ -152,15 +187,17 @@ class ParameterManager:
         """
         params["yn"] = HydraulicCalculations.normal_depth_simple(
             params["Q0"],
-            self.constants["channel"]["width"],
+            params["W"],
             params["SLOPE"],
             params["n"],
         )
         params["yc"] = HydraulicCalculations.critical_depth_simple(
-            params["Q0"], self.constants["channel"]["width"]
+            params["Q0"], params["W"]
         )
         params["subcritical"] = params["yn"] > params["yc"]
-        params["nut"] = 0.41 * params["yn"] / 2 * np.sqrt(9.81 * params["SLOPE"] * params["yn"] * (self.constants["channel"]["width"])/(2*params["yn"] + self.constants["channel"]["width"]))
+        # params["nut"] = 0.41 * params["yn"] / 2 * np.sqrt(9.81 * params["SLOPE"] * params["yn"] * (params["W"])/(2*params["yn"] + params["W"]))
+        uc = params["Q0"] / (params["H0"] * params["W"])
+        params["nut"] = uc * params["L"] / params["Re"] #Correct nut calculation
         return params
 
     def _balance_samples(self, params):
@@ -229,7 +266,11 @@ class ParameterManager:
         if self.mode == "new":
             logger.info("Generating completely new parameter file.")
             new_params = self._generate_new_parameters()
+            
+            if self.constants["adimensional"]:
+                new_params.index = [f"a{id}" for id in range(len(new_params))]
             new_params.index.name = "id"
+                
             new_params.to_csv("parameters.csv", index=True)
             logger.info(
                 f"Wrote new parameters to parameters.csv. Shape: {new_params.shape}"
@@ -251,6 +292,9 @@ class ParameterManager:
                     old_params.set_index("id", inplace=True)
                 if "id" in new_params.columns:
                     new_params.set_index("id", inplace=True)
+                
+                if self.constants["adimensional"]:
+                    new_params.index = [f"a{id}" for id in range(len(new_params))]
 
                 combined_params = pd.concat([old_params, new_params], ignore_index=True)
                 combined_params = combined_params.drop_duplicates(keep="first")
@@ -262,7 +306,11 @@ class ParameterManager:
                 )
                 return combined_params
             else:
-                new_params.index.name = "id"
+                if self.constants["adimensional"]:
+                    new_params.index = [f"a{id}" for id in range(len(new_params))]
+                else:
+                    new_params.index.name = "id"
+                
                 new_params.to_csv("parameters.csv", index=True)
                 logger.info(
                     f"Wrote new parameters to parameters.csv. Shape: {new_params.shape}"
@@ -270,6 +318,8 @@ class ParameterManager:
                 return new_params
         else:
             raise ValueError("Invalid mode. Choose 'new', 'read', or 'add'.")
+
+            
 
     def get_parameters(self):
         """
@@ -281,40 +331,3 @@ class ParameterManager:
             DataFrame containing the parameters.
         """
         return self.parameters_df
-
-    def validate_constants(self):
-        """
-        Validate the constants dictionary.
-
-        Raises
-        ------
-        ValueError
-            If any required keys or parameters are missing.
-        """
-        required_keys = ["parameters", "channel"]
-        required_params = [
-            "slope_min",
-            "slope_max",
-            "n_min",
-            "n_max",
-            "q0_min",
-            "q0_max",
-            "h0_min",
-            "h0_max",
-            "bottom_values",
-        ]
-        required_channel = ["width"]
-
-        if not all(key in self.constants for key in required_keys):
-            raise ValueError(f"Missing required keys in constants: {required_keys}")
-
-        if not all(param in self.constants["parameters"] for param in required_params):
-            raise ValueError(f"Missing required parameters: {required_params}")
-
-        if not all(
-            channel_param in self.constants["channel"]
-            for channel_param in required_channel
-        ):
-            raise ValueError(f"Missing required channel parameters: {required_channel}")
-
-        logger.info("Constants validation passed.")

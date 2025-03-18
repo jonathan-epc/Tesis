@@ -45,7 +45,8 @@ class GeometryGenerator:
         Returns:
             np.ndarray: 2D array representing the channel geometry
         """
-
+        adimensional = kwargs.get("adimensional", False)
+        file_name=f"geometry/3x3_{bottom_type}_{idx}.slf"
         x = np.linspace(0, channel_length, num_points_x)
         y = np.linspace(0, channel_width, num_points_y)
         xv, yv = np.meshgrid(x, y, indexing="ij")
@@ -59,9 +60,11 @@ class GeometryGenerator:
         geometry_hash = hashlib.md5(z.tobytes()).hexdigest()
         logger.debug(f"Geometry hash for idx {idx}, bottom_type {bottom_type}: {geometry_hash}")
         # Save the generated geometry to file
-        flat_mesh["B"].values = z.T.reshape(1, flat_mesh.y.shape[0])
-        flat_mesh.selafin.write(f"geometry/3x3_{bottom_type}_{idx}.slf")
-
+        flat_mesh_copy = flat_mesh.copy(deep=True)
+        flat_mesh_copy["x"].values = flat_mesh_copy["x"].values / 12 * channel_length
+        flat_mesh_copy["y"].values = flat_mesh_copy["y"].values / 0.3 * channel_width
+        flat_mesh_copy["B"].values = z.T.reshape(1, flat_mesh_copy.y.shape[0])
+        flat_mesh_copy.selafin.write(file_name)
         z_left = z[0::num_points_x].max()
         z_right = z[num_points_x - 1 :: num_points_x].max()
         # Check for NaN values
@@ -72,7 +75,7 @@ class GeometryGenerator:
     @staticmethod
     def _normalize_variation(variation, min_var, max_var):
         """Normalize the variation between min_var and max_var."""
-        return min_var + (variation - variation.min()) / (variation.ptp()) * (
+        return min_var + (variation - variation.min()) / (np.ptp(variation)) * (
             max_var - min_var
         )
 
@@ -259,7 +262,7 @@ class GeometryGenerator:
 
     @staticmethod
     def _get_transition(yv, transition_type):
-        normalized_y = (yv - yv.min()) / yv.ptp()
+        normalized_y = (yv - yv.min()) / np.ptp(yv)
         if transition_type == "linear":
             return normalized_y
         elif transition_type == "sigmoid":

@@ -18,5 +18,18 @@ parameters:
   q0_min: 0.005
   q0_max: 0.02
   h0_min: 0.01 
-  h0_max: 0.25 
+  h0_max: 0.25
+  Ar_min: 1
+  Ar_max: 40
+  Hr_min: 0.001
+  Hr_max: 30
+  Fr_min: 0.001
+  Fr_max: 10
+  M_min: 0.001
+  M_max: 500
+  Re_min: 100
+  Re_max: 75000
   bottom_values: ["BARS"]
+
+adimensional: true
+gravity: 9.81

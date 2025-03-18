@@ -97,7 +97,8 @@ def run_telemac2d_on_files(file_list: List[str], parameters, output_dir, steerin
 
     with tqdm(total=total_files, unit="case", dynamic_ncols=True) as pbar:
         for i, filename in enumerate(file_list):
-            case_parameters = parameters.loc[int(os.path.splitext(filename)[0])]
+            case_id = os.path.splitext(filename)[0]  # Keep it as a string
+            case_parameters = parameters.loc[case_id]  # Use string-based index
 
             pbar.set_description(f"Processing {filename}")
             simulation_run = run_single_simulation(

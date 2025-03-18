@@ -16,7 +16,9 @@ from modules.parameter_manager import ParameterManager
 from modules.steering_file_generator import SteeringFileGenerator
 
 def process_case(index, case, setup_data, overwrite=False):
+    adimensional = setup_data['constants']['adimensional']
     steering_file_path = Path(f"steering/{index}.cas")
+    geometry_file = f"geometry/3x3_{case['BOTTOM']}_{index}.slf"
 
     if steering_file_path.exists() and not overwrite:
         logger.info(f"Steering file for case {index} already exists. Skipping processing.")
@@ -24,7 +26,7 @@ def process_case(index, case, setup_data, overwrite=False):
 
     try:
         logger.debug(f"Processing case {index}")
-
+        
         geometry_generator = GeometryGenerator()
         borders = geometry_generator.generate_geometry(
             index,
@@ -33,9 +35,10 @@ def process_case(index, case, setup_data, overwrite=False):
             setup_data["flat_mesh"],
             setup_data["constants"]["mesh"]["num_points_x"],
             setup_data["constants"]["mesh"]["num_points_y"],
-            setup_data["constants"]["channel"]["length"],
-            setup_data["constants"]["channel"]["width"],
-            h0=case["H0"]
+            case["L"],
+            case["W"],
+            h0=case["H0"],
+            adimensional=adimensional
         )
 
         boundary_file, prescribed_elevations = BoundaryConditions.get_boundary_and_elevations(
@@ -43,8 +46,9 @@ def process_case(index, case, setup_data, overwrite=False):
         )
 
         steering_generator = SteeringFileGenerator()
+        
         steering_file_content = steering_generator.generate_steering_file(
-            geometry_file=f"geometry/3x3_{case['BOTTOM']}_{index}.slf",
+            geometry_file=geometry_file,
             boundary_file=boundary_file,
             results_file=f"results/{index}.slf",
             title=f"Case {index}",
