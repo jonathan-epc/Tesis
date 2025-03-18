@@ -1,11 +1,17 @@
 from typing import Dict, List, Tuple, Type
 import numpy as np
 import torch
+from pathlib import Path
 import math
+from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
+from datetime import datetime
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from config import get_config
 from cmap import Colormap
+from matplotlib.gridspec import GridSpec
+import re
+
 
 class PlotManager:
     def __init__(self, base_dir="plots"):
@@ -53,6 +59,7 @@ class PlotManager:
 
         # Construct base filename
         base_filename = f"{plot_type}{version_str}_{timestamp}"
+        base_filename = re.sub(r'[<>:"/\\|?*\0]', 'a', base_filename)
 
         # Prepare metadata
         metadata = {
@@ -92,14 +99,15 @@ def plot_scatter(
     scalar_outputs=None,
     scalar_targets=None,
     scalar_names=None,
-    units=None,  # Dictionary mapping variable names to their units
+    units=None,         # Dictionary mapping variable names to their units
+    long_names=None,    # Dictionary mapping variable symbols to full names (can be nested for languages)
     metrics=None,
     cols=3,
     custom_cmap=None,
     plot_manager: PlotManager = None,
-    language="en",  # 'en' for English, 'es' for Spanish
-    detailed=True,  # Toggle between detailed and simple plots
-    data_percentile=98,  # Percentile of data to include in plot range
+    language="en",      # 'en' for English, 'es' for Spanish
+    detailed=True,      # Toggle between detailed and simple plots
+    data_percentile=98, # Percentile of data to include in plot range
 ):
     """
     Creates prediction vs target plots for both field and scalar variables.
@@ -136,10 +144,14 @@ def plot_scatter(
     total_plots = sum(outputs.size(1) for outputs in all_outputs)
     rows = int(np.ceil(total_plots / cols))
 
-    # Create subplots for predictions and residuals
+    # Create subplots for predictions and residuals with a global title.
     for plot_type in ["predictions", "residuals"]:
         fig, ax = plt.subplots(rows, cols, figsize=(cols * 4, rows * 4))
         ax = ax.flatten()
+
+        # Set a single, global title for the figure.
+        global_title = f"{lang['predictions'] if plot_type=='predictions' else lang['residuals']} {lang['vs']} {lang['targets']}"
+        fig.suptitle(global_title, fontsize=16)
 
         plot_idx = 0
         for outputs, targets, names in zip(all_outputs, all_targets, all_names):
@@ -185,19 +197,28 @@ def plot_scatter(
                 unit_str = (
                     f" ({units[names[i]]})" if units and names[i] in units else ""
                 )
+                
+                # Determine the display name, supporting multiple languages if available.
+                if long_names:
+                    if names[i] in long_names:
+                        if isinstance(long_names[names[i]], dict):
+                            display_name = f"{long_names[names[i]].get(language, names[i])} {names[i]}"
+                        else:
+                            display_name = f"{long_names[names[i]]} {names[i]}"
+                    else:
+                        display_name = names[i]
+                else:
+                    display_name = names[i]
 
-                # Set labels and title
+                # Set only the variable name (with unit) as the subplot title.
+                ax[plot_idx].set_title(f"{display_name}{unit_str}", fontsize=10)
+
+                # Set labels
                 ax[plot_idx].set_xlabel(f"{lang['targets']}{unit_str}")
                 ax[plot_idx].set_ylabel(
-                    f"{lang['predictions']}{unit_str}"
-                    if plot_type == "predictions"
+                    f"{lang['predictions']}{unit_str}" if plot_type == "predictions"
                     else f"{lang['residuals']}{unit_str}"
                 )
-                plot_title = (
-                    f"{lang['predictions'] if plot_type == 'predictions' else lang['residuals']} "
-                    f"{lang['vs']} {lang['targets']} {lang['for']} {names[i]}{unit_str}"
-                )
-                ax[plot_idx].set_title(plot_title)
                 ax[plot_idx].axis("square")
 
                 # Add metrics if available and detailed mode is on
@@ -207,7 +228,7 @@ def plot_scatter(
                     )
                     ax[plot_idx].text(
                         0.05,
-                        0.95,
+                        0.90,
                         metric_text,
                         transform=ax[plot_idx].transAxes,
                         verticalalignment="top",
@@ -217,10 +238,10 @@ def plot_scatter(
 
                 plot_idx += 1
 
-        # Hide unused subplots
+        # Hide any unused subplots
         for j in range(total_plots, len(ax)):
             fig.delaxes(ax[j])
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for the suptitle
         plot_manager.save_plot(
             fig, plot_type=plot_type, dpi=300, formats=["png", "pdf"]
         )
@@ -231,16 +252,18 @@ def plot_field_comparisons(
     field_outputs,
     field_targets,
     field_names,
-    units=None,  # Dictionary mapping variable names to their units
+    units=None,      # Dictionary mapping variable names to their units
+    long_names=None, # Optional: Dictionary mapping variable names to full names (can be nested for languages)
     case_idx=43,
     custom_cmap=None,
     plot_manager: PlotManager = None,
-    language="en",  # 'en' for English, 'es' for Spanish
-    detailed=True,  # Toggle between detailed and simple plots
+    language="en",   # 'en' for English, 'es' for Spanish
+    detailed=True,   # Toggle between detailed and simple plots
 ):
     """
     Creates comparison plots for field variables showing expected, calculated, and difference,
-    with added error metrics for the difference plot.
+    with added error metrics for the difference plot. The suptitle includes the case number, variable's long name,
+    symbol, and unit, while each subplot shows only its individual label.
     """
     # Language dictionary
     translations = {
@@ -276,21 +299,27 @@ def plot_field_comparisons(
 
         # Normalized error metrics
         mape = np.mean(np.abs(diff / target)) * 100 if np.all(target != 0) else np.nan
-        nrmse = (
-            rmse / (target.max() - target.min())
-            if target.max() != target.min()
-            else np.nan
-        )
+        nrmse = rmse / (target.max() - target.min()) if target.max() != target.min() else np.nan
         smape = np.mean(2 * np.abs(diff) / (np.abs(target) + np.abs(output))) * 100
 
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 5))
 
         # Get unit string if available
-        unit_str = (
-            f" ({units[field_names[i]]})" if units and field_names[i] in units else ""
-        )
+        unit_str = f" ({units[field_names[i]]})" if units and field_names[i] in units else ""
+        
+        # Determine the display name, supporting multiple languages if available.
+        if long_names:
+            if field_names[i] in long_names:
+                if isinstance(long_names[field_names[i]], dict):
+                    display_name = long_names[field_names[i]].get(language, field_names[i])
+                else:
+                    display_name = long_names[field_names[i]]
+            else:
+                display_name = field_names[i]
+        else:
+            display_name = field_names[i]
 
-        # Plot expected, calculated, and difference
+        # Plot expected, calculated, and difference without variable info in each subplot title.
         plots = [
             (ax1, target, lang["expected"], "turbo", (None, vmin, vmax)),
             (ax2, output, lang["calculated"], "turbo", (None, vmin, vmax)),
@@ -303,21 +332,22 @@ def plot_field_comparisons(
             ),
         ]
 
-        for ax, data, title, cmap, (norm, vmin, vmax) in plots:
-            im = ax.imshow(data, cmap=cmap, norm=norm, vmin=vmin, vmax=vmax)
-            ax.set_title(f"{title} {field_names[i]}{unit_str}")
+        for ax, data, title, cmap, (norm, vmin_local, vmax_local) in plots:
+            im = ax.imshow(data, cmap=cmap, norm=norm, vmin=vmin_local, vmax=vmax_local)
+            ax.set_title(title, fontsize=12)
             plt.colorbar(im, ax=ax, fraction=0.2, pad=0.4, orientation="horizontal")
 
         # Add error metrics to the Difference plot if detailed mode is on
         if detailed:
             metric_text = (
-                f"MAE: {mae:.4f}{unit_str}\nMax Error: {max_error:.4f}{unit_str}\n"
-                f"RMSE: {rmse:.4f}{unit_str}\nMAPE: {mape:.2f}%\n"
-                f"NRMSE: {nrmse:.4f}\nSMAPE: {smape:.2f}%"
+                f"MAE   : {mae:.4f}{unit_str}\tMax Error: {max_error:.4f}{unit_str}\n"
+                f"RMSE  : {rmse:.4f}{unit_str}\tMAPE     : {mape:.2f}%\n"
+                f"NRMSE : {nrmse:.4f}\tSMAPE    : {smape:.2f}%"
             )
+            metric_text = metric_text.expandtabs(8)
             ax3.text(
-                0.05,
-                0.95,
+                0.00,
+                -0.90,
                 metric_text,
                 ha="left",
                 va="top",
@@ -326,8 +356,12 @@ def plot_field_comparisons(
                 bbox=dict(facecolor="white", alpha=0.8),
             )
 
-        fig.suptitle(f"{lang['case']} {case_idx}")
-        plt.tight_layout()
+        # Set a suptitle including the case number, variable long name, symbol, and unit
+        fig.suptitle(
+            f"{lang['case']} {case_idx} - {display_name} ({field_names[i]}){unit_str}",
+            fontsize=16,
+        )
+        plt.tight_layout(rect=[0, 0, 1, 0.93])
         plot_manager.save_plot(
             fig,
             plot_type=f"{field_names[i]}_comparison_case_{case_idx}",
@@ -646,163 +680,7 @@ def plot_field_fourier(
         )
         plt.show()
 
-def plot_im(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: str, fold_n: int) -> str:
-    """
-    Plot and save the outputs, targets, and their difference side by side for each channel.
-    
-    Args:
-    outputs (torch.Tensor): Model outputs (batch_size, channels, numpoints_x, numpoints_y)
-    targets (torch.Tensor): Ground truth targets (batch_size, channels, numpoints_x, numpoints_y)
-    step (int): Current step (for filename)
-    name (str): Name of the run (for filename)
-    fold_n (int): Fold number (for filename)
-    
-    Returns:
-    str: Path to the saved plot image
-    """
-    config = get_config()
-    diff = (outputs - targets).abs()
-    outputs_np = outputs.cpu().detach().numpy()
-    targets_np = targets.cpu().detach().numpy()
-    diff_np = diff.cpu().detach().numpy()
-    
-    num_channels = outputs_np.shape[1]
-    fig, axes = plt.subplots(num_channels, 3, figsize=(15, num_channels))
-    fig.suptitle(f'Output, Target, and Absolute Difference at Step {step}')
-    
-    for i in range(num_channels):
-        ax_output = axes[i, 0] if num_channels > 1 else axes[0]
-        ax_target = axes[i, 1] if num_channels > 1 else axes[1]
-        ax_diff = axes[i, 2] if num_channels > 1 else axes[2]
-        
-        im_output = ax_output.imshow(outputs_np[0, i], cmap='viridis', vmin=-1, vmax=1, aspect='auto')
-        im_target = ax_target.imshow(targets_np[0, i], cmap='viridis', vmin=-1, vmax=1, aspect='auto')
-        im_diff = ax_diff.imshow(diff_np[0, i], cmap='viridis', vmin=0, vmax=2, aspect='auto')
-        
-        ax_output.set_title(f'Output - {config.data.variables[i]}')
-        ax_target.set_title(f'Target - {config.data.variables[i]}')
-        ax_diff.set_title(f'Absolute Difference - {config.data.variables[i]}')
-        
-        # Add colorbars with adjusted size
-        divider = make_axes_locatable(ax_output)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        fig.colorbar(im_output, cax=cax)
-        
-        divider = make_axes_locatable(ax_target)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        fig.colorbar(im_target, cax=cax)
-        
-        divider = make_axes_locatable(ax_diff)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        fig.colorbar(im_diff, cax=cax)
-    
-    plt.tight_layout()
-    filename = f"plots/{name}_im_step_{step}_fold_{fold_n}.png"
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    
-    return filename
-
-def plot_scatter(outputs: torch.Tensor, targets: torch.Tensor, step: int, name: str, fold_n: int) -> str:
-    """
-    Plot and save the scatter plot of outputs vs targets for each channel in a grid.
-
-    Args:
-    outputs (torch.Tensor): Model outputs (batch_size, channels, numpoints_x, numpoints_y)
-    targets (torch.Tensor): Ground truth targets (batch_size, channels, numpoints_x, numpoints_y)
-    step (int): Current step (for filename)
-    name (str): Name of the run (for filename)
-    fold_n (int): Fold number (for filename)
-
-    Returns:
-    str: Path to the saved plot image
-    """
-    config = get_config()
-    outputs_np = outputs.cpu().detach().numpy()
-    targets_np = targets.cpu().detach().numpy()
-
-    num_channels = outputs_np.shape[1]
-    rows = int(math.ceil(math.sqrt(num_channels)))
-    cols = int(math.ceil(num_channels / rows))
-    fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
-    fig.suptitle(f'Scatter Plot (Output vs Target) at Step {step}')
-   
-    for i in range(num_channels):
-        row = i // cols
-        col = i % cols
-        ax = axes[row, col] if rows > 1 else axes[col]
-        ax.scatter(targets_np[:, i].flatten(), outputs_np[:, i].flatten(), alpha=0.5)
-        ax.set_xlabel('Target')
-        ax.set_ylabel('Output')
-        ax.set_title(f'{config.data.variables[i]}')
-    # Remove any unused subplots
-    for i in range(num_channels, rows*cols):
-        row = i // cols
-        col = i % cols
-        fig.delaxes(axes[row, col] if rows > 1 else axes[col])
-
-    plt.tight_layout()
-    filename = f"plots/{name}_scatter_step_{step}_fold_{fold_n}.png"
-    plt.savefig(filename)
-    plt.close(fig)
-
-    return filename
-
-def plot_hist(outputs: torch.Tensor, targets: torch.Tensor, name: str, step: int, fold_n: int) -> str:
-    """
-    Plot and save the hexbin plot of outputs vs targets for each channel in a grid.
-
-    Args:
-    outputs (torch.Tensor): Model outputs (batch_size, channels, numpoints_x, numpoints_y)
-    targets (torch.Tensor): Ground truth targets (batch_size, channels, numpoints_x, numpoints_y)
-    step (int): Current step (for filename)
-    name (str): Name of the run (for filename)
-    fold_n (int): Fold number (for filename)
-
-    Returns:
-    str: Path to the saved plot image
-    """
-    config = get_config()
-    outputs_np = outputs.cpu().detach().numpy()
-    targets_np = targets.cpu().detach().numpy()
-    
-    num_channels = outputs_np.shape[1]
-    cols = int(math.ceil(math.sqrt(num_channels)))
-    rows = int(math.ceil(num_channels / cols))
-    fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
-    fig.suptitle(f'Hexbin Plot (Output vs Target) at Step {step}')
-
-    cm = Colormap('google:turbo').to_mpl()  # case insensitive
-    ranges=[
-        [[0.0,1.0], [0.0,1.0]],
-        [[0.0,0.1], [0.0,0.1]],
-        [[-0.05,0.05], [-0.05,0.05]],
-        [[0.0,0.8], [0.0,0.8]],
-        [[0.0,0.4], [0.0,0.4]],
-        [[-0.01,0.01], [-0.01,0.01]],
-    ]
-
-    for i in range(num_channels):
-        row = i // cols
-        col = i % cols
-        ax = axes[row, col] if rows > 1 else axes[col]
-        # hb = ax.hexbin(targets_np[:, i].flatten(), outputs_np[:, i].flatten(), gridsize=50, cmap=cm, extent=(-2,2,-2,2))
-        hb = ax.hist2d(targets_np[:, i].flatten(), outputs_np[:, i].flatten(), bins=256, cmap=cm, range=ranges[i])
-        ax.set_aspect('equal')
-        ax.set_xlabel('Target')
-        ax.set_ylabel('Output')
-        ax.set_title(f'{config.data.variables[i]}')
-
-    # Remove any unused subplots
-    for i in range(num_channels, rows*cols):
-        row = i // cols
-        col = i % cols
-        fig.delaxes(axes[row, col] if rows > 1 else axes[col])
-
-    plt.tight_layout()
-    filename = f"plots/{name}_hexbin_step_{step}_fold_{fold_n}.png"
-    plt.savefig(filename)
-    plt.close(fig)
-
-    return filename
-
+def plot_difference():
+    return
+def plot_difference_im():
+    return

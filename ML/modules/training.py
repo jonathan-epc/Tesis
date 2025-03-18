@@ -20,8 +20,8 @@ from tqdm.autonotebook import tqdm
 from modules.data import HDF5Dataset
 from modules.loss import PhysicsInformedLoss
 from modules.models import *
-from modules.plots import plot_hist as plot_difference
-from modules.plots import plot_im as plot_difference_im
+from modules.plots import plot_difference
+from modules.plots import plot_difference_im
 from modules.utils import EarlyStopping, compute_metrics, setup_logger, denormalize_outputs_and_targets
 
 
@@ -69,8 +69,8 @@ class Trainer:
             with autocast(self.device, enabled=(self.device == "cuda" and not self.model_is_complex)):
                 outputs = self.model(inputs)
                 
-                loss, _, _ = self.criterion(inputs, outputs, targets)
-
+                loss, _, _, _, _ = self.criterion(inputs, outputs, targets)
+            
             if self.scaler is not None:
                 self.scaler.scale(loss).backward()
             else:
@@ -92,6 +92,9 @@ class Trainer:
         total_loss = 0.0
         total_data_loss = 0.0
         total_physics_loss = 0.0
+        total_continuity_loss = 0.0
+        total_momentum_x_loss = 0.0
+        total_momentum_y_loss = 0.0
     
         all_field_outputs, all_scalar_outputs = [], []
         all_field_targets, all_scalar_targets = [], []
@@ -118,11 +121,13 @@ class Trainer:
                 outputs = self.model(inputs)
         
                 # Calculate loss
-                loss, data_loss, physics_loss = self.criterion(inputs, outputs, targets)
-                    
+                loss, data_loss, continuity_loss, momentum_x_loss, momentum_y_loss = self.criterion(inputs, outputs, targets)
             total_loss += loss.item()
             total_data_loss += data_loss.item()
-            total_physics_loss += physics_loss.item()
+            # total_physics_loss += physics_loss.item()
+            total_continuity_loss += continuity_loss.item()
+            total_momentum_x_loss += momentum_x_loss.item()
+            total_momentum_y_loss += momentum_y_loss.item()
 
             outputs, targets = denormalize_outputs_and_targets(
                 outputs, 
@@ -179,7 +184,10 @@ class Trainer:
         # Calculate average loss
         metrics["loss"] = total_loss / len(dataloader)
         metrics["data_loss"] = total_data_loss / len(dataloader)
-        metrics["physics_loss"] = total_physics_loss / len(dataloader)
+        # metrics["physics_loss"] = total_physics_loss / len(dataloader)
+        metrics["continuity_loss"] = total_continuity_loss / len(dataloader)
+        metrics["momentum_x_loss"] = total_momentum_x_loss / len(dataloader)
+        metrics["momentum_y_loss"] = total_momentum_y_loss / len(dataloader)
     
         return metrics
 
@@ -454,20 +462,11 @@ def cross_validation_procedure(
     config=None,
 ):
     logger.info("Starting cross-validation procedure")
+    print(hparams)
+    config.training.use_physics_loss = hparams["use_physics_loss"]
+    config.data.normalize_output = hparams["normalize_output"]
 
-    full_dataset = HDF5Dataset(
-        file_path=data_path,
-        input_vars=config.data.inputs,
-        output_vars=config.data.outputs,
-        numpoints_x=config.data.numpoints_x,
-        numpoints_y=config.data.numpoints_y,
-        channel_length=config.channel.length,
-        channel_width=config.channel.width,
-        normalize_input=config.data.normalize_input,
-        normalize_output=config.data.normalize_output,
-        device=config.device,
-        preload=config.data.preload,
-    )
+    full_dataset = HDF5Dataset.from_config(config, file_path=data_path)
 
     test_size = int(config.training.test_frac * len(full_dataset))
     train_val_size = len(full_dataset) - test_size

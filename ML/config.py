@@ -18,8 +18,9 @@ class TrainingConfig(BaseModel):
     early_stopping_patience: int = Field(64, ge=0)
     clip_grad_value: float = Field(1.0, gt=0)
     weight_decay: float = Field(0.01, gt=0)
-    pretrained_model_name: Union[str, None] = None
+    pretrained_model_name: Optional[str] = None
     time_limit: float = Field(86400, gt=0)
+    use_physics_loss: bool = False
     lambda_physics: float = Field(0.5, ge=0)
 
 
@@ -34,17 +35,20 @@ class ModelConfig(BaseModel):
     lifting_channels: int = Field(62, gt=0)
     projection_channels: int = Field(51, gt=0)
 
+
 class ChannelConfig(BaseModel):
     width: float = Field(0.3, gt=0)
     length: float = Field(12, gt=0)
     depth: float = Field(0.3, gt=0)
     wall_thickness: float = Field(0, ge=0)
 
+
 class DataConfig(BaseModel):
     file_name: str
     normalize_input: bool = True
     normalize_output: bool = False
     adimensional: bool = False
+    boxcox_transform: bool = False
     numpoints_x: int = Field(401, gt=0)
     numpoints_y: int = Field(11, gt=0)
     preload: bool = True
@@ -52,6 +56,18 @@ class DataConfig(BaseModel):
     outputs: List[str]
     scalars: List[str]
     non_scalars: List[str]
+    adimensionals: List[str]
+
+    @root_validator(pre=True)
+    def validate_adimensional_flag(cls, values):
+        inputs = values.get("inputs", [])
+        outputs = values.get("outputs", [])
+        adimensionals = values.get("adimensionals", [])
+        if any(item in inputs or item in outputs for item in adimensionals):
+            values["adimensional"] = True
+        else:
+            values["adimensional"] = False
+        return values
 
 
 class LoggingConfig(BaseModel):
@@ -98,21 +114,16 @@ class Config(BaseModel):
         v["wandb"] = os.environ.get("WANDB_API_KEY", v.get("wandb"))
         return v
 
-    # Using a root validator to validate both 'optuna' and 'data'
     @root_validator(pre=True)
     def validate_optuna_and_data(cls, values):
         optuna_config = values.get("optuna")
         data_config = values.get("data")
-        print(data_config)
 
         if optuna_config and data_config:
-            # Access numpoints_x and numpoints_y from data_config
             numpoints_x = data_config.get("numpoints_x", 77)
             numpoints_y = data_config.get("numpoints_y", 401)
 
             hyperparameter_space = optuna_config.get("hyperparameter_space", {})
-
-            # Ensure n_modes_x and n_modes_y are within valid bounds
             for mode, numpoints in zip(
                 ["n_modes_x", "n_modes_y"], [numpoints_x, numpoints_y]
             ):
@@ -121,11 +132,8 @@ class Config(BaseModel):
                     hyperparameter_space[mode]["high"] = min(
                         numpoints, numpoints // 2 * 2
                     )
-                    hyperparameter_space[mode]["step"] = (
-                        2  # Ensure only even numbers are suggested
-                    )
+                    hyperparameter_space[mode]["step"] = 2
 
-            # Update the optuna config in values
             optuna_config["hyperparameter_space"] = hyperparameter_space
             values["optuna"] = optuna_config
 
@@ -146,17 +154,14 @@ def load_config(config_path: str = "config.yaml") -> Config:
     except yaml.YAMLError as exc:
         raise ValueError(f"Error parsing YAML file: {exc}")
 
-    # Handle the 'class' key in model config
     if "model" in yaml_config and "class" in yaml_config["model"]:
         yaml_config["model"]["class_name"] = yaml_config["model"].pop("class")
 
-    # Add date to model name
     yaml_config["model"]["name"] = add_date_to_name(yaml_config["model"]["name"])
 
     return Config(**yaml_config)
 
 
-# Global variable to store config, initialized to None
 _config: Optional[Config] = None
 
 
@@ -171,8 +176,5 @@ def get_config() -> Config:
 
 
 if __name__ == "__main__":
-    config = get_config()  # Load the config when needed
+    config = get_config()
     print(config.json(indent=2))
-    print(f"Model name: {config.model.name}")
-    print(f"Optuna study name: {config.optuna.study_name}")
-    print(f"Optuna storage path: {config.optuna.storage}")

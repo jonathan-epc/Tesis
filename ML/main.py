@@ -2,117 +2,145 @@ import argparse
 import json
 import os
 import pickle
-import sys
-import traceback
-from typing import Any, Dict, Type
+from dataclasses import dataclass
+from enum import Enum, auto
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import optuna
-import torch.nn as nn
-
-from config import get_config
 from torch.cuda import empty_cache
 
+from config import get_config
 from modules.models import *
 from modules.training import cross_validation_procedure
 from modules.utils import is_jupyter, set_seed, setup_experiment, setup_logger
 
 
-class TrialSkippedException(Exception):
-    """Exception raised when a trial is skipped due to user interruption."""
+class OptimizerMode(Enum):
+    HYPERTUNING = auto()
+    TRAINING = auto()
+    REPEAT = auto()  # New mode added
 
-    pass
+    @classmethod
+    def from_string(cls, s: str) -> "OptimizerMode":
+        try:
+            return cls[s.upper()]
+        except KeyError:
+            raise ValueError(
+                f"Invalid mode: {s}. Must be one of {[m.name.lower() for m in cls]}"
+            )
+
+
+@dataclass
+class OptimizationResults:
+    best_value: float
+    best_params: Dict[str, Any]
+    study_name: str
+    n_trials: int
+
+    def save(self, path: Path):
+        path.write_text(
+            json.dumps(
+                {
+                    "best_value": self.best_value,
+                    "best_params": self.best_params,
+                    "study_name": self.study_name,
+                    "n_trials": self.n_trials,
+                },
+                indent=2,
+            )
+        )
 
 
 class HyperparameterOptimizer:
-    """Class to manage hyperparameter optimization."""
-
     def __init__(self, config):
         self.config = config
+        self.logger = setup_logger()
+        self.study_dir = Path(f"studies/{self.config.optuna.study_name}")
+        self.study_dir.mkdir(parents=True, exist_ok=True)
+
+    def _validate_config(self):
+        """Validate configuration before starting optimization"""
+        required_fields = ["hyperparameter_space", "study_name", "n_trials", "storage"]
+        missing = [f for f in required_fields if not hasattr(self.config.optuna, f)]
+        if missing:
+            raise ValueError(f"Missing required config fields: {missing}")
 
     def create_hparams(self, trial) -> Dict[str, Any]:
-        """Generate hyperparameters based on Optuna trial suggestions."""
         hparams = {}
         for param, space in self.config.optuna.hyperparameter_space.items():
-            suggest = getattr(trial, f"suggest_{space['type']}")
-            if space["type"] == "categorical":
-                hparams[param] = suggest(param, space["choices"])
-            elif "step" in space and space["step"] == 2:
-                low, high = [
-                    x if x % 2 == 0 else x + 1 for x in (space["low"], space["high"])
-                ]
-                hparams[param] = suggest(param, low, high, step=2)
-            else:
-                hparams[param] = suggest(
-                    param, space["low"], space["high"], log=space.get("log", False)
-                )
+            try:
+                suggest = getattr(trial, f"suggest_{space['type']}")
+                if space["type"] == "categorical":
+                    hparams[param] = suggest(param, space["choices"])
+                else:
+                    step = space.get("step", None)
+                    if step == 2:
+                        low = space["low"] + (space["low"] % 2)
+                        high = space["high"] + (space["high"] % 2)
+                        hparams[param] = suggest(param, low, high, step=2)
+                    else:
+                        hparams[param] = suggest(
+                            param,
+                            space["low"],
+                            space["high"],
+                            log=space.get("log", False),
+                        )
+            except AttributeError as e:
+                raise ValueError(
+                    f"Invalid hyperparameter space type for {param}: {space['type']}"
+                ) from e
+            except KeyError as e:
+                raise ValueError(
+                    f"Missing required field in hyperparameter space for {param}"
+                ) from e
         return hparams
 
-    def save_trial_params(self, trial):
-        """Save trial parameters to a JSON file."""
-        study_name = self.config.optuna.study_name
-        os.makedirs(f"studies/{study_name}", exist_ok=True)
-        trial_data = {
-            "number": trial.number,
-            "params": trial.params,
-        }
-        with open(f"studies/{study_name}/trial_{trial.number}.json", "w") as f:
-            json.dump(trial_data, f, indent=2)
+    def _get_model_class(self):
+        try:
+            return globals()[self.config.model.class_name]
+        except KeyError:
+            raise ValueError(f"Model class {self.config.model.class_name} not found")
 
     def objective(self, trial):
-        """Objective function for hyperparameter optimization."""
         hparams = self.create_hparams(trial)
-        model_class = getattr(sys.modules[__name__], self.config.model.class_name)
+        model_class = self._get_model_class()
         name = f"{self.config.optuna.study_name}_{self.config.model.architecture}_trial_{trial.number}"
 
-        logger.info(f"Starting trial {trial.number} with parameters: {hparams}")
+        self.logger.info(f"Starting trial {trial.number} with parameters: {hparams}")
 
-        self.config.training.pretrained_model_name = None
         try:
             result = cross_validation_procedure(
-                name,
-                self.config.data.file_name,
-                model_class,
+                name=name,
+                data_path=self.config.data.file_name,
+                model_class=model_class,
                 kfolds=self.config.training.kfolds,
                 hparams=hparams,
                 is_sweep=True,
                 trial=trial,
                 config=self.config,
             )
-            # self.save_trial_params(trial)
-            return result
-        except KeyboardInterrupt:
-            logger.info(f"Skipping trial {trial.number} due to interruption.")
-            raise TrialSkippedException()
-        except Exception as e:
-            # Capture and truncate the traceback
-            full_traceback = traceback.format_exception(type(e), e, e.__traceback__)
-            truncated_traceback = "".join(full_traceback[-5:])  # Keep last 5 frames
-            logger.error(
-                f"Error during trial {trial.number}: {e}\nTruncated Traceback:\n{truncated_traceback}"
+
+            # Save trial results for analysis
+            trial_results = {"number": trial.number, "params": hparams, "value": result, "config": self.config}
+            (self.study_dir / f"trial_{trial.number}.json").write_text(
+                json.dumps(trial_results, indent=2)
             )
+
+            return result
+
+        except KeyboardInterrupt:
+            self.logger.info("Trial interrupted by user")
+            raise optuna.exceptions.TrialPruned()
+        except Exception as e:
+            self.logger.error(f"Trial failed with error: {str(e)}")
             raise optuna.exceptions.TrialPruned()
         finally:
             empty_cache()
-            logger.info(f"GPU cache cleared after trial {trial.number}.")
 
-    def save_study_artifacts(self, study):
-        """Save Optuna study artifacts."""
-        for artifact in ["sampler", "pruner"]:
-            with open(
-                f"studies/{self.config.optuna.study_name}_{artifact}.pkl", "wb"
-            ) as f:
-                pickle.dump(getattr(study, artifact), f)
-        logger.info(f"Artifacts saved for {self.config.optuna.study_name}")
+    def run_optimization(self) -> OptimizationResults:
+        self._validate_config()
 
-    def log_best_trial(self, study):
-        """Log details of the best trial."""
-        best_trial = study.best_trial
-        logger.info(
-            f"Best trial value: {best_trial.value}\nParameters: {best_trial.params}"
-        )
-
-    def run_hypertuning(self):
-        """Run hyperparameter optimization with Optuna."""
         study = optuna.create_study(
             study_name=self.config.optuna.study_name,
             load_if_exists=True,
@@ -121,25 +149,48 @@ class HyperparameterOptimizer:
         )
 
         try:
-            study.optimize(
-                self.objective,
-                n_trials=self.config.optuna.n_trials,
-                catch=(TrialSkippedException,),
-            )
+            study.optimize(self.objective, n_trials=self.config.optuna.n_trials)
         except KeyboardInterrupt:
-            logger.info("Optimization interrupted by user.")
+            self.logger.info("Optimization interrupted by user")
         finally:
-            self.save_study_artifacts(study)
-            self.log_best_trial(study)
+            self._save_artifacts(study)
+            return self._create_results(study)
 
+    def _save_artifacts(self, study: optuna.Study):
+        """Save study artifacts for later analysis"""
+        for artifact in ["sampler", "pruner"]:
+            artifact_path = self.study_dir / f"{artifact}.pkl"
+            with artifact_path.open("wb") as f:
+                pickle.dump(getattr(study, artifact), f)
 
-def get_default_hparams(config) -> Dict[str, Any]:
-    """Retrieve default hyperparameters for training."""
-    return {
-        key: getattr(
-            config.model if key in config.model.__dict__ else config.training, key
+    def _create_results(self, study: optuna.Study) -> OptimizationResults:
+        """Create and save optimization results"""
+        results = OptimizationResults(
+            best_value=study.best_value,
+            best_params=study.best_trial.params,
+            study_name=study.study_name,
+            n_trials=len(study.trials),
         )
-        for key in [
+
+        results.save(self.study_dir / "results.json")
+
+        self.logger.info(
+            f"Best trial value: {results.best_value}\n"
+            f"Parameters: {results.best_params}"
+        )
+
+        return results
+
+
+class ModelTrainer:
+    """Handles single training runs with fixed hyperparameters"""
+
+    def __init__(self, config):
+        self.config = config
+        self.logger = setup_logger()
+
+    def _get_default_hparams(self) -> Dict[str, Any]:
+        param_keys = [
             "n_layers",
             "n_modes_x",
             "n_modes_y",
@@ -147,65 +198,120 @@ def get_default_hparams(config) -> Dict[str, Any]:
             "lifting_channels",
             "projection_channels",
             "batch_size",
+            "use_physics_loss",
+            "normalize_output",  # This should come from the 'data' section
             "learning_rate",
             "weight_decay",
             "accumulation_steps",
             "lambda_physics",
         ]
-    }
+
+        hparams = {}
+        for key in param_keys:
+            if key == "normalize_output":
+                hparams[key] = getattr(self.config.data, key)
+            elif hasattr(self.config.model, key):
+                hparams[key] = getattr(self.config.model, key)
+            elif hasattr(self.config.training, key):
+                hparams[key] = getattr(self.config.training, key)
+            else:
+                raise AttributeError(f"Missing attribute: {key}")
+
+        return hparams
+
+    def train(self) -> float:
+        model_class = globals()[self.config.model.class_name]
+        hparams = self._get_default_hparams()
+
+        test_loss = cross_validation_procedure(
+            name=self.config.model.name,
+            data_path=self.config.data.file_name,
+            model_class=model_class,
+            kfolds=self.config.training.kfolds,
+            hparams=hparams,
+            config=self.config,
+        )
+
+        self.logger.info(f"Final test loss: {test_loss}")
+        return test_loss
 
 
-def run_single_training(config):
-    """Execute a single training procedure."""
-    model_class = getattr(sys.modules[__name__], config.model.class_name)
-    hparams = get_default_hparams(config)
+def repeat_trial_from_study(trial_id: int, config) -> float:
+    """
+    Load the Optuna study, retrieve the trial with the given trial_id,
+    and re-run the training procedure using its parameters.
+    """
+    study = optuna.load_study(
+        study_name=config.optuna.study_name,
+        storage=config.optuna.storage
+    )
+    trial = next((t for t in study.trials if t.number == trial_id), None)
+    if trial is None:
+        raise ValueError(f"Trial number {trial_id} not found in study {config.optuna.study_name}")
 
-    test_loss = cross_validation_procedure(
-        config.model.name,
-        config.data.file_name,
-        model_class,
+    hparams = trial.params
+    model_class = globals()[config.model.class_name]
+    name = f"{config.optuna.study_name}_{config.model.architecture}_repeated_trial_{trial_id}"
+
+    result = cross_validation_procedure(
+        name=name,
+        data_path=config.data.file_name,
+        model_class=model_class,
         kfolds=config.training.kfolds,
         hparams=hparams,
         config=config,
     )
-    logger.info(f"Final test loss: {test_loss}")
-    return test_loss
+    return result
 
 
-def main(mode: str):
+def main():
+    parser = argparse.ArgumentParser(description="Run model optimization, training, or repeat a trial")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=[m.name.lower() for m in OptimizerMode],
+        required=not is_jupyter(),
+        help="Mode of operation",
+    )
+    parser.add_argument("--trial_id", type=int, help="Trial number to repeat (used in repeat mode)")
+
+    args = (
+        parser.parse_args()
+        if not is_jupyter()
+        else argparse.Namespace(mode="hypertuning", trial_id=None)
+    )
+    args.mode = "training"
+    args.trial_id = 5
+    mode = OptimizerMode.from_string(args.mode)
+
     config = get_config()
     setup_experiment(config)
     set_seed(config.seed)
-
-    optimizer = HyperparameterOptimizer(config)
+    logger = setup_logger()
 
     try:
-        if mode == "hypertuning":
-            logger.info("Starting hyperparameter tuning.")
-            optimizer.run_hypertuning()
-        elif mode == "training":
-            logger.info("Starting single training run.")
-            run_single_training(config)
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
+        if mode == OptimizerMode.HYPERTUNING:
+            logger.info("Starting hyperparameters tuning")
+            optimizer = HyperparameterOptimizer(config)
+            results = optimizer.run_optimization()
+            logger.info(f"Optimization completed with best value: {results.best_value}")
+        elif mode == OptimizerMode.TRAINING:
+            logger.info("Starting single training run")
+            trainer = ModelTrainer(config)
+            test_loss = trainer.train()
+            logger.info(f"Training completed with test loss: {test_loss}")
+        elif mode == OptimizerMode.REPEAT:
+            if args.trial_id is None:
+                raise ValueError("Trial ID must be provided in repeat mode using --trial_id")
+            logger.info(f"Repeating trial number: {args.trial_id}")
+            result = repeat_trial_from_study(args.trial_id, config)
+            logger.info(f"Repeated trial {args.trial_id} result: {result}")
     except Exception as e:
-        logger.error(f"Process error: {e}")
+        logger.error(f"Process error: {str(e)}")
         raise
 
-    logger.info("Process completed successfully.")
+    logger.info("Process completed successfully")
 
 
 if __name__ == "__main__" or is_jupyter():
-    logger = setup_logger()
-    if is_jupyter():
-        main("hypertuning")
-    else:
-        parser = argparse.ArgumentParser(description="Run model tuning or training.")
-        parser.add_argument(
-            "--mode",
-            choices=["hypertuning", "training"],
-            required=True,
-            help="Mode of operation",
-        )
-        args = parser.parse_args()
-        main(args.mode)
+    main()

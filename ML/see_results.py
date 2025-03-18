@@ -26,8 +26,13 @@ from modules.models import *
 from modules.utils import denormalize_outputs_and_targets, get_hparams, set_seed
 
 
-from modules.plots import PlotManager, plot_scatter, plot_field_comparisons, plot_field_analysis, plot_field_fourier
-
+from modules.plots import (
+    PlotManager,
+    plot_field_analysis,
+    plot_field_comparisons,
+    plot_field_fourier,
+    plot_scatter,
+)
 
 
 def calculate_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:
@@ -377,21 +382,46 @@ def main() -> None:
 
     # Create the custom colormap
     custom_cmap = LinearSegmentedColormap.from_list("custom_turbo", colors, N=n_bins)
-    # Get model dimensions and variable names
-    io_counts = get_input_output_counts(config)
-    output_names = get_output_names(config)
-
+    # dd
+    # trial_number = 5
+    # config.optuna.study_name = "study18ddb"
+    # config.data.inputs = ['H0', 'Q0', 'n', 'nut', 'B']
+    # config.data.outputs = ['H', 'U', 'V']
+    
+    # id
+    # trial_number = 41
+    # config.optuna.study_name = "study20idb"
+    # config.data.outputs = ['H0', 'Q0', 'n', 'nut', 'B', 'H']
+    # config.data.inputs = ['U', 'V']
+    
+    # da
+    # config.data.inputs = ['Hr', 'Fr', 'M', 'Re', 'B*']
+    # config.data.outputs = ['H*', 'U*', 'V*']
+    
+    # ia
+    trial_number = 52
+    config.optuna.study_name = "study21iab"
+    config.data.outputs = ['Hr', 'Fr', 'M', 'Re', 'B*', 'H*']
+    config.data.inputs = ['U*', 'V*']
     study = optuna.create_study(
         study_name=config.optuna.study_name,
         load_if_exists=True,
         storage=config.optuna.storage,
     )
 
+    # Get model dimensions and variable names
+    io_counts = get_input_output_counts(config)
+    output_names = get_output_names(config)
     # Get model name from config or command line args
-    model_name = "study4i_FNOnet_trial_24"  # Assuming it's in config, adjust as needed
+    model_name = (
+        f"{config.optuna.study_name}_{config.model.architecture}_trial_{trial_number}"
+    )
 
-    hparams = study.trials[24].params
-
+    hparams = study.trials[trial_number].params
+    config.training.use_physics_loss = hparams["use_physics_loss"]
+    config.data.normalize_output = hparams["normalize_output"]
+    config.training.use_physics_loss = hparams["use_physics_loss"]
+    config.data.normalize_output = hparams["normalize_output"]
     # Setup model and data
     model = load_model(config, hparams, io_counts, model_name)
     test_dataloader, full_dataset = setup_datasets(config, hparams)
@@ -402,7 +432,7 @@ def main() -> None:
     )
 
     # Calculate metrics and create visualizations
-    metrics = evaluate_predictions(
+    metrics, per_case_df = evaluate_predictions(
         all_field_outputs,
         all_field_targets,
         all_scalar_outputs,
@@ -413,25 +443,68 @@ def main() -> None:
 
     random_idx = random.randint(0, len(all_field_outputs) - 1)
     # Generate visualization plots
-    units = {"U": "m/s", "V": "m/s", "H": "m", "B": "m", "V": "m/s", "H": "m"}
+    units = {
+        "H": "m",
+        "U": "m/s",
+        "V": "m/s",
+        "B": "m",
+        "H*": "-",
+        "U*": "-",
+        "V*": "-",
+        "H0": "m",
+        "Q0": "m³/s",
+        "n": "s/m^(1/3)",
+        "nut": "m²/s",
+        "Hr": "-",
+        "Fr": "-",
+        "M": "-",
+        "Re": "-",
+        "B*": "-",
+        "Ar": "-",
+        "Vr": "-"
+    }
+
+    long_names = {
+            "H": {"en": "Depth", "es": "Profundidad"},
+            "U": {"en": "Longitudinal velocity", "es": "Velocidad longitudinal"},
+            "V": {"en": "Transversal velocity", "es": "Velocidad transversal"},
+            "B": {"en": "Bottom height", "es": "Profundidad del fondo"},
+            "H*": {"en": "Adimensional depth", "es": "Profundidad adimensional"},
+            "U*": {"en": "Adimensional transversal velocity", "es": "Velocidad transversal adimensional"},
+            "V*": {"en": "Adimensional longitudinal velocity", "es": "Velocidad longitudinal adimensional"},
+            "H0": {"en": "Initial depth", "es": "Profundidad inicial"},
+            "Q0": {"en": "Initial flow rate", "es": "Caudal inicial"},
+            "n": {"en": "Manning's roughness coefficient", "es": "Coeficiente de rugosidad de Manning"},
+            "nut": {"en": "Kinematic viscosity", "es": "Viscosidad cinemática"},
+            "Hr": {"en": "Height ratio", "es": "Relación de altura"},
+            "Fr": {"en": "Froude number", "es": "Número de Froude"},
+            "M": {"en": "Friction adimensional number", "es": "Número adimensional friccional"},
+            "Re": {"en": "Reynolds number", "es": "Número de Reynolds"},
+            "B*": {"en": "Adimensional bottom height", "es": "Profundidad del fondo adimensional"},
+            "Ar": {"en": "Aspect ratio", "es": "Relación de aspecto"},
+            "Vr": {"en": "Velocity ratio", "es": "Relación de velocidad"}
+        }
+    language = "en"
+    detailed = True
+    data_percentile = 99
 
     plot_manager = PlotManager(base_dir=f"plots/{model_name}")
     plot_scatter(
         all_field_outputs,
         all_field_targets,
         output_names["field"],
-        all_scalar_outputs,
-        all_scalar_targets,
-        output_names["scalar"],
+        scalar_outputs=all_scalar_outputs,
+        scalar_targets=all_scalar_targets,
+        scalar_names=output_names["scalar"],
         units=units,
+        long_names=long_names,
         metrics=metrics,
         custom_cmap=custom_cmap,
         plot_manager=plot_manager,
-        language="es",  # for Spanish
-        detailed=True,  # for detailed plots
-        data_percentile=99,  # to adjust plot ranges
+        language=language,  # for Spanish
+        detailed=detailed,  # for detailed plots
+        data_percentile=data_percentile,  # to adjust plot ranges
     )
-
     plot_field_comparisons(
         all_field_outputs,
         all_field_targets,
@@ -440,8 +513,9 @@ def main() -> None:
         custom_cmap=custom_cmap,
         plot_manager=plot_manager,
         units=units,
-        language="es",  # for Spanish
-        detailed=True,  # for detailed plots
+        long_names=long_names,
+        language=language,  # for Spanish
+        detailed=detailed,  # for detailed plots
     )
     plot_field_analysis(
         all_field_outputs,
@@ -450,8 +524,8 @@ def main() -> None:
         custom_cmap=custom_cmap,
         plot_manager=plot_manager,
         units=units,
-        language="es",  # for Spanish
-        detailed=True,  # for detailed plots
+        language=language,  # for Spanish
+        detailed=detailed,  # for detailed plots
     )
     # plot_field_fourier(
     #     all_field_outputs,
@@ -461,9 +535,9 @@ def main() -> None:
     #     custom_cmap=custom_cmap,
     #     plot_manager=plot_manager,
     #     units=units,
-    #     language="es",  # for Spanish
-    #     detailed=True,  # for detailed plots
-    #     data_percentile=95,  # to adjust plot ranges
+    #     language=language,  # for Spanish
+    #     detailed=detailed,  # for detailed plots
+    #     data_percentile=data_percentile,  # to adjust plot ranges
     # )
 
 

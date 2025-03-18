@@ -7,22 +7,23 @@ training:
   accumulation_steps: 1
   learning_rate: 0.0007496053599414719
   test_frac: 0.2
-  early_stopping_patience: 32
+  early_stopping_patience: 64
   pretrained_model_name:
   clip_grad_value: 1
   weight_decay: 0.0023836541443711034
+  use_physics_loss: false
   lambda_physics: 0.5
   time_limit: 86400
 model:
   name: FNOnet
   architecture: FNOnet
   class_name: FNOnet
-  n_layers: 6
-  n_modes_x: 250
-  n_modes_y: 2
-  hidden_channels: 169
-  lifting_channels: 139
-  projection_channels: 233
+  n_layers: 3
+  n_modes_x: 50
+  n_modes_y: 3
+  hidden_channels: 50
+  lifting_channels: 50
+  projection_channels: 50
 channel:
   width: 0.3  # in m
   length: 12  # in m
@@ -30,9 +31,10 @@ channel:
   wall_thickness: 0.00  # in m
 data:
   file_name: data/bars.hdf5
-  normalize_input: false
+  normalize_input: true
   normalize_output: false
-  adimensional: true
+  adimensional: false
+  boxcox_transform: false
   numpoints_x: 401
   numpoints_y: 11
   preload: true
@@ -45,13 +47,13 @@ data:
     # - H
     # - U
     # - V
-    - B*
-    # - Ar
-    # - Vr
     - Hr
     - Fr
     - M
     - Re
+    - B*
+    - Ar
+    # - Vr
     # - H*
     # - U*
     # - V*
@@ -64,14 +66,13 @@ data:
     # - H
     # - U
     # - V
-    # - D
-    # - Ar
-    # - Vr
     # - Hr
     # - Fr
     # - M
     # - Re
     # - B*
+    # - Ar
+    # - Vr
     - H*
     - U*
     - V*
@@ -106,14 +107,25 @@ data:
     - H*
     - U*
     - V*
+  adimensionals:
+    - Hr
+    - Fr
+    - M
+    - Re
+    - B*
+    - Ar
+    - Vr
+    - H*
+    - U*
+    - V*
 seed: 43
 logging:
   use_wandb: true
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: study7
-  study_notes: 'Study 7: Direct problem, adimensional, bars'
+  study_name: study22dab
+  study_notes: 'Direct problem, adimensional, bars adimensional, ReLoBRaLo'
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
@@ -127,10 +139,20 @@ optuna:
       low: 0
       high: 0.005
       log: false
+    use_physics_loss:
+      type: categorical
+      choices:
+        - true
+        - false
+    normalize_output:
+      type: categorical
+      choices:
+        - true
+        - false
     lambda_physics:
       type: float
-      low: 0
-      high: 0.95
+      low: 0.5
+      high: 0.5
       log: false
     batch_size:
       type: categorical
