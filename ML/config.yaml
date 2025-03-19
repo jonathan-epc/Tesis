@@ -30,7 +30,7 @@ channel:
   depth: 0.3  # in m
   wall_thickness: 0.00  # in m
 data:
-  file_name: data/bars.hdf5
+  file_name: data/barsa.hdf5
   normalize_input: true
   normalize_output: false
   adimensional: false

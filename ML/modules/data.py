@@ -77,7 +77,6 @@ class HDF5Dataset(Dataset):
             self.FIELDS = list(available_fields)
             self.SCALARS = list(available_scalars)
             self.stats = self._load_stats(f) if any([normalize_input, normalize_output, boxcox_transform]) else ({}, {}, {})
-            print(self.stats)
             if self.boxcox_transform:
                 variables = set(input_vars + output_vars)
                 for var in variables:
@@ -244,9 +243,7 @@ class HDF5Dataset(Dataset):
         if self.augment and torch.rand(1).item() > 0.5:
             input_fields = [torch.flip(f, [0]) for f in input_fields]
             output_fields = [torch.flip(f, [0]) for f in output_fields]
-
-        print(input_fields)
-        print(input_scalars)
+            
         return (input_fields, input_scalars), (output_fields, output_scalars)
 
     def __del__(self):

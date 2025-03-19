@@ -114,6 +114,7 @@ def create_summary_plot(data_dict, title_prefix, output_file, plot_type="histogr
 def main():
     config = get_config()
     dataset = load_dataset(config, "data/barsa.hdf5")
+    print(dataset)
 
     # Extract data
     input_data, output_data = extract_data(dataset, config)

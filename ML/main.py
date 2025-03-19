@@ -280,7 +280,7 @@ def main():
         if not is_jupyter()
         else argparse.Namespace(mode="hypertuning", trial_id=None)
     )
-    args.mode = "training"
+    args.mode = "hypertuning"
     args.trial_id = 5
     mode = OptimizerMode.from_string(args.mode)
 

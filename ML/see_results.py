@@ -371,67 +371,92 @@ def load_model(
     return model
 
 
-def main() -> None:
-    """Main function to run the evaluation pipeline."""
+def configure_study(config, study_type: str):
+    """
+    Configure study-specific parameters based on study_type.
+    
+    Args:
+        config: The configuration object.
+        study_type (str): One of {"dd", "id", "da", "ia"}.
+    
+    Returns:
+        trial_number (int), study_name (str), inputs (list), outputs (list)
+    """
+    mapping = {
+        "dd": {
+            "trial_number": 5,
+            "study_name": "study18ddb",
+            "inputs": ['H0', 'Q0', 'n', 'nut', 'B'],
+            "outputs": ['H', 'U', 'V'],
+        },
+        "id": {
+            "trial_number": 41,
+            "study_name": "study20idb",
+            "inputs": ['U', 'V'],
+            "outputs": ['H0', 'Q0', 'n', 'nut', 'B', 'H'],
+        },
+        "da": {
+            # Direct adimensional: adjust trial number if needed
+            "trial_number": 0,  # change if you have a specific trial number
+            "study_name": "study_direct_adimensional",
+            "inputs": ['Hr', 'Fr', 'M', 'Re', 'B*'],
+            "outputs": ['H*', 'U*', 'V*'],
+        },
+        "ia": {
+            "trial_number": 52,
+            "study_name": "study21iab",
+            "inputs": ['U*', 'V*'],
+            "outputs": ['Hr', 'Fr', 'M', 'Re', 'B*', 'H*'],
+        },
+    }
+    if study_type not in mapping:
+        raise ValueError(f"Unknown study type '{study_type}'. Choose from {list(mapping.keys())}.")
+    params = mapping[study_type]
+    return params["trial_number"], params["study_name"], params["inputs"], params["outputs"]
+
+
+
+def main(study_type: str = "ia") -> None:
+    """Main function to run the evaluation pipeline with study-specific configuration."""
     # Initial setup
     config = get_config()
     set_seed(config.seed)
-    # Define the colors for our custom colormap
+    
+    # Define and create a custom colormap
     colors = ["white", "#3498db", "#2ecc71", "#f1c40f", "#e67e22", "#e74c3c"]
-    n_bins = 256  # Number of color gradations
+    custom_cmap = LinearSegmentedColormap.from_list("custom_turbo", colors, N=256)
+    
+    # Set study-specific configuration
+    trial_number, study_name, inputs, outputs = configure_study(config, study_type)
+    config.optuna.study_name = study_name
+    config.data.inputs = inputs
+    config.data.outputs = outputs
 
-    # Create the custom colormap
-    custom_cmap = LinearSegmentedColormap.from_list("custom_turbo", colors, N=n_bins)
-    # dd
-    # trial_number = 5
-    # config.optuna.study_name = "study18ddb"
-    # config.data.inputs = ['H0', 'Q0', 'n', 'nut', 'B']
-    # config.data.outputs = ['H', 'U', 'V']
-    
-    # id
-    # trial_number = 41
-    # config.optuna.study_name = "study20idb"
-    # config.data.outputs = ['H0', 'Q0', 'n', 'nut', 'B', 'H']
-    # config.data.inputs = ['U', 'V']
-    
-    # da
-    # config.data.inputs = ['Hr', 'Fr', 'M', 'Re', 'B*']
-    # config.data.outputs = ['H*', 'U*', 'V*']
-    
-    # ia
-    trial_number = 52
-    config.optuna.study_name = "study21iab"
-    config.data.outputs = ['Hr', 'Fr', 'M', 'Re', 'B*', 'H*']
-    config.data.inputs = ['U*', 'V*']
+    # Create or load the Optuna study
     study = optuna.create_study(
         study_name=config.optuna.study_name,
         load_if_exists=True,
         storage=config.optuna.storage,
     )
-
-    # Get model dimensions and variable names
+    
+    # Get model I/O counts and names
     io_counts = get_input_output_counts(config)
     output_names = get_output_names(config)
-    # Get model name from config or command line args
-    model_name = (
-        f"{config.optuna.study_name}_{config.model.architecture}_trial_{trial_number}"
-    )
+    model_name = f"{study_name}_{config.model.architecture}_trial_{trial_number}"
 
+    # Load hyperparameters and update config
     hparams = study.trials[trial_number].params
     config.training.use_physics_loss = hparams["use_physics_loss"]
     config.data.normalize_output = hparams["normalize_output"]
-    config.training.use_physics_loss = hparams["use_physics_loss"]
-    config.data.normalize_output = hparams["normalize_output"]
+
     # Setup model and data
     model = load_model(config, hparams, io_counts, model_name)
     test_dataloader, full_dataset = setup_datasets(config, hparams)
 
-    # Evaluate model
-    all_field_outputs, all_field_targets, all_scalar_outputs, all_scalar_targets = (
-        evaluate_model(model, test_dataloader, config, full_dataset)
+    # Evaluate model predictions
+    all_field_outputs, all_field_targets, all_scalar_outputs, all_scalar_targets = evaluate_model(
+        model, test_dataloader, config, full_dataset
     )
-
-    # Calculate metrics and create visualizations
     metrics, per_case_df = evaluate_predictions(
         all_field_outputs,
         all_field_targets,
@@ -441,54 +466,41 @@ def main() -> None:
         csv_output_path="case_metrics.csv",
     )
 
-    random_idx = random.randint(0, len(all_field_outputs) - 1)
-    # Generate visualization plots
+    # Define plotting parameters
     units = {
-        "H": "m",
-        "U": "m/s",
-        "V": "m/s",
-        "B": "m",
-        "H*": "-",
-        "U*": "-",
-        "V*": "-",
-        "H0": "m",
-        "Q0": "m³/s",
-        "n": "s/m^(1/3)",
-        "nut": "m²/s",
-        "Hr": "-",
-        "Fr": "-",
-        "M": "-",
-        "Re": "-",
-        "B*": "-",
-        "Ar": "-",
-        "Vr": "-"
+        "H": "m", "U": "m/s", "V": "m/s", "B": "m",
+        "H*": "-", "U*": "-", "V*": "-",
+        "H0": "m", "Q0": "m³/s", "n": "s/m^(1/3)", "nut": "m²/s",
+        "Hr": "-", "Fr": "-", "M": "-", "Re": "-", "B*": "-",
+        "Ar": "-", "Vr": "-"
     }
-
     long_names = {
-            "H": {"en": "Depth", "es": "Profundidad"},
-            "U": {"en": "Longitudinal velocity", "es": "Velocidad longitudinal"},
-            "V": {"en": "Transversal velocity", "es": "Velocidad transversal"},
-            "B": {"en": "Bottom height", "es": "Profundidad del fondo"},
-            "H*": {"en": "Adimensional depth", "es": "Profundidad adimensional"},
-            "U*": {"en": "Adimensional transversal velocity", "es": "Velocidad transversal adimensional"},
-            "V*": {"en": "Adimensional longitudinal velocity", "es": "Velocidad longitudinal adimensional"},
-            "H0": {"en": "Initial depth", "es": "Profundidad inicial"},
-            "Q0": {"en": "Initial flow rate", "es": "Caudal inicial"},
-            "n": {"en": "Manning's roughness coefficient", "es": "Coeficiente de rugosidad de Manning"},
-            "nut": {"en": "Kinematic viscosity", "es": "Viscosidad cinemática"},
-            "Hr": {"en": "Height ratio", "es": "Relación de altura"},
-            "Fr": {"en": "Froude number", "es": "Número de Froude"},
-            "M": {"en": "Friction adimensional number", "es": "Número adimensional friccional"},
-            "Re": {"en": "Reynolds number", "es": "Número de Reynolds"},
-            "B*": {"en": "Adimensional bottom height", "es": "Profundidad del fondo adimensional"},
-            "Ar": {"en": "Aspect ratio", "es": "Relación de aspecto"},
-            "Vr": {"en": "Velocity ratio", "es": "Relación de velocidad"}
-        }
+        "H": {"en": "Depth", "es": "Profundidad"},
+        "U": {"en": "Longitudinal velocity", "es": "Velocidad longitudinal"},
+        "V": {"en": "Transversal velocity", "es": "Velocidad transversal"},
+        "B": {"en": "Bottom height", "es": "Profundidad del fondo"},
+        "H*": {"en": "Adimensional depth", "es": "Profundidad adimensional"},
+        "U*": {"en": "Adimensional transversal velocity", "es": "Velocidad transversal adimensional"},
+        "V*": {"en": "Adimensional longitudinal velocity", "es": "Velocidad longitudinal adimensional"},
+        "H0": {"en": "Initial depth", "es": "Profundidad inicial"},
+        "Q0": {"en": "Initial flow rate", "es": "Caudal inicial"},
+        "n": {"en": "Manning's roughness coefficient", "es": "Coeficiente de rugosidad de Manning"},
+        "nut": {"en": "Kinematic viscosity", "es": "Viscosidad cinemática"},
+        "Hr": {"en": "Height ratio", "es": "Relación de altura"},
+        "Fr": {"en": "Froude number", "es": "Número de Froude"},
+        "M": {"en": "Friction adimensional number", "es": "Número adimensional friccional"},
+        "Re": {"en": "Reynolds number", "es": "Número de Reynolds"},
+        "B*": {"en": "Adimensional bottom height", "es": "Profundidad del fondo adimensional"},
+        "Ar": {"en": "Aspect ratio", "es": "Relación de aspecto"},
+        "Vr": {"en": "Velocity ratio", "es": "Relación de velocidad"}
+    }
     language = "en"
     detailed = True
     data_percentile = 99
-
+    random_idx = random.randint(0, len(all_field_outputs) - 1)
     plot_manager = PlotManager(base_dir=f"plots/{model_name}")
+
+    # Generate visualizations
     plot_scatter(
         all_field_outputs,
         all_field_targets,
@@ -501,9 +513,9 @@ def main() -> None:
         metrics=metrics,
         custom_cmap=custom_cmap,
         plot_manager=plot_manager,
-        language=language,  # for Spanish
-        detailed=detailed,  # for detailed plots
-        data_percentile=data_percentile,  # to adjust plot ranges
+        language=language,
+        detailed=detailed,
+        data_percentile=data_percentile,
     )
     plot_field_comparisons(
         all_field_outputs,
@@ -514,8 +526,8 @@ def main() -> None:
         plot_manager=plot_manager,
         units=units,
         long_names=long_names,
-        language=language,  # for Spanish
-        detailed=detailed,  # for detailed plots
+        language=language,
+        detailed=detailed,
     )
     plot_field_analysis(
         all_field_outputs,
@@ -524,21 +536,21 @@ def main() -> None:
         custom_cmap=custom_cmap,
         plot_manager=plot_manager,
         units=units,
-        language=language,  # for Spanish
-        detailed=detailed,  # for detailed plots
+        language=language,
+        detailed=detailed,
     )
-    # plot_field_fourier(
-    #     all_field_outputs,
-    #     all_field_targets,
-    #     output_names["field"],
-    #     case_idx=random_idx,
-    #     custom_cmap=custom_cmap,
-    #     plot_manager=plot_manager,
-    #     units=units,
-    #     language=language,  # for Spanish
-    #     detailed=detailed,  # for detailed plots
-    #     data_percentile=data_percentile,  # to adjust plot ranges
-    # )
+
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(description="Run the evaluation pipeline with a specific study type.")
+#     parser.add_argument(
+#         "--study",
+#         type=str,
+#         default="ia",
+#         choices=["dd", "id", "da", "ia"],
+#         help="Select the study type to run (default: ia)",
+#     )
+#     args = parser.parse_args()
+#     main(study_type=args.study)
 
 
 if __name__ == "__main__":
