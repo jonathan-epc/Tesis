@@ -83,6 +83,7 @@ class PhysicsInformedLoss(nn.Module):
         
         # Update ReLoBRaLo lambdas
         self.update_relobralo_lambdas(total_data_loss, continuity_loss, momentum_x_loss, momentum_y_loss)
+
         
         # Combine losses with dynamic weighting
         total_loss = (
@@ -133,7 +134,6 @@ class PhysicsInformedLoss(nn.Module):
         variables, missing_vars = self.assign_variables(inputs, pred)
         if missing_vars:
             return None, missing_vars
-
         # Extract and process variables
         h = variables["H"]
         u = variables["U"]
@@ -149,8 +149,7 @@ class PhysicsInformedLoss(nn.Module):
         b = torch.clamp(b, min=0)
         n = torch.clamp(n, min=0)
         nut = torch.clamp(nut, min=0)
-
-        absU = torch.sqrt(u**2 + v**2)
+        absU = torch.sqrt(torch.clamp(u**2 + v**2, min=self.epsilon))
 
         # Compute gradients for continuity loss       
         d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
@@ -198,28 +197,30 @@ class PhysicsInformedLoss(nn.Module):
         variables, missing_vars = self.assign_variables(inputs, pred)
         if missing_vars:
             return None, missing_vars
-
+        
         # Extract and process variables
         h = variables["H*"]
         u = variables["U*"]
         v = variables["V*"]
         b = variables["B*"]
         
-        # Vr = variables["Vr"]
-        Vr = 1
         Fr = variables["Fr"]
         Re = variables["Re"]
-        Ar = variables["Ar"]
         # Ar = 40
+        Ar = variables["Ar"]
+        Vr = Ar
+        # Vr = variables["Vr"]
         Hr = variables["Hr"]
         M = variables["M"]
 
-        # Vr = Vr.view(-1, 1, 1) 
+        Vr = Vr.view(-1, 1, 1) 
         Fr = Fr.view(-1, 1, 1) 
         Re = Re.view(-1, 1, 1) 
-        # Ar = Ar.view(-1, 1, 1) 
+        Ar = Ar.view(-1, 1, 1) 
         Hr = Hr.view(-1, 1, 1) 
         M = M.view(-1, 1, 1) 
+
+        
        
         # Apply minimum value to H for numerical stability, and to values that can't be negative
         h = torch.clamp(h, min=self.epsilon)
@@ -228,7 +229,8 @@ class PhysicsInformedLoss(nn.Module):
         Re = torch.clamp(Re, min=self.epsilon)
         Hr = torch.clamp(Hr, min=0)
         M = torch.clamp(M, min=0)
-        absU = torch.sqrt(u**2 + (v/Vr)**2)
+        absU = torch.sqrt(torch.clamp(u**2 + (v/Vr)**2, min=self.epsilon))
+
 
         # Compute gradients for continuity loss       
         d_hu_dx, d_hu_dy = torch.gradient(h * u, spacing=self.spacing, dim=(1, 2))
@@ -262,6 +264,11 @@ class PhysicsInformedLoss(nn.Module):
         # print("Continuity components:")
         # print(f"d_hu_dx magnitude: mean={d_hu_dx.abs().mean()}, min={d_hu_dx.abs().min()}, max={d_hu_dx.abs().max()}")
         # print(f"d_hv_dy magnitude: mean={d_hv_dy.abs().mean()}, min={d_hv_dy.abs().min()}, max={d_hv_dy.abs().max()}")
+        # if d_hu_dx.isnan().any():
+        #     print("inputs")
+        #     print(inputs)
+        #     print("preds")
+        #     print(pred)
         
         # # Debug momentum x components
         # print("\nMomentum-x components:")

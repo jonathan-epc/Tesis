@@ -79,17 +79,19 @@ def set_seed(seed: int) -> None:
     seed : int
         The random seed to set.
     """
+    print(f"Using {seed} as seed")
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
 
 
 def setup_experiment(config: dict) -> None:
     """Set up the experiment environment."""
     os.environ["WANDB_SILENT"] = "true"
-    set_seed(config.seed)
 
 
 def load_config(config_path: str) -> dict:

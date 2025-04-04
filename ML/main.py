@@ -1,7 +1,9 @@
 import argparse
 import json
 import os
+# os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 import pickle
+import traceback
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -94,6 +96,9 @@ class HyperparameterOptimizer:
                 raise ValueError(
                     f"Missing required field in hyperparameter space for {param}"
                 ) from e
+    
+        # Log the suggested hyperparameters for inspection
+        self.logger.debug("Suggested hyperparameters for trial %s: %s", trial.number, hparams)
         return hparams
 
     def _get_model_class(self):
@@ -122,7 +127,7 @@ class HyperparameterOptimizer:
             )
 
             # Save trial results for analysis
-            trial_results = {"number": trial.number, "params": hparams, "value": result, "config": self.config}
+            trial_results = {"number": trial.number, "params": hparams, "value": result, "config": self.config.to_dict()}
             (self.study_dir / f"trial_{trial.number}.json").write_text(
                 json.dumps(trial_results, indent=2)
             )
@@ -133,7 +138,10 @@ class HyperparameterOptimizer:
             self.logger.info("Trial interrupted by user")
             raise optuna.exceptions.TrialPruned()
         except Exception as e:
-            self.logger.error(f"Trial failed with error: {str(e)}")
+            self.logger.exception(f"Trial {trial.number} failed with error: {str(e)}")
+            # Optionally, if you want to log additional context:
+            self.logger.debug("Trial parameters: %s", hparams)
+            self.logger.debug("Stack trace: %s", traceback.format_exc())
             raise optuna.exceptions.TrialPruned()
         finally:
             empty_cache()
@@ -281,7 +289,7 @@ def main():
         else argparse.Namespace(mode="hypertuning", trial_id=None)
     )
     args.mode = "hypertuning"
-    args.trial_id = 5
+    args.trial_id = 197
     mode = OptimizerMode.from_string(args.mode)
 
     config = get_config()

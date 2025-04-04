@@ -415,7 +415,6 @@ def configure_study(config, study_type: str):
     return params["trial_number"], params["study_name"], params["inputs"], params["outputs"]
 
 
-
 def main(study_type: str = "ia") -> None:
     """Main function to run the evaluation pipeline with study-specific configuration."""
     # Initial setup

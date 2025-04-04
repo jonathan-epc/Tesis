@@ -208,11 +208,11 @@ class Trainer:
         # Unscale gradients and clip them only if AMP is enabled and model does not use complex parameters
         if self.scaler is not None and not self.model_is_complex:
             self.scaler.unscale_(self.optimizer)
-            clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
+            clip_grad_norm_(parameters=self.model.parameters(), max_norm=self.config.training.clip_grad_value, error_if_nonfinite=True)
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
-            clip_grad_norm_(self.model.parameters(), self.config.training.clip_grad_value)
+            clip_grad_norm_(parameters=self.model.parameters(), max_norm=self.config.training.clip_grad_value, error_if_nonfinite=True)
             self.optimizer.step()
         
         self.optimizer.zero_grad(set_to_none=True)
@@ -463,6 +463,7 @@ def cross_validation_procedure(
 ):
     logger.info("Starting cross-validation procedure")
     print(hparams)
+    # torch.autograd.set_detect_anomaly(True)
     config.training.use_physics_loss = hparams["use_physics_loss"]
     config.data.normalize_output = hparams["normalize_output"]
 

@@ -139,6 +139,8 @@ class Config(BaseModel):
 
         return values
 
+    def to_dict(self) -> Dict[str, Any]:
+        return self.dict()
 
 def add_date_to_name(name: str) -> str:
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
