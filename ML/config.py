@@ -6,7 +6,6 @@ import torch
 import yaml
 from pydantic import BaseModel, Field, root_validator, validator
 
-
 class TrainingConfig(BaseModel):
     kfolds: int = Field(1, ge=1)
     batch_size: int = Field(64, gt=0)
@@ -15,14 +14,15 @@ class TrainingConfig(BaseModel):
     accumulation_steps: int = Field(5, gt=0)
     learning_rate: float = Field(1e-4, gt=0)
     test_frac: float = Field(0.2, ge=0, le=1)
+    validation_frac: float = Field(0.2, ge=0, le=1)
     early_stopping_patience: int = Field(64, ge=0)
+    early_stopping_delta: int = Field(0, ge=0)
     clip_grad_value: float = Field(1.0, gt=0)
     weight_decay: float = Field(0.01, gt=0)
     pretrained_model_name: Optional[str] = None
     time_limit: float = Field(86400, gt=0)
     use_physics_loss: bool = False
     lambda_physics: float = Field(0.5, ge=0)
-
 
 class ModelConfig(BaseModel):
     name: str
@@ -35,13 +35,11 @@ class ModelConfig(BaseModel):
     lifting_channels: int = Field(62, gt=0)
     projection_channels: int = Field(51, gt=0)
 
-
 class ChannelConfig(BaseModel):
     width: float = Field(0.3, gt=0)
     length: float = Field(12, gt=0)
     depth: float = Field(0.3, gt=0)
     wall_thickness: float = Field(0, ge=0)
-
 
 class DataConfig(BaseModel):
     file_name: str
@@ -69,12 +67,11 @@ class DataConfig(BaseModel):
             values["adimensional"] = False
         return values
 
-
 class LoggingConfig(BaseModel):
     use_wandb: bool = True
+    wandb_project: str = "Tesis"
     plot_enabled: bool = False
     save_dir: str = "plots"
-
 
 class OptunaConfig(BaseModel):
     study_name: str
@@ -87,10 +84,8 @@ class OptunaConfig(BaseModel):
     def storage(self) -> str:
         return f"{self.base_storage_path}{self.study_name}.db"
 
-
 class ApiKeys(BaseModel):
     wandb: Optional[str] = None
-
 
 class Config(BaseModel):
     device: str = Field(
@@ -146,7 +141,6 @@ def add_date_to_name(name: str) -> str:
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{name}_{date_str}"
 
-
 def load_config(config_path: str = "config.yaml") -> Config:
     try:
         with open(config_path, "r") as file:
@@ -163,19 +157,16 @@ def load_config(config_path: str = "config.yaml") -> Config:
 
     return Config(**yaml_config)
 
-
 _config: Optional[Config] = None
 
-
-def get_config() -> Config:
+def get_config(config_path: str = "config.yaml") -> Config:
     global _config
     if _config is None:
         try:
-            _config = load_config()
+            _config = load_config(config_path)
         except Exception as e:
             raise RuntimeError(f"Error loading config: {e}")
     return _config
-
 
 if __name__ == "__main__":
     config = get_config()

@@ -86,6 +86,12 @@ class HDF5Dataset(Dataset):
                         self.boxcox_shifts[var] = max(0.0, -min_val) + 1e-6
                         self.boxcox_lambdas[var] = 0.0
 
+        # Calculate the specific scalar/non-scalar indices based on the *instance's* input/output vars
+        self.scalar_input_indices = [v for v in self.input_vars if v in self.SCALARS]
+        self.non_scalar_input_indices = [v for v in self.input_vars if v in self.FIELDS]
+        self.scalar_output_indices = [v for v in self.output_vars if v in self.SCALARS]
+        self.non_scalar_output_indices = [v for v in self.output_vars if v in self.FIELDS]
+        
         self.data = self._preload_data() if preload else None
         self.h5_file = None
         self.current_chunk = None

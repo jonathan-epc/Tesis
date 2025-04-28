@@ -18,12 +18,14 @@ class PhysicsInformedLoss(nn.Module):
         alpha: float = 0.999,
         temperature: float = 0.1,
         rho: float = 0.99,
-        lambda_physics: float = 0.5,
+        use_physics_loss: bool = False,
+        normalize_output: bool = True, # Add this argument
         epsilon: float = 1e-5
     ):
         super(PhysicsInformedLoss, self).__init__()
         self.g = g
-        self.lambda_physics = lambda_physics
+        self.use_physics_loss = use_physics_loss
+        self.normalize_output = normalize_output
         self.data_loss = nn.HuberLoss()
         self.input_vars = input_vars
         self.output_vars = output_vars
@@ -68,7 +70,7 @@ class PhysicsInformedLoss(nn.Module):
         
         # Check if physics loss should be computed
         zero_tensor = torch.tensor(0.0, device=total_data_loss.device)
-        if not hasattr(self.config.training, 'use_physics_loss') or not self.config.training.use_physics_loss:
+        if not self.use_physics_loss:
             return total_data_loss, total_data_loss, zero_tensor, zero_tensor, zero_tensor
         
         # Compute physics loss
@@ -83,15 +85,17 @@ class PhysicsInformedLoss(nn.Module):
         
         # Update ReLoBRaLo lambdas
         self.update_relobralo_lambdas(total_data_loss, continuity_loss, momentum_x_loss, momentum_y_loss)
-
         
-        # Combine losses with dynamic weighting
-        total_loss = (
-            self.lambdas[0] * total_data_loss + 
-            self.lambdas[1] * continuity_loss + 
-            self.lambdas[2] * momentum_x_loss + 
-            self.lambdas[3] * momentum_y_loss
-        )
+        # Combine losses with dynamic weighting (if ReLoBRaLo is active and use_physics_loss is True)
+        if self.use_physics_loss:
+             total_loss = (
+                 self.lambdas[0] * total_data_loss +
+                 self.lambdas[1] * continuity_loss +
+                 self.lambdas[2] * momentum_x_loss +
+                 self.lambdas[3] * momentum_y_loss
+             )
+        else: # Should not happen if check above works, but good practice
+             total_loss = total_data_loss
         
         return total_loss, total_data_loss, continuity_loss, momentum_x_loss, momentum_y_loss
 
@@ -296,10 +300,11 @@ class PhysicsInformedLoss(nn.Module):
                        self.data_loss(momentum_y_loss, torch.zeros_like(momentum_y_loss))]
         return physics_loss, []
 
-    def assign_variables(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]], 
-                        pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]):
+    def assign_variables(self, inputs: Tuple[List[torch.Tensor], List[torch.Tensor]],
+                         pred: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]):
         """
-        Assigns variables following the working reference code pattern.
+        Assigns variables following the working reference code pattern,
+        respecting trial-specific normalization settings.
         """
         variables = {}
         missing_vars = []
@@ -308,42 +313,108 @@ class PhysicsInformedLoss(nn.Module):
     
         # First check if we have all required variables in input_vars and output_vars
         if self.config.data.adimensional:
-            required_vars = {"H*", "U*", "V*", "B*","Fr","Hr","Re","M", "Ar"} # "Ar","Vr" removed because they are constant in this case
+            # Adjusted required vars based on your comment in config.yaml
+            # Assuming Ar and Vr might be constants or handled elsewhere if not in inputs/outputs
+            required_vars = {"H*", "U*", "V*", "B*", "Fr", "Hr", "Re", "M", "Ar"}
         else:
             required_vars = {"H", "U", "V", "B", "n", "nut"}
-        if not required_vars.issubset(set(self.input_vars).union(set(self.output_vars))):
-            missing = required_vars - set(self.input_vars).union(set(self.output_vars))
-            return None, list(missing)
-
+    
+        available_vars = set(self.input_vars).union(set(self.output_vars))
+        if not required_vars.issubset(available_vars):
+            missing = required_vars - available_vars
+            # Log the warning here as well
+            logger.warning(f"Missing required variables for physics loss calculation: {missing}")
+            return None, list(missing) # Return None for variables dict to signal failure
+    
     
         # Process input variables
         all_inputs = (field_inputs if field_inputs is not None else []) + (scalar_inputs if scalar_inputs is not None else [])
-        sorted_input_names = [var for var in self.input_vars if var in self.config.data.non_scalars] + [var for var in self.input_vars if var in self.config.data.scalars]
+        # Correctly order input names based on how dataset constructs them (fields first, then scalars)
+        sorted_input_names = [var for var in self.input_vars if var in self.config.data.non_scalars] + \
+                             [var for var in self.input_vars if var in self.config.data.scalars]
+    
+        # Check if the number of tensors matches the number of expected input variables
+        if len(all_inputs) != len(sorted_input_names):
+             logger.error(f"Mismatch between number of input tensors ({len(all_inputs)}) and input variable names ({len(sorted_input_names)}). Check data loading and config.")
+             # Handle error appropriately, maybe raise ValueError or return missing
+             return None, list(required_vars) # Indicate failure
+    
         for var, tensor in zip(sorted_input_names, all_inputs):
+            # Denormalize INPUTS based on the trial's setting (self.normalize_input)
+            # The dataset provides data normalized based on config.data.normalize_input.
+            # We denormalize here *only if* the dataset provided normalized data.
+            if self.config.data.normalize_input: # Check if dataset provided normalized data
+                 tensor_denorm = self.dataset._denormalize(tensor, var)
+            else:
+                 tensor_denorm = tensor # Already in original scale
+    
+            # If the *trial* expects *normalized* inputs, use the original tensor.
+            # If the *trial* expects *unnormalized* inputs, use the denormalized tensor.
+            # The self.normalize_input flag tells us what the *trial* expects.
+            # This logic seems counter-intuitive. Let's rethink:
+            # The physics equations expect *real-world* values.
+            # So, we *always* need to denormalize if the dataset provided normalized inputs.
+            # The 'normalize_input' hyperparameter tune doesn't make sense here,
+            # physics requires real values. Let's assume we always denormalize inputs
+            # if they came normalized from the dataset.
             if self.config.data.normalize_input:
-                tensor = self.dataset._denormalize(tensor, var)
-            # Reshape scalar inputs to (batch_size) if they are scalar
+                tensor_to_use = self.dataset._denormalize(tensor.clone(), var) # Use .clone()
+            else:
+                tensor_to_use = tensor.clone()
+    
+            # Reshape scalar inputs AFTER potential denormalization
             if var in self.config.data.scalars:
-                tensor = tensor.squeeze() if tensor.dim() > 1 else tensor
-            variables[var] = tensor
+                # Ensure it's at least 1D for viewing later
+                tensor_to_use = tensor_to_use.squeeze() if tensor_to_use.dim() > 1 else tensor_to_use
+                if tensor_to_use.dim() == 0: # If squeeze resulted in 0D tensor
+                    tensor_to_use = tensor_to_use.unsqueeze(0) # Make it 1D (batch size 1 case)
+    
+    
+            variables[var] = tensor_to_use
     
         # Separate processing for field_pred and scalar_pred
+        # Denormalize OUTPUTS based on the trial's setting (self.normalize_output)
         sorted_output_non_scalar_names = [var for var in self.output_vars if var in self.config.data.non_scalars]
         if field_pred is not None:
-            # Process field_pred tensor, unbinding along dim=1 (the variable dimension for field variables)
+            if field_pred.shape[1] != len(sorted_output_non_scalar_names):
+                 logger.error(f"Mismatch between field_pred channels ({field_pred.shape[1]}) and non-scalar output variables ({len(sorted_output_non_scalar_names)}).")
+                 return None, list(required_vars) # Indicate failure
+    
             for i, (var, tensor_slice) in enumerate(zip(sorted_output_non_scalar_names, torch.unbind(field_pred, dim=1))):
-                if self.config.data.normalize_output:
-                    tensor_slice = self.dataset._denormalize(tensor_slice,var)
-                variables[var] = tensor_slice
-                
+                # If the trial used normalized outputs (self.normalize_output is True),
+                # then the prediction (tensor_slice) is normalized and needs denormalizing for physics.
+                if self.normalize_output:
+                    tensor_slice_denorm = self.dataset._denormalize(tensor_slice.clone(), var) # Use .clone()
+                    variables[var] = tensor_slice_denorm
+                else:
+                    # If the trial used unnormalized outputs, the prediction is already in real scale.
+                    variables[var] = tensor_slice.clone()
+    
         sorted_output_scalar_names = [var for var in self.output_vars if var in self.config.data.scalars]
         if scalar_pred is not None:
-            # Process scalar_pred tensor, unbinding along dim=1 (the variable dimension for scalar variables)
-            for i, (var, tensor_slice) in enumerate(zip(sorted_output_scalar_names, torch.unbind(scalar_pred, dim=1))):
-                if self.config.data.normalize_output:
-                    tensor_slice = self.dataset._denormalize(tensor_slice, var)
-                # Ensure output scalar variables have shape (batch_size)
-                tensor_slice = tensor_slice.squeeze() if tensor_slice.dim() > 1 else tensor_slice
-                variables[var] = tensor_slice
+            if scalar_pred.shape[1] != len(sorted_output_scalar_names):
+                 logger.error(f"Mismatch between scalar_pred channels ({scalar_pred.shape[1]}) and scalar output variables ({len(sorted_output_scalar_names)}).")
+                 return None, list(required_vars) # Indicate failure
     
-        return variables, missing_vars
+            for i, (var, tensor_slice) in enumerate(zip(sorted_output_scalar_names, torch.unbind(scalar_pred, dim=1))):
+                # Same logic as for field predictions
+                if self.normalize_output:
+                    tensor_slice_denorm = self.dataset._denormalize(tensor_slice.clone(), var) # Use .clone()
+                else:
+                    tensor_slice_denorm = tensor_slice.clone()
+    
+                # Reshape scalar outputs AFTER potential denormalization
+                # Ensure it's at least 1D for viewing later
+                tensor_slice_denorm = tensor_slice_denorm.squeeze() if tensor_slice_denorm.dim() > 1 else tensor_slice_denorm
+                if tensor_slice_denorm.dim() == 0:
+                     tensor_slice_denorm = tensor_slice_denorm.unsqueeze(0) # Make it 1D
+    
+                variables[var] = tensor_slice_denorm
+    
+        # Final check if all required variables are present in the 'variables' dict
+        if not required_vars.issubset(variables.keys()):
+            missing_final = required_vars - set(variables.keys())
+            logger.error(f"Failed to assign all required variables for physics loss. Missing: {missing_final}")
+            return None, list(missing_final)
+    
+        return variables, [] # Return empty list for missing_vars on success

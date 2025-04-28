@@ -69,6 +69,11 @@ class EarlyStopping:
             torch.save(model.state_dict(), self.save_path)
         self.val_loss_min = val_loss
 
+def seed_worker(worker_id):
+    """Seeds DataLoader workers for reproducibility."""
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 def set_seed(seed: int) -> None:
     """
@@ -84,10 +89,10 @@ def set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-    # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
-
+    # torch.backends.cudnn.deterministic = True
 
 def setup_experiment(config: dict) -> None:
     """Set up the experiment environment."""
@@ -231,6 +236,7 @@ def denormalize_outputs_and_targets(
     targets: Tuple[List[torch.Tensor], List[torch.Tensor]],
     dataset,
     config,
+    normalize_output_setting: bool
 ) -> Tuple[Tuple[Optional[torch.Tensor], Optional[torch.Tensor]], 
            Tuple[List[torch.Tensor], List[torch.Tensor]]]:
     """
@@ -248,42 +254,77 @@ def denormalize_outputs_and_targets(
     """
     output_vars = config.data.outputs
 
-    normalize_output = config.data.normalize_output
+    normalize_output = normalize_output_setting 
     
     # If normalization is not enabled, return original data
     if not normalize_output:
         return outputs, targets
 
+    # --- Denormalization Logic (Only runs if normalize_output_setting is True) ---
     field_outputs, scalar_outputs = outputs
-    field_targets, scalar_targets = targets
+    field_targets, scalar_targets = targets # These are lists
 
+    # Get variable names (already done in original code, keeping it)
     scalar_vars = [var for var in output_vars if var in config.data.scalars]
     non_scalar_vars = [var for var in output_vars if var in config.data.non_scalars]
-    
-    # Denormalize field outputs and targets
+
+    # Denormalize field outputs (if they exist)
+    field_outputs_denorm = None
     if field_outputs is not None:
-        field_outputs = torch.stack([
-            dataset._denormalize(p, var) 
-            for p, var in zip(torch.unbind(field_outputs, dim=1), non_scalar_vars)
-        ], dim=1)
+         # Ensure field_outputs is B x C x H x W before unbinding
+        if field_outputs.dim() == 4 and len(non_scalar_vars) == field_outputs.shape[1]:
+            field_outputs_denorm = torch.stack([
+                dataset._denormalize(p, var)
+                # unbind splits along dim 1 (channel/variable dim)
+                for p, var in zip(torch.unbind(field_outputs, dim=1), non_scalar_vars)
+            ], dim=1) # Stack back along dim 1
+        else:
+            # Handle potential shape mismatch or log a warning
+            print(f"Warning: Shape mismatch or unexpected field_outputs shape {field_outputs.shape} in denormalize. Expected Bx{len(non_scalar_vars)}xHxW.")
+            field_outputs_denorm = field_outputs # Return original as fallback
 
-    if field_targets is not None:
-        field_targets = [
-            dataset._denormalize(t, var) 
-            for t, var in zip(field_targets, non_scalar_vars)
-        ]
+    # Denormalize field targets (if they exist)
+    field_targets_denorm = [] # Initialize as list
+    if field_targets: # Check if list is not empty
+         # Ensure list length matches non_scalar_vars
+         if len(field_targets) == len(non_scalar_vars):
+             field_targets_denorm = [
+                 dataset._denormalize(t, var)
+                 for t, var in zip(field_targets, non_scalar_vars)
+             ]
+         else:
+             # Handle potential mismatch
+             print(f"Warning: Mismatch between len(field_targets)={len(field_targets)} and len(non_scalar_vars)={len(non_scalar_vars)}.")
+             field_targets_denorm = field_targets # Fallback
 
-    # Denormalize scalar outputs and targets
+    # Denormalize scalar outputs (if they exist)
+    scalar_outputs_denorm = None
     if scalar_outputs is not None:
-        scalar_outputs = torch.stack([
-            dataset._denormalize(p, var) 
-            for p, var in zip(torch.unbind(scalar_outputs, dim=1), scalar_vars)
-        ], dim=1)
+         # Ensure scalar_outputs is B x C before unbinding
+        if scalar_outputs.dim() == 2 and len(scalar_vars) == scalar_outputs.shape[1]:
+            scalar_outputs_denorm = torch.stack([
+                dataset._denormalize(p, var)
+                # unbind splits along dim 1 (variable dim for scalars)
+                for p, var in zip(torch.unbind(scalar_outputs, dim=1), scalar_vars)
+            ], dim=1) # Stack back along dim 1
+        else:
+            # Handle potential shape mismatch
+            print(f"Warning: Shape mismatch or unexpected scalar_outputs shape {scalar_outputs.shape} in denormalize. Expected Bx{len(scalar_vars)}.")
+            scalar_outputs_denorm = scalar_outputs # Fallback
 
-    if scalar_targets is not None:
-        scalar_targets = [
-            dataset._denormalize(t, var) 
-            for t, var in zip(scalar_targets, scalar_vars)
-        ]
+    # Denormalize scalar targets (if they exist)
+    scalar_targets_denorm = [] # Initialize as list
+    if scalar_targets: # Check if list is not empty
+         # Ensure list length matches scalar_vars
+         if len(scalar_targets) == len(scalar_vars):
+             scalar_targets_denorm = [
+                 dataset._denormalize(t, var)
+                 for t, var in zip(scalar_targets, scalar_vars)
+             ]
+         else:
+             # Handle potential mismatch
+             print(f"Warning: Mismatch between len(scalar_targets)={len(scalar_targets)} and len(scalar_vars)={len(scalar_vars)}.")
+             scalar_targets_denorm = scalar_targets # Fallback
 
-    return (field_outputs, scalar_outputs), (field_targets, scalar_targets)
+    # Return the potentially denormalized data
+    return (field_outputs_denorm, scalar_outputs_denorm), (field_targets_denorm, scalar_targets_denorm)

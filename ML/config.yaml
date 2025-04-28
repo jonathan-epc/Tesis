@@ -7,7 +7,9 @@ training:
   accumulation_steps: 1
   learning_rate: 0.00011717001996796496
   test_frac: 0.2
+  validation_frac: 0.2
   early_stopping_patience: 64
+  early_stopping_delta: 0
   pretrained_model_name: 
   clip_grad_value: 1
   weight_decay: 0.002223434290435259
@@ -39,11 +41,11 @@ data:
   numpoints_y: 11
   preload: true
   inputs:
-    # - H0
-    # - Q0
-    # - n
-    # - nut
-    # - B
+    - H0
+    - Q0
+    - n
+    - nut
+    - B
     # - H
     # - U
     # - V
@@ -55,25 +57,25 @@ data:
     # - Ar
     # - Vr
     # - H*
-    - U*
-    - V*
+    # - U*
+    # - V*
   outputs:
     # - H0
     # - Q0
     # - n
     # - nut
     # - B
-    # - H
-    # - U
-    # - V
-    - Hr
-    - Fr
-    - M
-    - Re
-    - B*
-    - Ar
-    - Vr
-    - H*
+    - H
+    - U
+    - V
+    # - Hr
+    # - Fr
+    # - M
+    # - Re
+    # - B*
+    # - Ar
+    # - Vr
+    # - H*
     # - U*
     # - V*
   scalars:
@@ -121,11 +123,12 @@ data:
 seed: 43
 logging:
   use_wandb: true
+  wandb_project: 'Tesis'
   plot_enabled: false
   save_dir: 'plots'
 optuna:
-  study_name: study24iab
-  study_notes: 'Inverse problem, adimensional, bars adimensional, ReLoBRaLo, increased epsilon to reduce numerical instabilities, also added clamping to inside of sqrt'
+  study_name: study28ddb
+  study_notes: 'Direct problem, dimensional, bars adimensional, ReLoBRaLo'
   n_trials: 200
   base_storage_path: 'sqlite:///studies/'
   hyperparameter_space:
