@@ -494,52 +494,65 @@ class Trainer:
                 wandb.summary["best_fold_epoch"] = early_stopping.best_epoch
             wandb.finish()
 
-    def _load_pretrained_model(self):
-        """Loads model weights from the path specified in self.pretrained_model_path."""
-        if not self.pretrained_model_path or not os.path.exists(
-            self.pretrained_model_path
-        ):
-            logger.warning(
-                f"Pretrained model path not specified or not found: {self.pretrained_model_path}. Skipping loading."
-            )
-            return
-
-        try:
-            logger.info(
-                f"Loading pretrained model weights from: {self.pretrained_model_path}"
-            )
-            # Use weights_only=True for security by default
-            checkpoint = torch.load(
-                self.pretrained_model_path, map_location=self.device, weights_only=True
-            )
-            self.model.load_state_dict(checkpoint, strict=True)
-            logger.info(
-                f"Successfully loaded pretrained model weights (weights_only=True)."
-            )
-
-        except (FileNotFoundError, pickle.UnpicklingError, RuntimeError) as e:
-            logger.warning(
-                f"Loading with weights_only=True failed: {e}. Attempting fallback weights_only=False."
-            )
-            try:
-                # Fallback: Load with weights_only=False (use with caution)
-                checkpoint = torch.load(
-                    self.pretrained_model_path,
-                    map_location=self.device,
-                    weights_only=False,
-                )
-                self.model.load_state_dict(checkpoint, strict=True)
-                logger.info(
-                    "Successfully loaded pretrained model weights using weights_only=False fallback."
-                )
-            except Exception as fallback_e:
-                logger.error(
-                    f"Fallback loading with weights_only=False also failed: {fallback_e}"
-                )
-                raise fallback_e  # Re-raise the error if fallback fails
-        except Exception as e:
-            logger.error(f"An unexpected error occurred loading pretrained model: {e}")
-            raise e
+    def _load_pretrained_model(self):
+        """Loads model weights from the path specified in self.pretrained_model_path."""
+        if not self.pretrained_model_path or not os.path.exists(self.pretrained_model_path): # Make sure os is imported
+            logger.warning(
+                f"Pretrained model path not specified or not found: {self.pretrained_model_path}. Skipping loading."
+            )
+            return
+
+        checkpoint_to_load = None
+        try:
+            logger.info(f"Attempting to load pretrained model weights (weights_only=True) from: {self.pretrained_model_path}")
+            checkpoint_to_load = torch.load(
+                self.pretrained_model_path, map_location=self.device, weights_only=True
+            )
+            logger.info("Successfully loaded checkpoint with weights_only=True.")
+        
+        # Catching a broad Exception for the first attempt, then specifically for the fallback.
+        # The original RuntimeError from weights_only=True is often due to pickle issues (like GELU).
+        except Exception as e_true: 
+            logger.warning(
+                f"Loading pretrained model with weights_only=True failed: {e_true}. "
+                "Attempting fallback with weights_only=False."
+            )
+            try:
+                checkpoint_to_load = torch.load(
+                    self.pretrained_model_path,
+                    map_location=self.device,
+                    weights_only=False, # Fallback
+                )
+                logger.info("Successfully loaded checkpoint with weights_only=False.")
+            except Exception as e_false:
+                logger.error(
+                    f"Fallback loading (weights_only=False) also failed for {self.pretrained_model_path}: {e_false}"
+                )
+                raise # Re-raise if both attempts fail
+
+        # Now, process the loaded checkpoint (if successful)
+        if checkpoint_to_load is not None:
+            try:
+                # Check if it's a dictionary and remove the unexpected key before loading
+                final_state_dict = checkpoint_to_load
+                if isinstance(checkpoint_to_load, dict):
+                    if '_metadata' in checkpoint_to_load:
+                        logger.debug("Removing '_metadata' key from loaded checkpoint dictionary for Trainer.")
+                        # Create a new dict if you want to be safe, or pop from the original
+                        final_state_dict = {k: v for k, v in checkpoint_to_load.items() if k != '_metadata'}
+                        # Or, if pop is okay: final_state_dict.pop('_metadata', None)
+                
+                self.model.load_state_dict(final_state_dict, strict=True)
+                logger.info(f"Successfully applied state_dict to model from {self.pretrained_model_path}.")
+
+            except Exception as e_load_state:
+                logger.error(f"Error applying loaded state_dict to model: {e_load_state}")
+                logger.debug(f"Keys in loaded checkpoint: {list(checkpoint_to_load.keys()) if isinstance(checkpoint_to_load, dict) else 'Not a dict'}")
+                logger.debug(f"Model keys: {list(self.model.state_dict().keys())}")
+                raise # Re-raise the error after logging details
+        else:
+            # This case should not be reached if the above logic raises on failure
+            logger.error(f"Checkpoint for {self.pretrained_model_path} could not be loaded (is None).")
 
 
 # --- Cross-Validation Function ---

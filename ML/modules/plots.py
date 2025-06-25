@@ -376,13 +376,13 @@ def plot_field_analysis(
     field_targets,
     field_names,
     units=None,
-    custom_cmap=None,
+    custom_cmap=None, # custom_cmap is passed but not used in this specific function's plots
     plot_manager: PlotManager = None,
     language="en",
-    detailed=True,
+    detailed=True, # detailed is passed but not directly used to switch on/off parts of these specific plots
 ):
     """
-    Creates analysis plots for field variables across the entire dataset,
+    Creates individual analysis plots for field variables across the entire dataset,
     focusing on error distributions and spatial patterns.
 
     Parameters:
@@ -396,136 +396,196 @@ def plot_field_analysis(
     units : dict, optional
         Dictionary mapping variable names to their units
     custom_cmap : str, optional
-        Custom colormap name
+        Custom colormap name (currently not used in this function's plots)
     plot_manager : PlotManager, optional
         Manager for saving plots
     language : str
         Language for plot labels ('en' or 'es')
     detailed : bool
-        Whether to include detailed metrics
+        Whether to include detailed metrics (currently not used to gate plots)
     """
     translations = {
         "en": {
-            "spatial_error": "Spatial Error Distribution",
+            "spatial_error_dist": "Spatial Error Distribution",
             "error_hist": "Error Histogram",
             "avg_error": "Average Error",
-            "percentile": "Percentile",
-            "frequency": "Frequency",
-            "spatial_position": "Spatial Position",
+            "percentile_plot_title": "Error Magnitude Percentiles vs. Spatial Position",
             "error_magnitude": "Error Magnitude",
+            "frequency": "Frequency",
+            "spatial_position_y": "Spatial Position (Y-axis average)", # Clarified for percentile plot
+            "statistics_title": "Global Error Metrics",
+            "stat_mae": "MAE",
+            "stat_rmse": "RMSE",
+            "stat_max_error": "Max Error",
+            "stat_mape": "MAPE",
+            "stat_nrmse": "NRMSE",
+            "stat_smape": "SMAPE",
+            "stat_spatial_corr": "Spatial Correlation",
         },
         "es": {
-            "spatial_error": "Distribución Espacial del Error",
+            "spatial_error_dist": "Distribución Espacial del Error",
             "error_hist": "Histograma de Error",
             "avg_error": "Error Promedio",
-            "percentile": "Percentil",
-            "frequency": "Frecuencia",
-            "spatial_position": "Posición Espacial",
+            "percentile_plot_title": "Percentiles de Magnitud de Error vs. Posición Espacial",
             "error_magnitude": "Magnitud del Error",
+            "frequency": "Frecuencia",
+            "spatial_position_y": "Posición Espacial (promedio eje Y)",
+            "statistics_title": "Métricas Globales de Error",
+            "stat_mae": "MAE",
+            "stat_rmse": "RMSE",
+            "stat_max_error": "Error Máximo",
+            "stat_mape": "MAPE",
+            "stat_nrmse": "NRMSE",
+            "stat_smape": "SMAPE",
+            "stat_spatial_corr": "Correlación Espacial",
         },
     }
     lang = translations[language]
 
     for i in range(field_outputs.size(1)):
         # Convert to numpy and compute errors
-        targets = field_targets[:, i].cpu().numpy()
-        outputs = field_outputs[:, i].cpu().numpy()
-        errors = targets - outputs
+        targets_np = field_targets[:, i].cpu().numpy()
+        outputs_np = field_outputs[:, i].cpu().numpy()
+        errors_np = targets_np - outputs_np
+        current_field_name = field_names[i]
 
         # Get unit string if available
         unit_str = (
-            f" ({units[field_names[i]]})" if units and field_names[i] in units else ""
+            f" ({units[current_field_name]})"
+            if units and current_field_name in units
+            else ""
         )
+        title_suffix = f"\n{current_field_name}{unit_str}"
 
-        # Create figure with subplots
-        fig = plt.figure(figsize=(15, 10))
-        gs = GridSpec(2, 2, figure=fig)
+        # --- 1. Spatial error distribution (mean absolute error at each position) ---
+        fig_spatial, ax_spatial = plt.subplots(figsize=(8, 7)) # Adjusted size for single plot
+        spatial_mae = np.mean(np.abs(errors_np), axis=0)
+        im_spatial = ax_spatial.imshow(spatial_mae, cmap="viridis", aspect='equal')
+        ax_spatial.set_title(f"{lang['spatial_error_dist']}{title_suffix}")
+        # Horizontal colorbar
+        cbar_spatial = fig_spatial.colorbar(im_spatial, ax=ax_spatial, orientation='horizontal', pad=0.15, shrink=0.8)
+        cbar_spatial.set_label(f"{lang['avg_error']}{unit_str}")
+        ax_spatial.set_xlabel("X position")
+        ax_spatial.set_ylabel("Y position")
+        plt.tight_layout()
+        if plot_manager:
+            plot_manager.save_plot(
+                fig_spatial,
+                plot_type=f"{current_field_name}_spatial_error_distribution",
+            )
+        plt.show()
 
-        # 1. Spatial error distribution (mean absolute error at each position)
-        ax1 = fig.add_subplot(gs[0, 0])
-        spatial_mae = np.mean(np.abs(errors), axis=0)
-        im1 = ax1.imshow(spatial_mae, cmap="viridis")
-        ax1.set_title(f"{lang['spatial_error']}\n{field_names[i]}{unit_str}")
-        plt.colorbar(im1, ax=ax1)
+        # --- 2. Error histogram ---
+        fig_hist, ax_hist = plt.subplots(figsize=(8, 6))
+        ax_hist.hist(errors_np.flatten(), bins=50, density=True, color='skyblue', edgecolor='black')
+        ax_hist.set_title(f"{lang['error_hist']}{title_suffix}")
+        ax_hist.set_xlabel(f"{lang['error_magnitude']}{unit_str}")
+        ax_hist.set_ylabel(lang['frequency'])
+        ax_hist.grid(axis='y', alpha=0.75)
+        plt.tight_layout()
+        if plot_manager:
+            plot_manager.save_plot(
+                fig_hist,
+                plot_type=f"{current_field_name}_error_histogram",
+            )
+        plt.show()
 
-        # 2. Error histogram
-        ax2 = fig.add_subplot(gs[0, 1])
-        ax2.hist(errors.flatten(), bins=50, density=True)
-        ax2.set_title(f"{lang['error_hist']}\n{field_names[i]}{unit_str}")
-        ax2.set_xlabel(lang["error_magnitude"])
-        ax2.set_ylabel(lang["frequency"])
+        # --- 3. Error percentiles across spatial dimensions (averaging along one spatial axis) ---
+        fig_perc, ax_perc = plt.subplots(figsize=(8, 6))
+        # Assuming errors_np is (n_cases, height, width)
+        # We plot percentiles of error magnitude averaged along the width (axis=2) vs height (y-position)
+        # Or averaged along height (axis=1) vs width (x-position). Let's choose Y-axis average for now.
+        # If your data has a clear "flow" direction, you might want to adjust this.
+        abs_errors_np = np.abs(errors_np)
+        percentiles_to_plot = [25, 50, 75, 90, 95, 99]
+        
+        # Calculate percentiles over cases for each spatial point: shape (num_percentiles, height, width)
+        error_percentiles_spatial = np.percentile(abs_errors_np, q=percentiles_to_plot, axis=0)
 
-        # 3. Error percentiles across spatial dimensions
-        ax3 = fig.add_subplot(gs[1, 0])
-        error_percentiles = np.percentile(
-            np.abs(errors), q=[25, 50, 75, 90, 95, 99], axis=0
-        )
-        for q, p in zip([25, 50, 75, 90, 95, 99], error_percentiles):
-            ax3.plot(p.mean(axis=1), label=f"{q}th percentile")
-        ax3.set_title(f"{lang['error_magnitude']} {lang['percentile']}")
-        ax3.set_xlabel(lang["spatial_position"])
-        ax3.set_ylabel(f"{lang['error_magnitude']}{unit_str}")
-        ax3.legend()
+        for q_idx, q_val in enumerate(percentiles_to_plot):
+            # For each percentile, take its spatial map and average along the X-axis (width)
+            # This gives a profile along the Y-axis (height)
+            profile_along_y = error_percentiles_spatial[q_idx].mean(axis=1)
+            ax_perc.plot(profile_along_y, label=f"{q_val}th")
+        
+        ax_perc.set_title(f"{lang['percentile_plot_title']}{title_suffix}")
+        ax_perc.set_xlabel(lang["spatial_position_y"]) # This now refers to the Y-axis index
+        ax_perc.set_ylabel(f"{lang['error_magnitude']}{unit_str}")
+        ax_perc.legend()
+        ax_perc.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        if plot_manager:
+            plot_manager.save_plot(
+                fig_perc,
+                plot_type=f"{current_field_name}_error_percentiles",
+            )
+        plt.show()
 
-        # 4. Statistics text box
-        ax4 = fig.add_subplot(gs[1, 1])
-        ax4.axis("off")
-
+        # --- 4. Statistics text ---
         # Calculate comprehensive error metrics
-        mae = np.mean(np.abs(errors))
-        rmse = np.sqrt(np.mean(errors**2))
-        max_error = np.max(np.abs(errors))
+        mae = np.mean(np.abs(errors_np))
+        rmse = np.sqrt(np.mean(errors_np**2))
+        max_error = np.max(np.abs(errors_np))
+        
+        # Calculate relative errors - ensure targets_np is not all zeros
+        if np.any(targets_np != 0):
+            # Mask to avoid division by zero, for elements close to zero in target
+            safe_targets_mask = np.abs(targets_np) > 1e-9 # A small epsilon
+            
+            mape_values = np.abs(errors_np[safe_targets_mask] / targets_np[safe_targets_mask])
+            mape = np.mean(mape_values) * 100 if mape_values.size > 0 else np.nan
+            
+            smape_values = 2 * np.abs(errors_np[safe_targets_mask]) / \
+                           (np.abs(targets_np[safe_targets_mask]) + np.abs(outputs_np[safe_targets_mask]))
+            smape = np.mean(smape_values) * 100 if smape_values.size > 0 else np.nan
+        else:
+            mape = np.nan
+            smape = np.nan
 
-        # Calculate relative errors
-        mape = (
-            np.mean(np.abs(errors / targets)) * 100 if np.all(targets != 0) else np.nan
-        )
-        nrmse = (
-            rmse / (np.max(targets) - np.min(targets))
-            if np.max(targets) != np.min(targets)
-            else np.nan
-        )
-        smape = np.mean(2 * np.abs(errors) / (np.abs(targets) + np.abs(outputs))) * 100
+        target_range = np.max(targets_np) - np.min(targets_np)
+        nrmse = rmse / target_range if target_range > 1e-9 else np.nan # Avoid division by zero if range is tiny
 
-        # Add spatial correlation metrics
-        spatial_correlation = np.mean(
-            [
-                np.corrcoef(t.flatten(), o.flatten())[0, 1]
-                for t, o in zip(targets, outputs)
-            ]
-        )
+        # Calculate spatial correlation per case and average
+        correlations = []
+        for case_idx in range(targets_np.shape[0]):
+            target_flat = targets_np[case_idx].flatten()
+            output_flat = outputs_np[case_idx].flatten()
+            if np.std(target_flat) > 1e-9 and np.std(output_flat) > 1e-9: # Check for non-constant arrays
+                correlations.append(np.corrcoef(target_flat, output_flat)[0, 1])
+        spatial_correlation = np.nanmean(correlations) if correlations else np.nan
 
-        stats_text = (
-            f"Global Error Metrics:\n"
-            f"MAE: {mae:.4f}{unit_str}\n"
-            f"RMSE: {rmse:.4f}{unit_str}\n"
-            f"Max Error: {max_error:.4f}{unit_str}\n"
-            f"MAPE: {mape:.2f}%\n"
-            f"NRMSE: {nrmse:.4f}\n"
-            f"SMAPE: {smape:.2f}%\n\n"
-            f"Spatial Correlation: {spatial_correlation:.4f}"
-        )
 
-        ax4.text(
+        stats_text_lines = [
+            f"{lang['statistics_title']}:",
+            f"{lang['stat_mae']}: {mae:.4f}{unit_str}",
+            f"{lang['stat_rmse']}: {rmse:.4f}{unit_str}",
+            f"{lang['stat_max_error']}: {max_error:.4f}{unit_str}",
+            f"{lang['stat_mape']}: {mape:.2f}%" if not np.isnan(mape) else f"{lang['stat_mape']}: N/A",
+            f"{lang['stat_nrmse']}: {nrmse:.4f}" if not np.isnan(nrmse) else f"{lang['stat_nrmse']}: N/A",
+            f"{lang['stat_smape']}: {smape:.2f}%" if not np.isnan(smape) else f"{lang['stat_smape']}: N/A",
+            f"{lang['stat_spatial_corr']}: {spatial_correlation:.4f}" if not np.isnan(spatial_correlation) else f"{lang['stat_spatial_corr']}: N/A",
+        ]
+        stats_text = "\n".join(stats_text_lines)
+
+        # Create a figure just for the text
+        fig_stats, ax_stats = plt.subplots(figsize=(6, 4)) # Adjust size as needed
+        ax_stats.axis("off")
+        ax_stats.text(
             0.05,
             0.95,
             stats_text,
-            transform=ax4.transAxes,
+            transform=ax_stats.transAxes,
             verticalalignment="top",
             fontsize=10,
-            bbox=dict(facecolor="white", alpha=0.8),
+            bbox=dict(boxstyle="round,pad=0.5", fc="wheat", alpha=0.5),
         )
-
-        plt.tight_layout()
-
+        fig_stats.suptitle(f"{lang['statistics_title']}{title_suffix}", fontsize=12)
+        plt.tight_layout(rect=[0, 0, 1, 0.95]) # Adjust layout to make space for suptitle
         if plot_manager:
             plot_manager.save_plot(
-                fig,
-                plot_type=f"{field_names[i]}_global_analysis",
-                dpi=300,
-                formats=["png", "pdf"],
+                fig_stats,
+                plot_type=f"{current_field_name}_error_statistics",
             )
-
         plt.show()
 
 

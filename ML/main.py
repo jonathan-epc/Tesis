@@ -10,7 +10,7 @@ import traceback
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import optuna
 import torch
@@ -38,6 +38,7 @@ class OptimizerMode(Enum):
     HYPERTUNING = auto()
     TRAINING = auto()
     REPEAT = auto()
+    FINETUNING = auto()
 
     @classmethod
     def from_string(cls, s: str) -> "OptimizerMode":
@@ -67,6 +68,295 @@ class OptimizationResults:
                 indent=2,
             )
         )
+
+@dataclass
+class FineTuningConfigArgs: # To group fine-tuning specific CLI args
+    base_study_name: str
+    base_trial_id: int
+    finetune_data_file: str
+    finetune_config_path: Optional[str] = None # Path to a YAML for fine-tuning specific training params
+    finetune_exp_name_suffix: Optional[str] = None # e.g., "_finetune_barsa"
+
+
+class ModelFineTuner:
+    def __init__(self, config, source_study_name: str, source_trial_id: int, target_dataset_path: str, finetune_run_name: Optional[str] = None):
+        self.base_config = config # The original config loaded from file
+        self.logger = setup_logger()
+        self.source_study_name = source_study_name
+        self.source_trial_id = source_trial_id
+        self.target_dataset_path = target_dataset_path
+
+        if not Path(self.target_dataset_path).exists():
+            self.logger.error(f"Target dataset for fine-tuning not found: {self.target_dataset_path}")
+            raise FileNotFoundError(f"Target dataset for fine-tuning not found: {self.target_dataset_path}")
+
+        # Construct the name of the pretrained model
+        # Assuming architecture is always FNOnet as per current setup
+        self.pretrained_model_name_stem = f"{self.source_study_name}_{self.base_config.model.architecture}_trial_{self.source_trial_id}"
+        
+        # Determine the name for this fine-tuning run
+        if finetune_run_name:
+            self.run_name = finetune_run_name
+        else:
+            target_geom_name = Path(self.target_dataset_path).stem # e.g., "barsa"
+            self.run_name = f"{self.pretrained_model_name_stem}_finetuned_on_{target_geom_name}"
+        
+        self.logger.info(f"--- Initializing Fine-Tuning ---")
+        self.logger.info(f"Source Model Stem: {self.pretrained_model_name_stem}")
+        self.logger.info(f"Target Dataset: {self.target_dataset_path}")
+        self.logger.info(f"Fine-tuning Run Name: {self.run_name}")
+
+    def _load_source_model_config_and_hparams(self) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
+        """
+        Loads the configuration and hyperparameters of the source model.
+        This involves loading the Optuna study of the source model.
+        """
+        self.logger.info(f"Loading Optuna study '{self.source_study_name}' to retrieve source model hparams and config.")
+        try:
+            source_study = optuna.load_study(
+                study_name=self.source_study_name,
+                storage=self.base_config.optuna.storage # Use storage from base config
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to load source Optuna study '{self.source_study_name}': {e}")
+            raise
+
+        source_trial = next((t for t in source_study.trials if t.number == self.source_trial_id), None)
+        if source_trial is None:
+            self.logger.error(f"Source trial ID {self.source_trial_id} not found in study '{self.source_study_name}'.")
+            raise ValueError(f"Source trial ID {self.source_trial_id} not found.")
+
+        source_hparams = source_trial.params
+        
+        # Try to get the config saved with the trial (more specific)
+        # This config would contain the original data.inputs/outputs for the source model
+        source_model_config_dict = None
+        trial_config_path_json = Path(f"studies/{self.source_study_name}/trial_{self.source_trial_id}.json")
+        if trial_config_path_json.exists():
+            self.logger.info(f"Loading config from trial JSON: {trial_config_path_json}")
+            try:
+                trial_data = json.loads(trial_config_path_json.read_text())
+                source_model_config_dict = trial_data.get("config")
+            except Exception as e:
+                self.logger.warning(f"Could not load or parse trial JSON {trial_config_path_json}: {e}")
+
+
+        if not source_model_config_dict:
+            self.logger.warning(
+                f"Could not retrieve specific config for source model {self.pretrained_model_name_stem}. "
+                f"Falling back to the currently loaded base config for io_counts. "
+                f"This might lead to errors if inputs/outputs of the source model differ significantly!"
+            )
+            source_model_config_for_io = self.base_config 
+        else:
+            # We have a source_model_config_dict. We need to merge it with base_config
+            # to create a full Config object for the source model.
+            
+            # Start with the base config as a dictionary
+            merged_config_dict = self.base_config.dict(exclude_unset=True) # Use exclude_unset for cleaner merge
+
+            # Define a robust recursive update function for dictionaries
+            def robust_update_dict(target_dict, update_dict):
+                for key, value in update_dict.items():
+                    if isinstance(value, dict) and key in target_dict and isinstance(target_dict[key], dict):
+                        robust_update_dict(target_dict[key], value)
+                    else:
+                        target_dict[key] = value
+                return target_dict
+
+            # Update the base config dict with the source model's specific config dict
+            robust_update_dict(merged_config_dict, source_model_config_dict)
+
+            # Now, create a new Config object from this fully merged dictionary.
+            # This assumes your Config Pydantic class can be instantiated from a dictionary.
+            # Make sure you have the actual Pydantic model class imported.
+            from config import Config # Or whatever your main Pydantic config class is named
+
+            try:
+                # Pydantic v2 style:
+                source_model_config_for_io = Config.model_validate(merged_config_dict)
+            except AttributeError:
+                # Pydantic v1 style:
+                source_model_config_for_io = Config(**merged_config_dict)
+            except Exception as e_cfg:
+                self.logger.error(f"Failed to create Config object from merged dictionary: {e_cfg}")
+                self.logger.warning("Falling back to base_config for IO counts due to config creation error.")
+                source_model_config_for_io = self.base_config
+
+
+        # Calculate io_counts based on the SOURCE model's config (inputs/outputs)
+        source_io_counts = {
+            "field_inputs_n": len([p for p in source_model_config_for_io.data.inputs if p in source_model_config_for_io.data.non_scalars]),
+            "scalar_inputs_n": len([p for p in source_model_config_for_io.data.inputs if p in source_model_config_for_io.data.scalars]),
+            "field_outputs_n": len([p for p in source_model_config_for_io.data.outputs if p in source_model_config_for_io.data.non_scalars]),
+            "scalar_outputs_n": len([p for p in source_model_config_for_io.data.outputs if p in source_model_config_for_io.data.scalars]),
+        }
+        self.logger.info(f"Source model hparams: {source_hparams}")
+        self.logger.info(f"Source model io_counts: {source_io_counts}")
+        self.logger.info(f"Source model original inputs: {source_model_config_for_io.data.inputs}")
+        self.logger.info(f"Source model original outputs: {source_model_config_for_io.data.outputs}")
+
+
+        return source_model_config_for_io, source_hparams, source_io_counts
+
+
+    def finetune(self) -> Optional[float]:
+        self.logger.info(f"Starting fine-tuning process for {self.run_name}")
+        try:
+            # 1. Load HPARAMS and IO_COUNTS of the SOURCE model
+            source_model_original_config, source_hparams, source_io_counts = self._load_source_model_config_and_hparams()
+
+            # 2. Create a new config for this fine-tuning run
+            # Start with a copy of the base config, then override
+            ft_config = self.base_config.copy(deep=True)
+            
+            # Override with source model's relevant architectural and training params
+            # We need to be careful here. We want the source model's architecture.
+            # Training params like learning rate might be reset or adjusted for fine-tuning.
+            # For now, let's assume we use source_hparams for model instantiation.
+            # And ft_config.training for new training loop.
+
+            # Set the pretrained_model_name in the config for Trainer to pick up
+            ft_config.training.pretrained_model_name = self.pretrained_model_name_stem
+            
+            # Set the target dataset for fine-tuning
+            ft_config.data.file_name = self.target_dataset_path
+            
+            # The inputs/outputs for the *dataset loading* should match the *source model's structure*.
+            # This is because the model architecture is fixed.
+            ft_config.data.inputs = source_model_original_config.data.inputs
+            ft_config.data.outputs = source_model_original_config.data.outputs
+            
+            # Potentially adjust learning rate for fine-tuning (e.g., smaller LR)
+            # ft_config.training.learning_rate = source_hparams.get('learning_rate', ft_config.training.learning_rate) / 10 # Example
+            # Or use a new LR from config if desired for fine-tuning. For simplicity, let's use the one from base_config or allow override via CLI later.
+            self.logger.info(f"Fine-tuning learning rate: {ft_config.training.learning_rate}")
+
+
+            # 3. Load target dataset for fine-tuning
+            self.logger.info(f"Loading and splitting target dataset: {ft_config.data.file_name}")
+            # The HDF5Dataset will use ft_config.data.inputs/outputs which are now set to source model's
+            full_dataset_for_stats = HDF5Dataset.from_config(
+                ft_config, file_path=ft_config.data.file_name
+            )
+            self.logger.info(f"Target dataset loaded with {len(full_dataset_for_stats)} samples.")
+
+            test_frac = ft_config.training.test_frac
+            test_size = int(test_frac * len(full_dataset_for_stats))
+            train_val_size = len(full_dataset_for_stats) - test_size
+
+            g_split = torch.Generator().manual_seed(ft_config.seed) # Use consistent seed
+            train_val_dataset, test_dataset = random_split(
+                full_dataset_for_stats, [train_val_size, test_size], generator=g_split
+            )
+            self.logger.info(f"Target dataset split: Train/Val={len(train_val_dataset)}, Test={len(test_dataset)}")
+
+            # 4. Get Model Class
+            model_class = globals()[ft_config.model.class_name]
+
+            # 5. Run Cross-Validation (or single training run) for fine-tuning
+            # The Trainer will instantiate the model using source_hparams and source_io_counts
+            # then load weights from ft_config.training.pretrained_model_name
+            
+            # The hparams passed to cross_validation_procedure should be the source_hparams for model architecture,
+            # but also include relevant training params for the new loop (batch_size, accumulation_steps).
+            # The Trainer will use ft_config for optimizer, scheduler, epochs etc.
+            # The hparams for cross_validation_procedure are primarily for model instantiation and some criterion settings.
+
+            cv_hparams = {**source_hparams} # Start with source model's architectural hparams
+            # Add/override necessary training hparams if they are expected by cross_validate/Trainer from hparams dict
+            cv_hparams['batch_size'] = ft_config.training.batch_size # Use batch size from current (fine-tuning) config
+            cv_hparams['accumulation_steps'] = ft_config.training.accumulation_steps
+            # Ensure 'learning_rate' and 'weight_decay' are in cv_hparams if model_class or FNO uses them from there.
+            # FNOnet itself takes them via **kwargs, so source_hparams covers this.
+            # Optimizer in Trainer will use ft_config.training.learning_rate.
+            # The `hparams` dict passed to Trainer in `cross_validate` is used for `normalize_output` in `denormalize_outputs_and_targets`
+            # and potentially by criterion. So, ensure `use_physics_loss` and `normalize_output` from `source_hparams` are there.
+            cv_hparams['use_physics_loss'] = source_hparams.get('use_physics_loss', ft_config.training.use_physics_loss)
+            cv_hparams['normalize_output'] = source_hparams.get('normalize_output', ft_config.data.normalize_output)
+
+
+            avg_cv_loss = cross_validation_procedure(
+                name=self.run_name, # Use the new fine-tuning run name
+                model_class=model_class, # Source model's class
+                kfolds=ft_config.training.kfolds,
+                hparams=cv_hparams, # Source model's ARCHITECTURAL hparams + relevant training ones
+                config=ft_config,   # Current fine-tuning config (for epochs, LR, dataset path etc.)
+                train_val_dataset=train_val_dataset,
+                full_dataset_for_stats=full_dataset_for_stats,
+                is_sweep=False,
+                trial=None,
+            )
+            self.logger.info(f"Fine-tuning run '{self.run_name}' finished. Avg CV loss: {avg_cv_loss:.4f}")
+
+            # 6. Optional: Evaluate on the test set of the TARGET dataset
+            best_model_path_ft = Path("savepoints") / f"{self.run_name}_best_model.pth"
+            if best_model_path_ft.exists() and test_dataset and len(test_dataset) > 0:
+                self.logger.info(f"Evaluating fine-tuned model '{self.run_name}' on its test set...")
+                
+                # Instantiate model with SOURCE hparams and IO counts
+                eval_model = model_class(
+                    field_inputs_n=source_io_counts["field_inputs_n"],
+                    scalar_inputs_n=source_io_counts["scalar_inputs_n"],
+                    field_outputs_n=source_io_counts["field_outputs_n"],
+                    scalar_outputs_n=source_io_counts["scalar_outputs_n"],
+                    **source_hparams,
+                ).to(ft_config.device)
+
+                # Load the fine-tuned weights
+                try:
+                    checkpoint = torch.load(best_model_path_ft, map_location=ft_config.device, weights_only=True)
+                except:
+                    checkpoint = torch.load(best_model_path_ft, map_location=ft_config.device, weights_only=False)
+                if isinstance(checkpoint, dict) and '_metadata' in checkpoint: checkpoint.pop('_metadata')
+                eval_model.load_state_dict(checkpoint)
+
+                criterion = PhysicsInformedLoss(
+                    input_vars=ft_config.data.inputs, # Should be source model's inputs
+                    output_vars=ft_config.data.outputs, # Should be source model's outputs
+                    config=ft_config,
+                    dataset=full_dataset_for_stats, # Stats from TARGET dataset
+                    use_physics_loss=cv_hparams.get('use_physics_loss', ft_config.training.use_physics_loss),
+                    normalize_output=cv_hparams.get('normalize_output', ft_config.data.normalize_output)
+                )
+                # The hparams for eval_trainer should be the source_hparams for consistency with model
+                eval_trainer_hparams = cv_hparams 
+                eval_trainer = Trainer(
+                    model=eval_model, criterion=criterion, optimizer=None, scheduler=None, scaler=None,
+                    device=ft_config.device, accumulation_steps=1, config=ft_config,
+                    full_dataset=full_dataset_for_stats, hparams=eval_trainer_hparams
+                )
+                g_test = torch.Generator().manual_seed(ft_config.seed + 1)
+                test_loader = DataLoader(
+                    test_dataset, batch_size=eval_trainer_hparams['batch_size'], shuffle=False,
+                    num_workers=ft_config.training.num_workers, pin_memory=False,
+                    worker_init_fn=seed_worker, generator=g_test
+                )
+                test_metrics = eval_trainer.validate(
+                    test_loader, name=f"{self.run_name}_Final_Test", step=-1, fold_n=-1
+                )
+                self.logger.info(f"Fine-tuned model test metrics: {test_metrics}")
+                # Log to WandB if enabled for fine-tuning run
+                if ft_config.logging.use_wandb:
+                    wandb.init(project=ft_config.logging.wandb_project, name=f"{self.run_name}_Test_Eval",
+                               group=self.source_study_name + "_Finetuning", job_type="Finetune_Evaluation",
+                               config={**source_hparams, "target_dataset": self.target_dataset_path, "source_model": self.pretrained_model_name_stem},
+                               reinit=True)
+                    wandb.log({f"Final_Test/{k}": v for k,v in test_metrics.items()})
+                    wandb.summary.update({f"Final_Test_Summary/{k}": v for k,v in test_metrics.items()})
+                    wandb.summary["Avg_CV_Loss_Finetune"] = avg_cv_loss
+                    wandb.finish()
+            else:
+                self.logger.warning("Skipping test set evaluation for fine-tuned model (no checkpoint or empty test set).")
+            
+            return avg_cv_loss
+
+        except Exception as e:
+            self.logger.exception(f"Error during fine-tuning of {self.pretrained_model_name_stem} on {self.target_dataset_path}: {e}")
+            return None
+        finally:
+            empty_cache()
+
 
 class HyperparameterOptimizer:
     def __init__(self, config):
@@ -510,7 +800,18 @@ class HyperparameterOptimizer:
                         map_location=self.config.device,
                         weights_only=False,
                     )
-                    final_model.load_state_dict(checkpoint)
+
+                    # Check if it's a dictionary and remove the unexpected key before loading
+                    if isinstance(checkpoint, dict):
+                        # Remove the metadata key if it exists
+                        removed_key = checkpoint.pop('_metadata', None) # Use pop with default None
+                        if removed_key is not None:
+                            self.logger.debug("Removed '_metadata' key from loaded checkpoint dictionary.")
+                        # Now load the cleaned dictionary
+                        final_model.load_state_dict(checkpoint)
+                    else:
+                        # If it wasn't a dict (unexpected), raise an error or handle differently
+                        raise TypeError(f"Loaded checkpoint is not a dictionary (type: {type(checkpoint)}). Cannot load state_dict.")
                     self.logger.info(
                         "Loaded best model state dict (weights_only=False)."
                     )
@@ -539,8 +840,7 @@ class HyperparameterOptimizer:
                 ),
                 normalize_output=best_hparams.get(
                     "normalize_output", self.config.data.normalize_output
-                ),
-                normalize_input=self.config.data.normalize_input,
+                )
             )
             self.logger.info(
                 f"Evaluation criterion initialized with: "
@@ -859,8 +1159,7 @@ class ModelTrainer:
                     ),
                     normalize_output=hparams.get(
                         "normalize_output", self.config.data.normalize_output
-                    ),
-                    normalize_input=self.config.data.normalize_input,
+                    )
                 )
                 self.logger.info(
                     f"Single run evaluation criterion initialized with: "
@@ -1198,30 +1497,107 @@ def repeat_trial_from_study(trial_id: int, config) -> Optional[float]:
         empty_cache()
 
 
+TRAINED_MODELS_INFO = {
+    "ddb": {"trial_number": 161, "study_name": "study28ddb", "source_geom": "b", "data_file": "data/barsa.hdf5"},
+    "idb": {"trial_number": 57, "study_name": "study25idb", "source_geom": "b", "data_file": "data/barsa.hdf5"},
+    "dab": {"trial_number": 35, "study_name": "study26dab", "source_geom": "b", "data_file": "data/barsa.hdf5"},
+    "iab": {"trial_number": 157, "study_name": "study36iab", "source_geom": "b", "data_file": "data/barsa.hdf5"},
+    "dds": {"trial_number": 93, "study_name": "study30dds", "source_geom": "s", "data_file": "data/slopea.hdf5"},
+    "ids": {"trial_number": 63, "study_name": "study34ids", "source_geom": "s", "data_file": "data/slopea.hdf5"},
+    "das": {"trial_number": 26, "study_name": "study31das", "source_geom": "s", "data_file": "data/slopea.hdf5"},
+    "ias": {"trial_number": 36, "study_name": "study35ias", "source_geom": "s", "data_file": "data/slopea.hdf5"},
+    "ddn": {"trial_number": 194, "study_name": "study29ddb", "source_geom": "n", "data_file": "data/noisea.hdf5"}, # Note: study29ddb but trained on noisea?
+    "idn": {"trial_number": 94, "study_name": "study33ids", "source_geom": "n", "data_file": "data/noisea.hdf5"},
+    "dan": {"trial_number": 195, "study_name": "study32dan", "source_geom": "n", "data_file": "data/noisea.hdf5"},
+    "ian": {"trial_number": 88, "study_name": "study37ian", "source_geom": "n", "data_file": "data/noisea.hdf5"},
+}
+
+GEOMETRY_FILES = {
+    "b": "data/barsa.hdf5",
+    "s": "data/slopea.hdf5",
+    "n": "data/noisea.hdf5",
+}
+GEOM_NAMES = {"b": "barsa", "s": "slopea", "n": "noisea"}
+
+def run_all_fine_tuning_jobs(base_config_path="config.yaml"):
+    logger = setup_logger()
+    base_config = get_config(base_config_path)
+
+    for model_key, model_info in TRAINED_MODELS_INFO.items():
+        source_study = model_info["study_name"]
+        source_trial = model_info["trial_number"]
+        source_geom_char = model_info["source_geom"]
+        
+        logger.info(f"--- Preparing fine-tuning jobs for source model: {model_key} (Study: {source_study}, Trial: {source_trial}) ---")
+
+        for target_geom_char, target_data_file in GEOMETRY_FILES.items():
+            if target_geom_char == source_geom_char:
+                continue # Skip fine-tuning on its own original geometry
+
+            logger.info(f"Targeting geometry: {target_data_file}")
+            
+            # Construct a descriptive run name
+            finetune_run_name = f"{source_study}_trial{source_trial}_on_{GEOM_NAMES[target_geom_char]}"
+            
+            # Create a fine-tuner instance
+            # The base_config passed here will be used for things like device, default training settings (epochs, LR for ft), etc.
+            # ModelFineTuner will then load specific hparams for the source model architecture.
+            try:
+                fine_tuner = ModelFineTuner(
+                    config=base_config.copy(deep=True), # Pass a copy of the base config
+                    source_study_name=source_study,
+                    source_trial_id=source_trial,
+                    target_dataset_path=target_data_file,
+                    finetune_run_name=finetune_run_name
+                )
+                fine_tuner.finetune()
+            except Exception as e:
+                logger.error(f"Failed fine-tuning job for {finetune_run_name}: {e}")
+                logger.debug(traceback.format_exc())
+
+
 def main():
     # --- 1. Define the Argument Parser ---
     # Define all arguments and their types/defaults as they would be used from the CLI
     parser = argparse.ArgumentParser(
-        description="Run model optimization, training, or repeat a trial"
+        description="Run model optimization, training, repeat, or fine-tuning"
     )
     parser.add_argument(
         "--mode",
         type=str,
         choices=[m.name.lower() for m in OptimizerMode],
-        default="hypertuning",  # Default value if not provided on CLI
-        help="Mode of operation: hypertuning, training, repeat",
+        default="hypertuning",
+        help="Mode of operation: hypertuning, training, repeat, finetune", # Added finetune
     )
     parser.add_argument(
         "--trial_id",
         type=int,
-        default=None,  # Default to None if not provided
-        help="Trial number to repeat (required only in repeat mode)",
+        default=None,
+        help="Trial number to repeat (repeat mode) or source trial for fine-tuning (finetune mode)",
+    )
+    parser.add_argument(
+        "--source_study_name", # New argument for finetune mode
+        type=str,
+        default=None,
+        help="Name of the Optuna study containing the source model for fine-tuning (finetune mode)",
+    )
+    parser.add_argument(
+        "--target_dataset_path", # New argument for finetune mode
+        type=str,
+        default=None,
+        help="Path to the target HDF5 dataset for fine-tuning (finetune mode, e.g., 'data/barsa.hdf5')",
+    )
+    parser.add_argument(
+        "--finetune_run_name", # New argument for naming the fine-tuning run
+        type=str,
+        default=None,
+        help="Specific name for the fine-tuning run/model, e.g., 'ddb_on_slopea' (finetune mode)",
     )
     parser.add_argument(
         "--config",
         type=str,
         default="config.yaml",
-        help="Path to the configuration file",
+        help="Path to the base configuration file",
     )
 
     # --- 2. Handle Argument Parsing based on Environment ---
@@ -1229,12 +1605,6 @@ def main():
         # --- Jupyter Environment ---
         print("INFO: Running in Jupyter environment. Using manually defined args.")
         args = parser.parse_args(args=[])  # Parse an empty list to get defaults
-
-        # Modify 'args' object here as needed for your specific Jupyter run
-        # Example: Test 'repeat' mode
-        # args.mode = "repeat"
-        # args.trial_id = 197
-        # args.config = 'config/special_test_config.yaml'
         print(
             f"INFO: Jupyter using - Mode: {args.mode}, Trial ID: {args.trial_id}, Config: {args.config}"
         )
@@ -1264,11 +1634,13 @@ def main():
     try:
         mode = OptimizerMode.from_string(args.mode)
         if mode == OptimizerMode.REPEAT and args.trial_id is None:
-            # Raise error consistently, let calling environment handle it
             raise ValueError("--trial_id is required when mode is 'repeat'")
+        if mode == OptimizerMode.FINETUNE: # Validation for new mode
+            if args.source_study_name is None or args.trial_id is None or args.target_dataset_path is None:
+                raise ValueError("--source_study_name, --trial_id, and --target_dataset_path are required for finetune mode.")
     except ValueError as e:
         print(f"ERROR: Invalid arguments: {e}")
-        sys.exit(1)  # Exit on validation failure
+        sys.exit(1)
 
     # --- 5. Setup Experiment ---
     # Setup logging, directories etc. *after* loading config
@@ -1316,6 +1688,22 @@ def main():
             else:
                 logger.error(f"Repeating trial {args.trial_id} failed.")
 
+        elif mode == OptimizerMode.FINETUNE:
+            logger.info("Initiating ModelFineTuner...")
+            # Create the fine-tuner instance
+            fine_tuner = ModelFineTuner(
+                config=config, # Pass the base loaded config
+                source_study_name=args.source_study_name,
+                source_trial_id=args.trial_id, # Re-using trial_id for source_trial_id
+                target_dataset_path=args.target_dataset_path,
+                finetune_run_name=args.finetune_run_name
+            )
+            avg_ft_loss = fine_tuner.finetune()
+            if avg_ft_loss is not None:
+                logger.info(f"Fine-tuning completed. Average CV loss on target data: {avg_ft_loss:.6f}")
+            else:
+                logger.error("Fine-tuning process failed.")
+
     except Exception as e:
         logger.exception(f"An unhandled error occurred during execution: {str(e)}")
         # Re-raise the exception to see the full traceback in the console/notebook
@@ -1325,4 +1713,5 @@ def main():
 
 
 if __name__ == "__main__" or is_jupyter():
-    main()
+    # main()
+    run_all_fine_tuning_jobs()
