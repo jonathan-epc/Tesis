@@ -28,6 +28,7 @@ from modules.utils import denormalize_outputs_and_targets, get_hparams, set_seed
 
 from modules.plots import (
     PlotManager,
+    calculate_field_analysis_metrics,
     plot_field_analysis,
     plot_field_comparisons,
     plot_field_fourier,
@@ -243,11 +244,7 @@ def evaluate_model(model, test_dataloader, config, dataset):
             # Forward pass
             outputs = model(inputs)
             outputs, targets = denormalize_outputs_and_targets(
-                outputs,
-                targets,
-                dataset,
-                config,
-                config.data.normalize_output 
+                outputs, targets, dataset, config, config.data.normalize_output
             )
             target_fields, target_scalars = targets
             # Collect field and scalar outputs and targets
@@ -525,7 +522,7 @@ def configure_study(config, study_type: str):
     )
 
 
-def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
+def main(study_type: str = "ddb", bottom_type: str = "barsa", language: str = "en", detailed: bool = True, data_percentile: int = 99) -> None:
     """Main function to run the evaluation pipeline with study-specific configuration."""
     # Initial setup
     config = get_config()
@@ -548,7 +545,9 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
         storage=config.optuna.storage,
     )
     specific_trial_params = study.trials[trial_number].params
-    print(f"DEBUG: Optuna parameters for {study_name}, trial {trial_number}: {specific_trial_params}")
+    print(
+        f"DEBUG: Optuna parameters for {study_name}, trial {trial_number}: {specific_trial_params}"
+    )
     # Get model I/O counts and names
     io_counts = get_input_output_counts(config)
     output_names = get_output_names(config)
@@ -559,7 +558,7 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
     config.training.use_physics_loss = hparams["use_physics_loss"]
     # config.data.normalize_output = hparams["normalize_output"]
     config.data.normalize_output = True
-    config.data.file_name = "data/"+bottom_type+".hdf5"
+    config.data.file_name = "data/" + bottom_type + ".hdf5"
 
     # Setup model and data
     model = load_model(config, hparams, io_counts, model_name)
@@ -569,15 +568,6 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
     all_field_outputs, all_field_targets, all_scalar_outputs, all_scalar_targets = (
         evaluate_model(model, test_dataloader, config, full_dataset)
     )
-    metrics, per_case_df = evaluate_predictions(
-        all_field_outputs,
-        all_field_targets,
-        all_scalar_outputs,
-        all_scalar_targets,
-        config,
-        csv_output_path= "metrics/" + study_type + "_" + bottom_type + "_" + "case_metrics.csv",
-    )
-
     # Define plotting parameters
     units = {
         "H": "m",
@@ -606,12 +596,12 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
         "B": {"en": "Bottom height", "es": "Profundidad del fondo"},
         "H*": {"en": "Adimensional depth", "es": "Profundidad adimensional"},
         "U*": {
-            "en": "Adimensional transversal velocity",
-            "es": "Velocidad transversal adimensional",
-        },
-        "V*": {
             "en": "Adimensional longitudinal velocity",
             "es": "Velocidad longitudinal adimensional",
+        },
+        "V*": {
+            "en": "Adimensional transversal velocity",
+            "es": "Velocidad transversal adimensional",
         },
         "H0": {"en": "Initial depth", "es": "Profundidad inicial"},
         "Q0": {"en": "Initial flow rate", "es": "Caudal inicial"},
@@ -634,11 +624,69 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
         "Ar": {"en": "Aspect ratio", "es": "Relación de aspecto"},
         "Vr": {"en": "Velocity ratio", "es": "Relación de velocidad"},
     }
-    language = "en"
-    detailed = True
-    data_percentile = 99
+    
+
     random_idx = random.randint(0, len(all_field_outputs) - 1)
-    plot_manager = PlotManager(base_dir=f"plots/{study_type}_{bottom_type}")
+    plot_manager = PlotManager(base_dir=f"plots/{language}/{study_type}_{bottom_type}")
+    # --- MODIFIED BLOCK ---
+    # 1. Calculate and save per-case and per-variable metrics
+    metrics, per_case_df = evaluate_predictions(
+        all_field_outputs,
+        all_field_targets,
+        all_scalar_outputs,
+        all_scalar_targets,
+        config,
+        # We will save the combined CSV later
+    )
+
+    # 2. Calculate global field analysis metrics
+    global_analysis_metrics = {}
+    if all_field_outputs is not None:
+        global_analysis_metrics = calculate_field_analysis_metrics(
+            all_field_outputs,
+            all_field_targets,
+            output_names["field"],
+            units=units,
+            language=language,
+        )
+        print("\n" + "=" * 20 + " GLOBAL FIELD ANALYSIS METRICS " + "=" * 20)
+        import json
+
+        print(json.dumps(global_analysis_metrics, indent=2))
+        print("=" * 66 + "\n")
+
+    # 3. Combine and save all metrics to a single CSV
+    # Convert the global metrics to a DataFrame
+    global_metrics_list = []
+    for var, stats in global_analysis_metrics.items():
+        for stat_name, value in stats.items():
+            global_metrics_list.append(
+                {
+                    "case": "global",
+                    "variable": var,
+                    "type": "field_analysis",
+                    "metric": stat_name,
+                    "value": value,
+                }
+            )
+    global_metrics_df = pd.DataFrame(global_metrics_list)
+
+    # Reformat the per-case metrics to be tidy
+    per_case_tidy_df = per_case_df.melt(
+        id_vars=["case", "variable", "type"], var_name="metric", value_name="value"
+    )
+
+    # Combine both dataframes
+    final_metrics_df = pd.concat(
+        [per_case_tidy_df, global_metrics_df], ignore_index=True
+    )
+
+    # Save the final consolidated metrics file
+    csv_path = Path("metrics") / f"{study_type}_{bottom_type}_all_metrics.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    final_metrics_df.to_csv(csv_path, index=False)
+    print(f"INFO: All metrics (per-case, per-variable, and global) saved to {csv_path}")
+    # --- END OF MODIFIED BLOCK ---
 
     # Generate visualizations
     plot_scatter(
@@ -648,6 +696,8 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
         scalar_outputs=all_scalar_outputs,
         scalar_targets=all_scalar_targets,
         scalar_names=output_names["scalar"],
+        study_type=study_type,  # ADDED
+        bottom_type=bottom_type,  # ADDED
         units=units,
         long_names=long_names,
         metrics=metrics,
@@ -657,22 +707,83 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa") -> None:
         detailed=detailed,
         data_percentile=data_percentile,
     )
-    plot_field_comparisons(
-        all_field_outputs,
-        all_field_targets,
-        output_names["field"],
-        case_idx=random_idx,
-        custom_cmap=custom_cmap,
-        plot_manager=plot_manager,
-        units=units,
-        long_names=long_names,
-        language=language,
-        detailed=detailed,
-    )
+    key_field_var = output_names["field"][0]
+    case_metrics_for_var = per_case_df[per_case_df["variable"] == key_field_var]
+
+    if not case_metrics_for_var.empty:
+        # Find the index labels for best, worst, and median
+        worst_case_row = case_metrics_for_var.loc[case_metrics_for_var["rmse"].idxmax()]
+        best_case_row = case_metrics_for_var.loc[case_metrics_for_var["rmse"].idxmin()]
+
+        # For median, calculate the median value first
+        median_rmse_value = case_metrics_for_var["rmse"].median()
+        # Then find the index of the row with the RMSE value closest to the median
+        median_idx = (case_metrics_for_var["rmse"] - median_rmse_value).abs().idxmin()
+        median_case_row = case_metrics_for_var.loc[median_idx]
+
+        # Extract the 'case' number from these rows
+        worst_case_idx = int(worst_case_row["case"])
+        best_case_idx = int(best_case_row["case"])
+        median_case_idx = int(median_case_row["case"])
+
+        print(f"Plotting analysis for specific cases (Variable: {key_field_var}):")
+        print(
+            f"  - Best RMSE Case: #{best_case_idx} (RMSE: {best_case_row['rmse']:.4f})"
+        )
+        print(
+            f"  - Median RMSE Case: #{median_case_idx} (RMSE: {median_case_row['rmse']:.4f})"
+        )
+        print(
+            f"  - Worst RMSE Case: #{worst_case_idx} (RMSE: {worst_case_row['rmse']:.4f})"
+        )
+
+        # Plot for the three representative cases
+        plot_field_comparisons(
+            all_field_outputs,
+            all_field_targets,
+            output_names["field"],
+            study_type=study_type,  # ADDED
+            bottom_type=bottom_type,  # ADDED
+            case_idx=best_case_idx,
+            custom_cmap=custom_cmap,
+            plot_manager=plot_manager,
+            units=units,
+            long_names=long_names,
+            language=language,
+            detailed=detailed,
+        )
+        # plot_field_comparisons(
+        #     all_field_outputs, all_field_targets, output_names["field"],
+        #     case_idx=median_case_idx, custom_cmap=custom_cmap, plot_manager=plot_manager,
+        #     units=units, long_names=long_names, language=language, detailed=detailed,
+        # )
+        # plot_field_comparisons(
+        #     all_field_outputs, all_field_targets, output_names["field"],
+        #     case_idx=worst_case_idx, custom_cmap=custom_cmap, plot_manager=plot_manager,
+        #     units=units, long_names=long_names, language=language, detailed=detailed,
+        # )
+    else:
+        # Fallback to random if the dataframe is empty for some reason
+        plot_field_comparisons(
+            all_field_outputs,
+            all_field_targets,
+            output_names["field"],
+            study_type=study_type,  # ADDED
+            bottom_type=bottom_type,  # ADDED
+            case_idx=random_idx,
+            custom_cmap=custom_cmap,
+            plot_manager=plot_manager,
+            units=units,
+            long_names=long_names,
+            language=language,
+            detailed=detailed,
+        )
     plot_field_analysis(
         all_field_outputs,
         all_field_targets,
         output_names["field"],
+        study_type=study_type,
+        bottom_type=bottom_type,
         custom_cmap=custom_cmap,
         plot_manager=plot_manager,
         units=units,
@@ -686,21 +797,43 @@ def run_all_evaluations():
     Runs the evaluation and plotting pipeline for all study types
     defined in the configure_study mapping.
     """
-    all_study_types = ["ddb", "idb", "dab", "iab", "dds", "ids", "das", "ias", "ddn", "idn", "dan", "ian"]
+    all_study_types = [
+        "ddb",
+        "idb",
+        "dab",
+        "iab",
+        "dds",
+        "ids",
+        "das",
+        "ias",
+        "ddn",
+        "idn",
+        "dan",
+        "ian",
+    ]
     all_bottom_types = ["barsa", "slopea", "noisea"]
-    for current_study_type in all_study_types:
-        for current_bottom_type in all_bottom_types:
-            print(f"\n\n{'='*30} PROCESSING STUDY TYPE: {current_study_type.upper()} {'='*30}\n")
-            try:
-                # Call your existing main function with the current study type
-                main(study_type=current_study_type, bottom_type=current_bottom_type)
-                print(f"\n{'='*30} SUCCESSFULLY COMPLETED STUDY TYPE: {current_study_type.upper()} in {current_bottom_type.upper()} {'='*30}\n")
-            except Exception as e:
-                print(f"\n!!!!!! ERROR PROCESSING STUDY TYPE: {current_study_type.upper()} in {current_bottom_type.upper()} !!!!!!")
-                print(f"Error details: {e}")
-                import traceback
-                traceback.print_exc() # Print the full traceback for debugging
-                print(f"!!!!!! SKIPPING TO NEXT STUDY TYPE (IF ANY) !!!!!!\n")
+    all_languages = ["es", "en"]
+    for current_language in all_languages:
+        for current_study_type in all_study_types:
+            for current_bottom_type in all_bottom_types:
+                print(
+                    f"\n\n{'='*30} PROCESSING STUDY TYPE: {current_study_type.upper()} {'='*30}\n"
+                )
+                try:
+                    # Call your existing main function with the current study type
+                    main(study_type=current_study_type, bottom_type=current_bottom_type, language=current_language)
+                    print(
+                        f"\n{'='*30} SUCCESSFULLY COMPLETED STUDY TYPE: {current_study_type.upper()} in {current_bottom_type.upper()} {'='*30}\n"
+                    )
+                except Exception as e:
+                    print(
+                        f"\n!!!!!! ERROR PROCESSING STUDY TYPE: {current_study_type.upper()} in {current_bottom_type.upper()} !!!!!!"
+                    )
+                    print(f"Error details: {e}")
+                    import traceback
+    
+                    traceback.print_exc()  # Print the full traceback for debugging
+                    print(f"!!!!!! SKIPPING TO NEXT STUDY TYPE (IF ANY) !!!!!!\n")
 
 
 if __name__ == "__main__":
