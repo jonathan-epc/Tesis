@@ -22,6 +22,8 @@
 *.gif
 *.mp4
 *.db
+*.ipynb
+.ipynb_checkpoints/
 blender/*
 ML/studies
 ML/runs/*
