@@ -1,12 +1,34 @@
 # pyproject.toml
 [project]
 name = "fno_channel_flow"
-version = "0.1.0"
+version = "1.0.0"
 description = "Surrogate Modeling of Channel Flow using Fourier Neural Operators"
+readme = "README.md"
 authors = [
     { name = "Jonathan Poblete", email = "jonathan.poblete@ing.uchile.cl" },
 ]
 requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "ruff",
+    "pytest",
+    "pytest-mock",
+    "pre-commit",
+]
+[project.urls]
+Repository = "https://github.com/jonathan-epc/Tesis"
+
+[tool.setuptools]
+packages = ["ML", "common", "telemac"]
 # Configuration for Black code formatter
 [tool.black]
 line-length = 88
@@ -36,6 +58,3 @@ ignore = ["E501"]
 # Tell Ruff about your project's own source folders.
 # This ensures your local imports are grouped correctly.
 known-first-party = ["ML", "telemac", "modules", "website"]
-
-[tool.setuptools]
-packages = ["ML", "common", "telemac"]
