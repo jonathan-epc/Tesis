@@ -1,0 +1,50 @@
+# .github/workflows/ci.yml
+
+name: Python Project CI
+
+# This workflow runs on pushes to the main and refactor branches,
+# and on any pull request targeting the main branch.
+on:
+  push:
+    branches: [ main, refactor ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest # Use a standard Linux environment
+    strategy:
+      matrix:
+        python-version: ["3.11"] # Specify the Python version
+
+    steps:
+      # 1. Check out the repository code
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Conda environment
+      # This action is optimized for setting up Conda in GitHub Actions
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: ${{ matrix.python-version }}
+          environment-file: environment.yml
+          channel-priority: 'flexible'
+
+      # 3. Lint and Format Check with Ruff
+      # This step doesn't change files, it just checks if they are formatted correctly.
+      - name: Lint and Format Check
+        shell: bash -l {0} # Important: use a login shell for conda
+        run: |
+          echo "--- Checking formatting with Ruff ---"
+          ruff format . --check
+          echo "--- Linting with Ruff ---"
+          ruff check .
+
+      # 4. Run Tests with Pytest
+      - name: Run Pytest
+        shell: bash -l {0} # Use a login shell for conda
+        run: |
+          echo "--- Running Pytest ---"
+          pytest
