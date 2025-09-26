@@ -2,12 +2,12 @@ import os
 
 from loguru import logger
 from tqdm import tqdm
-from typing import List
 
 from modules.file_handler import prepare_steering_file
 from modules.file_utils import move_file, setup_output_dir
 from modules.flux_checker import check_flux_boundaries, is_flux_balanced
 from modules.telemac_runner import run_telemac2d
+
 
 def run_single_simulation(i, filename, case_parameters, output_dir, steering_folder):
     """
@@ -33,7 +33,6 @@ def run_single_simulation(i, filename, case_parameters, output_dir, steering_fol
     """
     name, ext = os.path.splitext(filename)
     result_file = os.path.join(output_dir, f"{name}.txt")
-    run_simulation = True
 
     if os.path.exists(result_file):
         flux_1, flux_2 = check_flux_boundaries(result_file)
@@ -52,14 +51,6 @@ def run_single_simulation(i, filename, case_parameters, output_dir, steering_fol
                 f"Re-running simulation for {filename} as flux boundaries could not be determined."
             )
 
-    tqdm_desc = (
-        f"Case {i}: S={case_parameters['SLOPE']} | "
-        f"n={case_parameters['n']:.4f} | Q={case_parameters['Q0']:.4f} | "
-        f"H0={case_parameters['H0']:.4f} | "
-        f"{'subcritical' if case_parameters['subcritical'] else 'supercritical'} | "
-        f"B: {case_parameters['BOTTOM']}"
-    )
-
     try:
         src_file = os.path.join(steering_folder, filename)
         dst_file = filename
@@ -71,8 +62,11 @@ def run_single_simulation(i, filename, case_parameters, output_dir, steering_fol
         move_file(dst_file, src_file)
 
     return True
-    
-def run_telemac2d_on_files(file_list: List[str], parameters, output_dir, steering_folder):
+
+
+def run_telemac2d_on_files(
+    file_list: list[str], parameters, output_dir, steering_folder
+):
     """
     Run Telemac2D simulations on a list of files.
 
@@ -112,4 +106,3 @@ def run_telemac2d_on_files(file_list: List[str], parameters, output_dir, steerin
                 pbar.refresh()
 
     logger.info("All Telemac2D simulations completed")
-

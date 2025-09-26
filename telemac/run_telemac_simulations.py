@@ -2,17 +2,15 @@ import argparse
 import os
 import sys
 from datetime import datetime
-from typing import List, Tuple
 
 import pandas as pd
-
-from logger_config import setup_logger
 from run_configurations import OUTPUT_FOLDER, PARAMETERS_FILE, STEERING_FOLDER
 
-from modules.file_handler import prepare_steering_file
+from common.utils import setup_logger
 from modules.flux_checker import check_flux_boundaries, is_flux_balanced
 from modules.param_utils import load_parameters
 from modules.simulation_runner import run_telemac2d_on_files
+
 
 def main():
     args = parse_arguments()
@@ -54,7 +52,8 @@ def main():
         logger.exception(f"An unexpected error occurred: {e}")
         sys.exit(1)
 
-def filter_unbalanced_files(files: List[str], output_dir: str, logger) -> List[str]:
+
+def filter_unbalanced_files(files: list[str], output_dir: str, logger) -> list[str]:
     """
     Filter files to include only those with unbalanced flux boundaries.
 
@@ -90,6 +89,7 @@ def filter_unbalanced_files(files: List[str], output_dir: str, logger) -> List[s
             logger.info(f"No result file found for {filename}. Including in run.")
         unbalanced_files.append(filename)
     return unbalanced_files
+
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Telemac2D simulations.")
@@ -131,6 +131,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+
 def setup_logging():
     script_name = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -140,6 +141,7 @@ def setup_logging():
     logger = setup_logger(log_name)
 
     return logger
+
 
 def load_and_validate_parameters(file_path: str, logger) -> pd.DataFrame:
     try:
@@ -157,13 +159,14 @@ def load_and_validate_parameters(file_path: str, logger) -> pd.DataFrame:
         logger.info(f"Loaded and validated parameters from {file_path}")
         return parameters
     except pd.errors.EmptyDataError:
-        raise ValueError(f"Parameters file {file_path} is empty")
+        raise ValueError(f"Parameters file {file_path} is empty") from None
     except FileNotFoundError:
-        raise FileNotFoundError(f"Parameters file not found: {file_path}")
+        raise FileNotFoundError(f"Parameters file not found: {file_path}") from None
+
 
 def determine_file_range(
     args: argparse.Namespace, steering_folder: str
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     if args.start == 0 and args.end == 0:
         cas_files = get_cas_files(steering_folder, args.adimensional)
         return 0, len(cas_files)
@@ -172,7 +175,8 @@ def determine_file_range(
     else:
         return args.start, args.end
 
-def get_cas_files(folder: str, adimensional: bool) -> List[str]:
+
+def get_cas_files(folder: str, adimensional: bool) -> list[str]:
     if not os.path.isdir(folder):
         raise FileNotFoundError(f"Steering folder not found: {folder}")
 
@@ -189,6 +193,7 @@ def get_cas_files(folder: str, adimensional: bool) -> List[str]:
         )
 
     return cas_files
+
 
 def filter_parameters_by_bottom(
     parameters: pd.DataFrame, selected_bottom: float, logger
@@ -212,6 +217,7 @@ def filter_parameters_by_bottom(
         f"Running {len(filtered_params)} simulations."
     )
     return filtered_params
+
 
 if __name__ == "__main__":
     main()

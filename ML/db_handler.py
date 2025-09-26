@@ -38,14 +38,15 @@ def manage_optuna_trials(
         print(f"Error: Invalid action '{action}'. Valid actions are: {valid_actions}")
         return False
 
-    if action == "delete_from":
-        if not isinstance(start_trial_id, int) or start_trial_id < 0:
-            print(
-                "Error: 'delete_from' action requires a valid non-negative integer for 'start_trial_id'."
-            )
-            return False
+    if action == "delete_from" and (
+        not isinstance(start_trial_id, int) or start_trial_id < 0
+    ):
+        print(
+            "Error: 'delete_from' action requires a valid non-negative integer for 'start_trial_id'."
+        )
+        return False
 
-    print(f"--- Optuna Trial Management ---")
+    print("--- Optuna Trial Management ---")
     print(f"Database: {database_path}")
     print(f"Action: {action}")
     if action == "delete_from":
@@ -201,7 +202,7 @@ def manage_optuna_trials(
         try:
             connection.rollback()
             print("Transaction rolled back.")
-        except:  # Ignore errors during rollback
+        except Exception:  # Ignore errors during rollback
             pass
         return False
     except Exception as e:

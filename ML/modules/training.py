@@ -1,41 +1,39 @@
-# --- Imports ---
 import os
-import pickle  # For potential fallback loading issues
-import random  # For seeding workers
 from math import ceil
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from pathlib import Path
+from typing import Any
 
-import h5py
 import numpy as np
 import optuna
-import pandas as pd  # Check if actually used, can be removed if not
 import torch
 import torch.nn as nn
+from sklearn.model_selection import KFold, train_test_split
+from torch.amp import GradScaler, autocast
+from torch.nn.utils import clip_grad_norm_
+from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler
+from tqdm.autonotebook import tqdm
+
 import wandb
 
-# --- Local Imports ---
-# Assume config provides Pydantic models for configuration
-from config import Config, get_config  # Example: Import base Config model
-from loguru import logger  # For structured logging
-from sklearn.model_selection import KFold, train_test_split
-from torch.amp import GradScaler, autocast  # For mixed-precision training
-from torch.nn.utils import clip_grad_norm_  # For gradient clipping
-from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler, random_split
-from tqdm.autonotebook import tqdm  # For progress bars
+# Correct import for the root-level config
+from nconfig import Config
 
-# --- Custom Modules ---
-# Assuming these modules contain relevant classes/functions
-from modules.data import HDF5Dataset
-from modules.loss import PhysicsInformedLoss
-from modules.models import FNOnet
-from modules.utils import (
+# Corrected relative imports
+from .data import HDF5Dataset
+from .loss import PhysicsInformedLoss
+from .utils import (
     EarlyStopping,
     compute_metrics,
     denormalize_outputs_and_targets,
-    seed_worker
+    seed_worker,
+    setup_logger,
 )
 
+# Get a logger instance at the module level
+logger = setup_logger()
+
 # --- Trainer Class ---
+
 
 class Trainer:
     """
@@ -49,14 +47,14 @@ class Trainer:
         self,
         model: nn.Module,
         criterion: nn.Module,
-        optimizer: Optional[torch.optim.Optimizer],
-        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler],
-        scaler: Optional[GradScaler],
+        optimizer: torch.optim.Optimizer | None,
+        scheduler: torch.optim.lr_scheduler._LRScheduler | None,
+        scaler: GradScaler | None,
         device: torch.device,
         accumulation_steps: int,
         config: Config,  # Use the specific Pydantic Config type
         full_dataset: HDF5Dataset,
-        hparams: Dict[str, Any]
+        hparams: dict[str, Any],
     ):
         """
         Initializes the Trainer instance.
@@ -81,26 +79,41 @@ class Trainer:
         self.scaler = scaler
         self.device = device
         self.accumulation_steps = accumulation_steps
-        self.pretrained_model_path = None
         self.full_dataset = full_dataset
         self.hparams = hparams
+        self.pretrained_model_path: Path | None = None
 
-        # Check for complex parameters affecting autocast
-        self.model_is_complex = self._model_uses_complex()
-        if self.model_is_complex and self.scaler is not None:
-            logger.warning(
-                "Model uses complex parameters. Disabling GradScaler as autocast might not be fully compatible."
+        if self.config.training.pretrained_model_name:
+            savepoints_dir = Path(self.config.paths.savepoints_dir).resolve()
+            model_filename = (
+                f"{self.config.training.pretrained_model_name}_best_model.pth"
             )
-            # self.scaler = None # Optionally disable scaler
+            self.pretrained_model_path = savepoints_dir / model_filename
+            logger.debug(
+                f"Trainer initialized with pretrained model path: {self.pretrained_model_path}"
+            )
+            if not self.pretrained_model_path.exists():
+                logger.warning(
+                    f"File does not exist at path: {self.pretrained_model_path}"
+                )
+
+        self.model_is_complex = any(p.is_complex() for p in self.model.parameters())
+        if self.model_is_complex and self.scaler is not None:
+            logger.warning("Model uses complex parameters. Disabling GradScaler.")
+            # self.scaler = None
 
         # Load pretrained model if specified in config (using Pydantic access)
         # Ensure pretrained_model_name is Optional in the Pydantic model or has a default
         if self.config.training.pretrained_model_name:
-            self.pretrained_model_path = os.path.join(
-                "savepoints",
-                f"{self.config.training.pretrained_model_name}_best_model.pth",
+            # Use the robust path from the config object
+            savepoints_dir = Path(self.config.paths.savepoints_dir)
+            model_filename = (
+                f"{self.config.training.pretrained_model_name}_best_model.pth"
             )
-            self._load_pretrained_model()
+            self.pretrained_model_path = savepoints_dir / model_filename
+
+            # Now call the loading method
+            self.load_pretrained_weights()
 
     def _model_uses_complex(self) -> bool:
         """Checks if any parameters in the model are complex types."""
@@ -163,7 +176,7 @@ class Trainer:
     @torch.no_grad()
     def validate(
         self, dataloader: DataLoader, name: str = "", step: int = -1, fold_n: int = -1
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Performs validation on the given dataloader."""
         self.model.eval()
         total_loss = 0.0
@@ -175,8 +188,12 @@ class Trainer:
         all_field_outputs, all_scalar_outputs = [], []
         all_field_targets, all_scalar_targets = [], []
 
-        normalize_output_setting = self.hparams.get('normalize_output', self.config.data.normalize_output)
-        logger.debug(f"Validation using normalize_output_setting: {normalize_output_setting}")
+        normalize_output_setting = self.hparams.get(
+            "normalize_output", self.config.data.normalize_output
+        )
+        logger.debug(
+            f"Validation using normalize_output_setting: {normalize_output_setting}"
+        )
 
         batch_iterator = tqdm(dataloader, desc="Validation", leave=False, position=1)
         for batch in batch_iterator:
@@ -199,11 +216,11 @@ class Trainer:
 
             # Denormalize outputs and targets USING THE TRIAL'S SETTING
             outputs_denorm, targets_denorm = denormalize_outputs_and_targets(
-                outputs,              # Pass the raw model outputs
-                targets,              # Pass the original targets (potentially normalized)
-                self.full_dataset,    # Pass the dataset for stats
-                self.config,          # Pass config for var names
-                normalize_output_setting # Pass the trial's setting
+                outputs,  # Pass the raw model outputs
+                targets,  # Pass the original targets (potentially normalized)
+                self.full_dataset,  # Pass the dataset for stats
+                self.config,  # Pass config for var names
+                normalize_output_setting,  # Pass the trial's setting
             )
 
             # Separate field and scalar data
@@ -237,14 +254,8 @@ class Trainer:
 
         # Compute metrics
         metrics = {}
-        field_var_names = [
-            var
-            for var in self.config.data.outputs
-            if var in self.config.data.non_scalars
-        ]
-        scalar_var_names = [
-            var for var in self.config.data.outputs if var in self.config.data.scalars
-        ]
+        field_var_names = self.config.data.output_fields
+        scalar_var_names = self.config.data.output_scalars
 
         if all_field_outputs is not None and all_field_targets is not None:
             metrics.update(
@@ -294,17 +305,22 @@ class Trainer:
             metrics["loss"] = total_loss / num_batches
             metrics["data_loss"] = total_data_loss / num_batches
             # Only report physics losses if they were actually used in criterion
-            if hasattr(self.criterion, 'use_physics_loss') and self.criterion.use_physics_loss:
-                 metrics["continuity_loss"] = total_continuity_loss / num_batches
-                 metrics["momentum_x_loss"] = total_momentum_x_loss / num_batches
-                 metrics["momentum_y_loss"] = total_momentum_y_loss / num_batches
-            else: # Report as zero if not used
-                 metrics["continuity_loss"] = 0.0
-                 metrics["momentum_x_loss"] = 0.0
-                 metrics["momentum_y_loss"] = 0.0
+            if (
+                hasattr(self.criterion, "use_physics_loss")
+                and self.criterion.use_physics_loss
+            ):
+                metrics["continuity_loss"] = total_continuity_loss / num_batches
+                metrics["momentum_x_loss"] = total_momentum_x_loss / num_batches
+                metrics["momentum_y_loss"] = total_momentum_y_loss / num_batches
+            else:  # Report as zero if not used
+                metrics["continuity_loss"] = 0.0
+                metrics["momentum_x_loss"] = 0.0
+                metrics["momentum_y_loss"] = 0.0
 
         else:
-            logger.warning("Validation dataloader is empty. Metrics cannot be averaged.")
+            logger.warning(
+                "Validation dataloader is empty. Metrics cannot be averaged."
+            )
             metrics["loss"] = total_loss
             metrics["data_loss"] = total_data_loss
             metrics["continuity_loss"] = 0.0
@@ -315,11 +331,11 @@ class Trainer:
 
     def _move_to_device(
         self,
-        inputs: Tuple[List[torch.Tensor], List[torch.Tensor]],
-        targets: Tuple[List[torch.Tensor], List[torch.Tensor]],
-    ) -> Tuple[
-        Tuple[List[torch.Tensor], List[torch.Tensor]],
-        Tuple[List[torch.Tensor], List[torch.Tensor]],
+        inputs: tuple[list[torch.Tensor], list[torch.Tensor]],
+        targets: tuple[list[torch.Tensor], list[torch.Tensor]],
+    ) -> tuple[
+        tuple[list[torch.Tensor], list[torch.Tensor]],
+        tuple[list[torch.Tensor], list[torch.Tensor]],
     ]:
         """Moves input and target tensors (structured as tuple of lists) to the specified device."""
         inputs_on_device = tuple(
@@ -366,7 +382,7 @@ class Trainer:
         num_epochs: int,
         fold_n: int,
         is_sweep: bool,
-        trial: Optional[optuna.Trial],
+        trial: optuna.Trial | None,
         early_stopping: EarlyStopping,
     ) -> None:
         """Runs the main training loop for a specified number of epochs."""
@@ -407,13 +423,11 @@ class Trainer:
                 estimated_remaining_time = 0
 
             # Use time_limit directly from Pydantic config (Optional field)
-            if (
-                self.config.training.time_limit is not None
-                and estimated_remaining_time > self.config.training.time_limit
-            ):
+            time_limit = self.config.optuna.time_limit_per_trial
+            if time_limit is not None and estimated_remaining_time > time_limit:
                 logger.warning(
                     f"Fold {fold_n}, Epoch {epoch}: Estimated remaining time ({estimated_remaining_time:.0f}s) "
-                    f"exceeds limit ({self.config.training.time_limit}s). Pruning trial."
+                    f"exceeds limit ({time_limit}s). Pruning trial."
                 )
                 if self.config.logging.use_wandb:
                     wandb.finish(exit_code=1)
@@ -494,65 +508,104 @@ class Trainer:
                 wandb.summary["best_fold_epoch"] = early_stopping.best_epoch
             wandb.finish()
 
-    def _load_pretrained_model(self):
-        """Loads model weights from the path specified in self.pretrained_model_path."""
-        if not self.pretrained_model_path or not os.path.exists(self.pretrained_model_path): # Make sure os is imported
-            logger.warning(
-                f"Pretrained model path not specified or not found: {self.pretrained_model_path}. Skipping loading."
-            )
-            return
-
-        checkpoint_to_load = None
-        try:
-            logger.info(f"Attempting to load pretrained model weights (weights_only=True) from: {self.pretrained_model_path}")
-            checkpoint_to_load = torch.load(
-                self.pretrained_model_path, map_location=self.device, weights_only=True
-            )
-            logger.info("Successfully loaded checkpoint with weights_only=True.")
-        
-        # Catching a broad Exception for the first attempt, then specifically for the fallback.
-        # The original RuntimeError from weights_only=True is often due to pickle issues (like GELU).
-        except Exception as e_true: 
-            logger.warning(
-                f"Loading pretrained model with weights_only=True failed: {e_true}. "
-                "Attempting fallback with weights_only=False."
-            )
-            try:
-                checkpoint_to_load = torch.load(
-                    self.pretrained_model_path,
-                    map_location=self.device,
-                    weights_only=False, # Fallback
-                )
-                logger.info("Successfully loaded checkpoint with weights_only=False.")
-            except Exception as e_false:
-                logger.error(
-                    f"Fallback loading (weights_only=False) also failed for {self.pretrained_model_path}: {e_false}"
-                )
-                raise # Re-raise if both attempts fail
-
-        # Now, process the loaded checkpoint (if successful)
-        if checkpoint_to_load is not None:
-            try:
-                # Check if it's a dictionary and remove the unexpected key before loading
-                final_state_dict = checkpoint_to_load
-                if isinstance(checkpoint_to_load, dict):
-                    if '_metadata' in checkpoint_to_load:
-                        logger.debug("Removing '_metadata' key from loaded checkpoint dictionary for Trainer.")
-                        # Create a new dict if you want to be safe, or pop from the original
-                        final_state_dict = {k: v for k, v in checkpoint_to_load.items() if k != '_metadata'}
-                        # Or, if pop is okay: final_state_dict.pop('_metadata', None)
-                
-                self.model.load_state_dict(final_state_dict, strict=True)
-                logger.info(f"Successfully applied state_dict to model from {self.pretrained_model_path}.")
-
-            except Exception as e_load_state:
-                logger.error(f"Error applying loaded state_dict to model: {e_load_state}")
-                logger.debug(f"Keys in loaded checkpoint: {list(checkpoint_to_load.keys()) if isinstance(checkpoint_to_load, dict) else 'Not a dict'}")
-                logger.debug(f"Model keys: {list(self.model.state_dict().keys())}")
-                raise # Re-raise the error after logging details
-        else:
-            # This case should not be reached if the above logic raises on failure
-            logger.error(f"Checkpoint for {self.pretrained_model_path} could not be loaded (is None).")
+    def load_pretrained_weights(self):
+        """Loads model weights from the path specified in self.pretrained_model_path."""
+
+        if not self.pretrained_model_path or not os.path.exists(
+            self.pretrained_model_path
+        ):  # Make sure os is imported
+            logger.warning(
+                f"Pretrained model path not specified or not found: {self.pretrained_model_path}. Skipping loading."
+            )
+
+            return
+
+        checkpoint_to_load = None
+
+        try:
+            logger.info(
+                f"Attempting to load pretrained model weights (weights_only=True) from: {self.pretrained_model_path}"
+            )
+
+            checkpoint_to_load = torch.load(
+                self.pretrained_model_path, map_location=self.device, weights_only=True
+            )
+
+            logger.info("Successfully loaded checkpoint with weights_only=True.")
+
+        # Catching a broad Exception for the first attempt, then specifically for the fallback.
+
+        # The original RuntimeError from weights_only=True is often due to pickle issues (like GELU).
+
+        except Exception as e_true:
+            logger.warning(
+                f"Loading pretrained model with weights_only=True failed: {e_true}. "
+                "Attempting fallback with weights_only=False."
+            )
+
+            try:
+                checkpoint_to_load = torch.load(
+                    self.pretrained_model_path,
+                    map_location=self.device,
+                    weights_only=False,  # Fallback
+                )
+
+                logger.info("Successfully loaded checkpoint with weights_only=False.")
+
+            except Exception as e_false:
+                logger.error(
+                    f"Fallback loading (weights_only=False) also failed for {self.pretrained_model_path}: {e_false}"
+                )
+
+                raise  # Re-raise if both attempts fail
+
+        # Now, process the loaded checkpoint (if successful)
+
+        if checkpoint_to_load is not None:
+            try:
+                # Check if it's a dictionary and remove the unexpected key before loading
+
+                final_state_dict = checkpoint_to_load
+
+                if (
+                    isinstance(checkpoint_to_load, dict)
+                    and "_metadata" in checkpoint_to_load
+                ):
+                    logger.debug(
+                        "Removing '_metadata' key from loaded checkpoint dictionary for Trainer."
+                    )
+                    # Create a new dict if you want to be safe, or pop from the original
+                    final_state_dict = {
+                        k: v for k, v in checkpoint_to_load.items() if k != "_metadata"
+                    }
+
+                    # Or, if pop is okay: final_state_dict.pop('_metadata', None)
+
+                self.model.load_state_dict(final_state_dict, strict=True)
+
+                logger.info(
+                    f"Successfully applied state_dict to model from {self.pretrained_model_path}."
+                )
+
+            except Exception as e_load_state:
+                logger.error(
+                    f"Error applying loaded state_dict to model: {e_load_state}"
+                )
+
+                logger.debug(
+                    f"Keys in loaded checkpoint: {list(checkpoint_to_load.keys()) if isinstance(checkpoint_to_load, dict) else 'Not a dict'}"
+                )
+
+                logger.debug(f"Model keys: {list(self.model.state_dict().keys())}")
+
+                raise  # Re-raise the error after logging details
+
+        else:
+            # This case should not be reached if the above logic raises on failure
+
+            logger.error(
+                f"Checkpoint for {self.pretrained_model_path} could not be loaded (is None)."
+            )
 
 
 # --- Cross-Validation Function ---
@@ -560,17 +613,17 @@ class Trainer:
 
 def cross_validate(
     name: str,
-    model_class: Type[nn.Module],
+    model_class: type[nn.Module],
     criterion: nn.Module,
     dataset: Dataset,
     k_folds: int,
     num_epochs: int,
-    hparams: Dict[str, Any],  # Note: hparams often passed via Optuna or directly
+    hparams: dict[str, Any],  # Note: hparams often passed via Optuna or directly
     is_sweep: bool,
-    trial: Optional[optuna.Trial],
+    trial: optuna.Trial | None,
     config: Config,  # Use the specific Pydantic Config type
     full_dataset: HDF5Dataset,
-) -> Tuple[float, Dict[str, float]]:
+) -> tuple[float, dict[str, float]]:
     """
     Performs K-fold cross-validation or a single train/validation split.
 
@@ -666,20 +719,13 @@ def cross_validate(
         )
 
         # --- Initialize Model, Optimizer, Scheduler, Scaler for the fold ---
+
         model = model_class(
-            field_inputs_n=len(
-                [p for p in config.data.inputs if p in config.data.non_scalars]
-            ),
-            scalar_inputs_n=len(
-                [p for p in config.data.inputs if p in config.data.scalars]
-            ),
-            field_outputs_n=len(
-                [p for p in config.data.outputs if p in config.data.non_scalars]
-            ),
-            scalar_outputs_n=len(
-                [p for p in config.data.outputs if p in config.data.scalars]
-            ),
-            **hparams,  # Pass model-specific hparams
+            field_inputs_n=len(config.data.input_fields),
+            scalar_inputs_n=len(config.data.input_scalars),
+            field_outputs_n=len(config.data.output_fields),
+            scalar_outputs_n=len(config.data.output_scalars),
+            **hparams,
         ).to(config.device)
 
         optimizer = torch.optim.AdamW(
@@ -716,8 +762,11 @@ def cross_validate(
             hparams["accumulation_steps"],
             config,
             full_dataset,
-            hparams=hparams
+            hparams=hparams,
         )
+
+        if trainer.pretrained_model_path:
+            trainer.load_pretrained_weights()
 
         # --- Reset Early Stopping State for the Fold ---
         # This resets the fold's counter, best_score etc., but crucially KEEPS
@@ -760,7 +809,7 @@ def cross_validate(
         metrics_str = ", ".join(
             f"{k.replace('_', ' ').title()}={v:.4f}"
             for k, v in val_metrics.items()
-            if isinstance(v, (int, float))
+            if isinstance(v, int | float)
         )
         logger.info(f"Fold {fold_num} final validation results: {metrics_str}")
 
@@ -804,14 +853,14 @@ def cross_validate(
 
 def cross_validation_procedure(
     name: str,
-    model_class: Type[nn.Module],
+    model_class: type[nn.Module],
     kfolds: int = 1,
-    hparams: Optional[Dict[str, Any]] = None,
+    hparams: dict[str, Any] | None = None,
     is_sweep: bool = False,
-    trial: Optional[optuna.Trial] = None,
-    config: Optional[Config] = None,
-    train_val_dataset: Optional[Dataset] = None,
-    full_dataset_for_stats: Optional[HDF5Dataset] = None,
+    trial: optuna.Trial | None = None,
+    config: Config | None = None,
+    train_val_dataset: Dataset | None = None,
+    full_dataset_for_stats: HDF5Dataset | None = None,
 ) -> float:
     """
     Orchestrates K-fold cross-validation on the provided train_val_dataset.
@@ -822,10 +871,14 @@ def cross_validation_procedure(
     """
     # --- Setup ---
     if config is None:
-        config = get_config()
+        config = Config("nconfig.yml")
     if hparams is None:
         # Handle default case if needed, ensure hparams exists
-        hparams = {**config.model.dict(), **config.training.dict(), **config.data.dict()} # Include data for normalize_output
+        hparams = {
+            **config.model.dict(),
+            **config.training.dict(),
+            **config.data.dict(),
+        }  # Include data for normalize_output
         logger.info("No hyperparameters provided, using defaults derived from config.")
 
     # --- Dataset Loading and Splitting ---
@@ -835,26 +888,28 @@ def cross_validation_procedure(
         )
         raise ValueError("train_val_dataset not provided.")
     if full_dataset_for_stats is None:
-         logger.warning(
-             "full_dataset_for_stats not provided. Denormalization or Criterion stats might fail."
-         )
-         raise ValueError("full_dataset_for_stats not provided.")
+        logger.warning(
+            "full_dataset_for_stats not provided. Denormalization or Criterion stats might fail."
+        )
+        raise ValueError("full_dataset_for_stats not provided.")
     logger.info(
         f"Starting cross-validation procedure for '{name}' with {len(train_val_dataset)} train/val samples."
     )
-    logger.debug(f"Using hyperparameters for this trial: {hparams}") 
-    
+    logger.debug(f"Using hyperparameters for this trial: {hparams}")
+
     # --- Criterion Definition ---
     criterion = PhysicsInformedLoss(
         input_vars=config.data.inputs,
         output_vars=config.data.outputs,
         config=config,
         dataset=full_dataset_for_stats,
-        use_physics_loss=hparams.get('use_physics_loss', config.training.use_physics_loss),
-        normalize_output=hparams.get('normalize_output', config.data.normalize_output)
+        use_physics_loss=hparams.get(
+            "use_physics_loss", config.training.use_physics_loss
+        ),
+        normalize_output=hparams.get("normalize_output", config.data.normalize_output),
     )
     logger.info(
-         f"Criterion initialized: PhysicsInformedLoss (Use Physics: {criterion.use_physics_loss}, Initial Lambda: 'ReLoBRaLo Enabled')"
+        f"Criterion initialized: PhysicsInformedLoss (Use Physics: {criterion.use_physics_loss}, Initial Lambda: 'ReLoBRaLo Enabled')"
     )
 
     # --- Cross-Validation ---

@@ -1,31 +1,27 @@
 # ## Imports
 
 # Standard Library Imports
-import math
 from itertools import product
 
-import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 
 # Third-party Library Imports
 import numpy as np
 import pandas as pd
-import xarray as xr
-
 import seaborn as sns
+import xarray as xr
 
 # Local Imports
 from data_manip.extraction.telemac_file import TelemacFile
 from matplotlib import cm, ticker
 from matplotlib.ticker import FuncFormatter
-from mpl_toolkits.mplot3d import Axes3D
-from postel.plot1d import plot1d
-from scipy.ndimage import gaussian_filter
 from scipy.optimize import fsolve
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier, plot_tree
 from tqdm.autonotebook import tqdm
 
-
 # ## Functions
+
 
 def manning_equation(depth, flow_rate, bottom_width, slope, roughness_coefficient):
     """
@@ -198,7 +194,7 @@ def plot_critical_slope(x, y, slopes):
 
     # Label each contour line with its corresponding slope value
     ax.clabel(
-        cl, inline=True, fontsize=10, fmt=FuncFormatter(lambda x, _: f"{x*100:.1f}%")
+        cl, inline=True, fontsize=10, fmt=FuncFormatter(lambda x, _: f"{x * 100:.1f}%")
     )
 
     # Add a colorbar
@@ -272,6 +268,7 @@ for i in tqdm(range(len(S_values))):
 
 
 # ## Steering file generation
+
 
 def generate_steering_file(
     geometry_file,
@@ -355,7 +352,7 @@ SOLVER ACCURACY                 = 1.E-7
 TIDAL FLATS                     = NO
 FREE SURFACE GRADIENT COMPATIBILITY = 0.9
 
-SCHEME FOR ADVECTION OF VELOCITIES : 1 
+SCHEME FOR ADVECTION OF VELOCITIES : 1
 SCHEME FOR ADVECTION OF TRACERS : 5
 SCHEME FOR ADVECTION OF K-EPSILON : 4"""
 
@@ -422,7 +419,7 @@ for index, case in tqdm(parameters.iterrows(), total=len(parameters)):
 
 parameters = pd.read_csv("parameters.csv", index_col="id")
 
-parameters['subcritical'].describe()
+parameters["subcritical"].describe()
 
 
 def plot_ith(i):
@@ -462,6 +459,11 @@ def plot_ith(i):
     # plt.savefig(f"test_plot_{i}.png")
     plt.show()
 
+
+# List of points defining the polyline
+poly_points = [[0.0, 0.15], [12.0, 0.15]]
+# List the number of discretized points for each polyline segment
+poly_number = [1000]
 
 res0 = TelemacFile("results/results_0.slf")
 res1 = TelemacFile("results/results_1.slf")
@@ -508,15 +510,16 @@ ax.plot(abs_curv2[:], values_polylines2[:, -1], label="$h_{outlet}=0.06$ / m")
 ax.plot(abs_curv3[:], values_polylines3[:, -1], label="$h_{outlet}=0.11$ / m")
 ax.plot(abs_curv4[:], values_polylines4[:, -1], label="$h_{outlet}=0.01$ / m")
 ax.plot(abs_curv5[:], values_polylines5[:, -1], label="$h_{outlet}=0.01$ / m")
-
+yn = parameters.iloc[0]["yn"]
+yc = parameters.iloc[0]["yc"]
 ax.axhline(
-    y=parameters.iloc[0]["yn"],
+    y=yn,
     linestyle="--",
     color="tab:orange",
     label=f"$y_{{normal}} = {yn:.3f}$ / m",
 )
 ax.axhline(
-    y=parameters.iloc[0]["yc"],
+    y=yc,
     linestyle="--",
     color="tab:red",
     label=f"$y_{{critical}} = {yc:.3f}$ / m",
@@ -538,26 +541,29 @@ plt.savefig("test_plot.png")
 # Show the plot
 plt.show()
 
-sns.pairplot(parameters, vars=['SLOPE', 'n', 'Q0', 'H0'], hue='subcritical', diag_kws={'bw': 0.2})
+sns.pairplot(
+    parameters, vars=["SLOPE", "n", "Q0", "H0"], hue="subcritical", diag_kws={"bw": 0.2}
+)
 plt.show()
 
-from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier
 
-X = parameters[['SLOPE', 'n', 'Q0', 'H0']]
-y = parameters['subcritical']
+X = parameters[["SLOPE", "n", "Q0", "H0"]]
+y = parameters["subcritical"]
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42
+)
 
 clf = DecisionTreeClassifier(random_state=42)
 clf.fit(X_train, y_train)
 
-from sklearn.tree import plot_tree
 
 fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(15, 7), dpi=300)
-plot_tree(clf, feature_names=['slope', 'n', 'q0', 'h0'], filled=True, impurity=False, ax=axes)
-plt.savefig('decision_tree.svg', format='svg', bbox_inches='tight')
+plot_tree(
+    clf, feature_names=["slope", "n", "q0", "h0"], filled=True, impurity=False, ax=axes
+)
+plt.savefig("decision_tree.svg", format="svg", bbox_inches="tight")
 plt.show()
 
 accuracy = clf.score(X_test, y_test)
-print(f'Accuracy: {accuracy * 100:.2f}%')
+print(f"Accuracy: {accuracy * 100:.2f}%")

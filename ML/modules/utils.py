@@ -1,13 +1,11 @@
-#utils.py
+# utils.py
 import os
 import random
-from typing import List, Dict, Tuple, Optional
 
 import numpy as np
 import torch
 import yaml
 from loguru import logger
-from torcheval.metrics.functional import mean_squared_error, r2_score
 
 
 class EarlyStopping:
@@ -26,7 +24,7 @@ class EarlyStopping:
         self.delta = delta
         self.save_path = save_path
         self.reset()  # Initialize/reset per fold
-        self.global_best_loss = np.Inf  # Track the best loss across all folds
+        self.global_best_loss = np.inf  # Track the best loss across all folds
 
     def reset(self):
         """Resets parameters for a new fold."""
@@ -34,7 +32,7 @@ class EarlyStopping:
         self.best_score = None
         self.best_epoch = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
+        self.val_loss_min = np.inf
         self.epoch = 0
 
     def __call__(self, val_loss, model, epoch):
@@ -55,7 +53,9 @@ class EarlyStopping:
         else:
             self.counter += 1
             if self.verbose:
-                logger.debug(f"EarlyStopping counter: {self.counter} out of {self.patience}")
+                logger.debug(
+                    f"EarlyStopping counter: {self.counter} out of {self.patience}"
+                )
             if self.counter >= self.patience:
                 self.early_stop = True
 
@@ -65,10 +65,11 @@ class EarlyStopping:
             self.global_best_loss = val_loss
             if self.verbose:
                 logger.info(
-                    f"New global best model saved at epoch {self.epoch+1} with loss {val_loss}"
+                    f"New global best model saved at epoch {self.epoch + 1} with loss {val_loss}"
                 )
             torch.save(model.state_dict(), self.save_path)
         self.val_loss_min = val_loss
+
 
 def seed_worker(worker_id):
     """Seeds DataLoader workers for reproducibility."""
@@ -76,24 +77,6 @@ def seed_worker(worker_id):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
-def set_seed(seed: int) -> None:
-    """
-    Set random seed for reproducibility.
-
-    Parameters
-    ----------
-    seed : int
-        The random seed to set.
-    """
-    print(f"Using {seed} as seed")
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-    # torch.backends.cudnn.benchmark = False
-    # torch.backends.cudnn.deterministic = True
 
 def setup_experiment(config: dict) -> None:
     """Set up the experiment environment."""
@@ -102,7 +85,7 @@ def setup_experiment(config: dict) -> None:
 
 def load_config(config_path: str) -> dict:
     """Load configuration from a YAML file."""
-    with open(config_path, "r") as file:
+    with open(config_path) as file:
         return yaml.safe_load(file)
 
 
@@ -142,7 +125,7 @@ def setup_logger():
         format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name} | {function} | {line} | {message}",
         level="INFO",
         rotation="00:00",  # Rotate the log file at midnight
-        retention= 1,  # Keep only the most recent log file
+        retention=1,  # Keep only the most recent log file
     )
     # logger.add(lambda msg: tqdm.write(msg, end=""), level="INFO")
     return logger
@@ -151,8 +134,8 @@ def setup_logger():
 def compute_metrics(
     outputs: torch.Tensor,
     targets: torch.Tensor,
-    variable_names: List[str],
-) -> Dict[str, torch.Tensor]:
+    variable_names: list[str],
+) -> dict[str, torch.Tensor]:
     metrics = {}
     epsilon = 1e-10  # Small value to avoid division by zero
 
@@ -184,27 +167,35 @@ def compute_metrics(
     mae = torch.mean(torch.abs(targets_reshaped - outputs_reshaped))
 
     # Overall R2 score
-    targets_mean = torch.mean(targets_reshaped, dim=0, keepdim=True)  # Mean across batch
+    targets_mean = torch.mean(
+        targets_reshaped, dim=0, keepdim=True
+    )  # Mean across batch
     ss_tot = torch.sum((targets_reshaped - targets_mean) ** 2)
     ss_res = torch.sum((targets_reshaped - outputs_reshaped) ** 2)
     r2 = 1 - (ss_res / (ss_tot + epsilon))
 
     # Add overall metrics without prefix
-    metrics.update({
-        "mse": mse,
-        "rmse": rmse,
-        "mae": mae,
-        "r2": r2,
-    })
+    metrics.update(
+        {
+            "mse": mse,
+            "rmse": rmse,
+            "mae": mae,
+            "r2": r2,
+        }
+    )
 
     # Compute per-variable metrics
     for i, var_name in enumerate(current_var_names):
-        var_outputs = outputs_reshaped[:, i]  # [batch_size, height * width] or [batch_size]
+        var_outputs = outputs_reshaped[
+            :, i
+        ]  # [batch_size, height * width] or [batch_size]
         var_targets = targets_reshaped[:, i]
 
         # Flatten spatial dimensions for field data if not scalar
         if not is_scalar:
-            var_outputs = var_outputs.view(batch_size, -1)  # [batch_size, height * width]
+            var_outputs = var_outputs.view(
+                batch_size, -1
+            )  # [batch_size, height * width]
             var_targets = var_targets.view(batch_size, -1)
 
         # Per-variable metrics
@@ -220,26 +211,33 @@ def compute_metrics(
 
         # MAPE calculation, ignoring values near zero
         mask = var_targets.abs() > epsilon  # Mask for safe division
-        var_mape = torch.mean(torch.abs((var_targets[mask] - var_outputs[mask]) / var_targets[mask]))
+        var_mape = torch.mean(
+            torch.abs((var_targets[mask] - var_outputs[mask]) / var_targets[mask])
+        )
 
-        metrics.update({
-            f"{var_name}_mse": var_mse,
-            f"{var_name}_rmse": var_rmse,
-            f"{var_name}_mae": var_mae,
-            f"{var_name}_r2": var_r2,
-            f"{var_name}_mape": var_mape,
-        })
+        metrics.update(
+            {
+                f"{var_name}_mse": var_mse,
+                f"{var_name}_rmse": var_rmse,
+                f"{var_name}_mae": var_mae,
+                f"{var_name}_r2": var_r2,
+                f"{var_name}_mape": var_mape,
+            }
+        )
 
     return metrics
 
+
 def denormalize_outputs_and_targets(
-    outputs: Tuple[Optional[torch.Tensor], Optional[torch.Tensor]],
-    targets: Tuple[List[torch.Tensor], List[torch.Tensor]],
+    outputs: tuple[torch.Tensor | None, torch.Tensor | None],
+    targets: tuple[list[torch.Tensor], list[torch.Tensor]],
     dataset,
     config,
-    normalize_output_setting: bool
-) -> Tuple[Tuple[Optional[torch.Tensor], Optional[torch.Tensor]], 
-           Tuple[List[torch.Tensor], List[torch.Tensor]]]:
+    normalize_output_setting: bool,
+) -> tuple[
+    tuple[torch.Tensor | None, torch.Tensor | None],
+    tuple[list[torch.Tensor], list[torch.Tensor]],
+]:
     """
     Denormalize model outputs and targets.
 
@@ -255,77 +253,100 @@ def denormalize_outputs_and_targets(
     """
     output_vars = config.data.outputs
 
-    normalize_output = normalize_output_setting 
-    
+    normalize_output = normalize_output_setting
+
     # If normalization is not enabled, return original data
     if not normalize_output:
         return outputs, targets
 
     # --- Denormalization Logic (Only runs if normalize_output_setting is True) ---
     field_outputs, scalar_outputs = outputs
-    field_targets, scalar_targets = targets # These are lists
+    field_targets, scalar_targets = targets  # These are lists
 
     # Get variable names (already done in original code, keeping it)
-    scalar_vars = [var for var in output_vars if var in config.data.scalars]
-    non_scalar_vars = [var for var in output_vars if var in config.data.non_scalars]
+    scalar_vars = [var for var in output_vars if var in config.data.all_scalar_vars]
+    non_scalar_vars = [var for var in output_vars if var in config.data.all_field_vars]
 
     # Denormalize field outputs (if they exist)
     field_outputs_denorm = None
     if field_outputs is not None:
-         # Ensure field_outputs is B x C x H x W before unbinding
+        # Ensure field_outputs is B x C x H x W before unbinding
         if field_outputs.dim() == 4 and len(non_scalar_vars) == field_outputs.shape[1]:
-            field_outputs_denorm = torch.stack([
-                dataset._denormalize(p, var)
-                # unbind splits along dim 1 (channel/variable dim)
-                for p, var in zip(torch.unbind(field_outputs, dim=1), non_scalar_vars)
-            ], dim=1) # Stack back along dim 1
+            field_outputs_denorm = torch.stack(
+                [
+                    dataset._denormalize(p, var)
+                    # unbind splits along dim 1 (channel/variable dim)
+                    for p, var in zip(
+                        torch.unbind(field_outputs, dim=1),
+                        non_scalar_vars,
+                        strict=False,
+                    )
+                ],
+                dim=1,
+            )  # Stack back along dim 1
         else:
             # Handle potential shape mismatch or log a warning
-            print(f"Warning: Shape mismatch or unexpected field_outputs shape {field_outputs.shape} in denormalize. Expected Bx{len(non_scalar_vars)}xHxW.")
-            field_outputs_denorm = field_outputs # Return original as fallback
+            print(
+                f"Warning: Shape mismatch or unexpected field_outputs shape {field_outputs.shape} in denormalize. Expected Bx{len(non_scalar_vars)}xHxW."
+            )
+            field_outputs_denorm = field_outputs  # Return original as fallback
 
     # Denormalize field targets (if they exist)
-    field_targets_denorm = [] # Initialize as list
-    if field_targets: # Check if list is not empty
-         # Ensure list length matches non_scalar_vars
-         if len(field_targets) == len(non_scalar_vars):
-             field_targets_denorm = [
-                 dataset._denormalize(t, var)
-                 for t, var in zip(field_targets, non_scalar_vars)
-             ]
-         else:
-             # Handle potential mismatch
-             print(f"Warning: Mismatch between len(field_targets)={len(field_targets)} and len(non_scalar_vars)={len(non_scalar_vars)}.")
-             field_targets_denorm = field_targets # Fallback
+    field_targets_denorm = []  # Initialize as list
+    if field_targets:  # Check if list is not empty
+        # Ensure list length matches non_scalar_vars
+        if len(field_targets) == len(non_scalar_vars):
+            field_targets_denorm = [
+                dataset._denormalize(t, var)
+                for t, var in zip(field_targets, non_scalar_vars, strict=False)
+            ]
+        else:
+            # Handle potential mismatch
+            print(
+                f"Warning: Mismatch between len(field_targets)={len(field_targets)} and len(non_scalar_vars)={len(non_scalar_vars)}."
+            )
+            field_targets_denorm = field_targets  # Fallback
 
     # Denormalize scalar outputs (if they exist)
     scalar_outputs_denorm = None
     if scalar_outputs is not None:
-         # Ensure scalar_outputs is B x C before unbinding
+        # Ensure scalar_outputs is B x C before unbinding
         if scalar_outputs.dim() == 2 and len(scalar_vars) == scalar_outputs.shape[1]:
-            scalar_outputs_denorm = torch.stack([
-                dataset._denormalize(p, var)
-                # unbind splits along dim 1 (variable dim for scalars)
-                for p, var in zip(torch.unbind(scalar_outputs, dim=1), scalar_vars)
-            ], dim=1) # Stack back along dim 1
+            scalar_outputs_denorm = torch.stack(
+                [
+                    dataset._denormalize(p, var)
+                    # unbind splits along dim 1 (variable dim for scalars)
+                    for p, var in zip(
+                        torch.unbind(scalar_outputs, dim=1), scalar_vars, strict=False
+                    )
+                ],
+                dim=1,
+            )  # Stack back along dim 1
         else:
             # Handle potential shape mismatch
-            print(f"Warning: Shape mismatch or unexpected scalar_outputs shape {scalar_outputs.shape} in denormalize. Expected Bx{len(scalar_vars)}.")
-            scalar_outputs_denorm = scalar_outputs # Fallback
+            print(
+                f"Warning: Shape mismatch or unexpected scalar_outputs shape {scalar_outputs.shape} in denormalize. Expected Bx{len(scalar_vars)}."
+            )
+            scalar_outputs_denorm = scalar_outputs  # Fallback
 
     # Denormalize scalar targets (if they exist)
-    scalar_targets_denorm = [] # Initialize as list
-    if scalar_targets: # Check if list is not empty
-         # Ensure list length matches scalar_vars
-         if len(scalar_targets) == len(scalar_vars):
-             scalar_targets_denorm = [
-                 dataset._denormalize(t, var)
-                 for t, var in zip(scalar_targets, scalar_vars)
-             ]
-         else:
-             # Handle potential mismatch
-             print(f"Warning: Mismatch between len(scalar_targets)={len(scalar_targets)} and len(scalar_vars)={len(scalar_vars)}.")
-             scalar_targets_denorm = scalar_targets # Fallback
+    scalar_targets_denorm = []  # Initialize as list
+    if scalar_targets:  # Check if list is not empty
+        # Ensure list length matches scalar_vars
+        if len(scalar_targets) == len(scalar_vars):
+            scalar_targets_denorm = [
+                dataset._denormalize(t, var)
+                for t, var in zip(scalar_targets, scalar_vars, strict=False)
+            ]
+        else:
+            # Handle potential mismatch
+            print(
+                f"Warning: Mismatch between len(scalar_targets)={len(scalar_targets)} and len(scalar_vars)={len(scalar_vars)}."
+            )
+            scalar_targets_denorm = scalar_targets  # Fallback
 
     # Return the potentially denormalized data
-    return (field_outputs_denorm, scalar_outputs_denorm), (field_targets_denorm, scalar_targets_denorm)
+    return (field_outputs_denorm, scalar_outputs_denorm), (
+        field_targets_denorm,
+        scalar_targets_denorm,
+    )

@@ -1,8 +1,8 @@
-import numpy as np
 from functools import lru_cache
-from typing import Union
-from constants import GRAVITY
+
+import numpy as np
 from scipy.optimize import fsolve
+
 
 class HydraulicCalculations:
     """
@@ -33,17 +33,17 @@ class HydraulicCalculations:
         Calculates the critical slope of flow using a simplified formula.
     """
 
-    GRAVITY = GRAVITY
+    GRAVITY = 9.81
 
     @staticmethod
     @lru_cache(maxsize=128)
     def manning_equation(
-        depth: Union[float, np.ndarray],
-        flow_rate: Union[float, np.ndarray],
-        bottom_width: Union[float, np.ndarray],
-        slope: Union[float, np.ndarray],
-        roughness_coefficient: Union[float, np.ndarray],
-    ) -> Union[float, np.ndarray]:
+        depth: float | np.ndarray,
+        flow_rate: float | np.ndarray,
+        bottom_width: float | np.ndarray,
+        slope: float | np.ndarray,
+        roughness_coefficient: float | np.ndarray,
+    ) -> float | np.ndarray:
         """
         Calculates the flow rate using Manning's equation.
 
@@ -121,7 +121,7 @@ class HydraulicCalculations:
         """
         area = top_width * depth
         numerator = flow_rate**2 * top_width
-        denominator = area**3 * GRAVITY + epsilon
+        denominator = area**3 * HydraulicCalculations.GRAVITY + epsilon
         return (numerator / denominator) ** 0.5 - 1
 
     @staticmethod
@@ -187,7 +187,9 @@ class HydraulicCalculations:
         0.5
         """
         solution = fsolve(
-            HydraulicCalculations.froude_number, x0=0.001, args=(flow_rate, bottom_width)
+            HydraulicCalculations.froude_number,
+            x0=0.001,
+            args=(flow_rate, bottom_width),
         )[0]
         return solution
 
@@ -292,7 +294,9 @@ class HydraulicCalculations:
         >>> HydraulicCalculations.critical_depth_simple(2.0, 3.0)
         0.5
         """
-        return (flow_rate / top_width) ** (2 / 3) * GRAVITY ** (-1 / 3)
+        return (flow_rate / top_width) ** (2 / 3) * HydraulicCalculations.GRAVITY ** (
+            -1 / 3
+        )
 
     @staticmethod
     def critical_slope_simple(
@@ -322,6 +326,6 @@ class HydraulicCalculations:
         """
         return (
             (bottom_width / flow_rate) ** (2 / 9)
-            * GRAVITY ** (10 / 9)
+            * HydraulicCalculations.GRAVITY ** (10 / 9)
             * roughness_coefficient**2
         )

@@ -1,0 +1,20 @@
+[flake8]
+# Set the maximum line length to 88 to match Black's default.
+max-line-length = 88
+
+# Ignore rules that conflict with Black.
+# E203: whitespace before ':'
+# W503: line break before binary operator
+extend-ignore = E203, W503
+
+# Exclude directories and files that should not be linted.
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    env,
+    # Crucially, ignore Jupyter notebook checkpoints
+    .ipynb_checkpoints,
+    # Also exclude the temporary website directories for now
+    website/app/,
+    website/modules/

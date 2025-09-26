@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from typing import Set, List
 
 # --- Configuration ---
 
@@ -11,29 +10,49 @@ ROOT_FOLDER: Path = Path.cwd()
 OUTPUT_FILENAME: str = "project_summary.txt"
 
 # Extensions to include for content extraction
-EXTENSIONS_TO_INCLUDE: Set[str] = {
-    '.py', '.yaml', '.yml', '.config', '.env'
-}
+EXTENSIONS_TO_INCLUDE: set[str] = {".py", ".yaml", ".yml", ".config", ".env"}
 
 # Extensions to exclude from the folder structure listing
-EXTENSIONS_TO_EXCLUDE_STRUCTURE: Set[str] = {
-    '.pdf', '.png', '.log', '.csv', '.json', '.pth', '.gif'
+EXTENSIONS_TO_EXCLUDE_STRUCTURE: set[str] = {
+    ".pdf",
+    ".png",
+    ".log",
+    ".csv",
+    ".json",
+    ".pth",
+    ".gif",
 }
 
 # Relative paths to completely exclude from both structure and content.
 # Using a set of Path objects for efficient lookups.
-PATHS_TO_EXCLUDE: Set[Path] = {
-    Path(p) for p in [
-        'ML/wandb', '.git', '.ipynb_checkpoints', 'ML/runs', 'ML/runs.old',
-        'ML/plots', 'neuraloperator', 'Articulos', 'telemac/.ipynb_checkpoints',
-        'modules/__pycache__', '__pycache__', 'ML/__pycache__',
-        'modules/.ipynb_checkpoints', 'ML/modules/__pycache__',
-        'ML/modules/.ipynb_checkpoints', 'telemac/logs/.ipynb_checkpoints',
-        'telemac/modules/.ipynb_checkpoints', 'ML/studies', 'ML/.ipynb_checkpoints'
+PATHS_TO_EXCLUDE: set[Path] = {
+    Path(p)
+    for p in [
+        "ML/wandb",
+        ".git",
+        ".ipynb_checkpoints",
+        "ML/runs",
+        "ML/runs.old",
+        "ML/plots",
+        "neuraloperator",
+        "Articulos",
+        "telemac/.ipynb_checkpoints",
+        "modules/__pycache__",
+        "__pycache__",
+        "ML/__pycache__",
+        "modules/.ipynb_checkpoints",
+        "ML/modules/__pycache__",
+        "ML/modules/.ipynb_checkpoints",
+        "telemac/logs/.ipynb_checkpoints",
+        "telemac/modules/.ipynb_checkpoints",
+        "ML/studies",
+        "ML/.ipynb_checkpoints",
+        ".ruff_cache/",
     ]
 }
 
 # --- Main Logic ---
+
 
 def generate_project_summary(root_folder: Path, output_filename: str):
     """
@@ -44,8 +63,8 @@ def generate_project_summary(root_folder: Path, output_filename: str):
         root_folder: The starting directory for the analysis.
         output_filename: The name of the text file to create.
     """
-    structure_lines: List[str] = []
-    content_files: List[Path] = []
+    structure_lines: list[str] = []
+    content_files: list[Path] = []
 
     def _is_path_excluded(path: Path) -> bool:
         """A nested helper to check if a path should be excluded."""
@@ -56,15 +75,15 @@ def generate_project_summary(root_folder: Path, output_filename: str):
             return True
 
         # Check against any part of the path (e.g., '.git', '__pycache__')
-        if any(part in p.name for p in PATHS_TO_EXCLUDE for part in relative_path.parts):
+        if any(
+            part in p.name for p in PATHS_TO_EXCLUDE for part in relative_path.parts
+        ):
             return True
-            
+
         # Check if the path itself or any of its parents are in the exclusion list
         if relative_path in PATHS_TO_EXCLUDE:
             return True
-        for parent in relative_path.parents:
-            if parent in PATHS_TO_EXCLUDE:
-                return True
+        return any(parent in PATHS_TO_EXCLUDE for parent in relative_path.parents)
 
         return False
 
@@ -107,7 +126,7 @@ def generate_project_summary(root_folder: Path, output_filename: str):
 
     # --- Write all collected information to the output file ---
     try:
-        with open(output_filename, 'w', encoding='utf-8') as f:
+        with open(output_filename, "w", encoding="utf-8") as f:
             # 1. Write the complete folder structure
             f.write("### FOLDER STRUCTURE ###\n")
             f.writelines(structure_lines)
@@ -119,21 +138,25 @@ def generate_project_summary(root_folder: Path, output_filename: str):
                 # Use as_posix() for consistent '/' separators in the header
                 f.write(f"\n--- Content of: {relative_path.as_posix()} ---\n")
                 try:
-                    with file_path.open('r', encoding='utf-8', errors='ignore') as content_file:
+                    with file_path.open(
+                        "r", encoding="utf-8", errors="ignore"
+                    ) as content_file:
                         f.write(content_file.read())
                     f.write("\n")
                 except Exception as e:
                     f.write(f"Could not read file: {e}\n\n")
 
         print(f"Successfully created '{output_filename}'")
-    except IOError as e:
+    except OSError as e:
         print(f"Error writing to file: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
+
 def main():
     """Main execution function."""
     generate_project_summary(ROOT_FOLDER, OUTPUT_FILENAME)
+
 
 if __name__ == "__main__":
     main()

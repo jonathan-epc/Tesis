@@ -17,6 +17,7 @@ dependencies:
   - scipy
   - scikit-learn
   - h5py
+  - xarray
 
   # --- PyTorch & GPU ---
   - pytorch
@@ -50,7 +51,7 @@ dependencies:
   - pip
   - pip:
       - black==24.10.0
-      - flake8 # Adding a linter for our next step
+      - ruff
       - pytest
       - pytest-mock
       - configmypy==0.2.0
@@ -58,6 +59,7 @@ dependencies:
       - wandb==0.18.7
       - tensorly==0.9.0
       - tensorly-torch==0.5.0
+      - xarray-selafin
       - torcheval
       # Using the specific, reproducible commit for neuraloperator
       - git+https://github.com/NeuralOperator/neuraloperator.git@a9e63cbc859e7c5f01d82c4c1510b801f0211590

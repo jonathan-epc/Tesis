@@ -1,6 +1,6 @@
 # Parameter management module (param_utils.py)
-from loguru import logger
 import pandas as pd
+from loguru import logger
 
 
 def load_parameters(file_path):

@@ -1,7 +1,6 @@
 import os
 import re
 
-import h5py
 import pandas as pd
 import xarray as xr
 from loguru import logger
@@ -27,17 +26,20 @@ def process_and_save(
     result_files,
 ):
     def _compute_adimensional_numbers(case):
-        g = 9.81
-        H0, Q0, n, nut, SLOPE = case['H0'], case['Q0'], case['n'], case['nut'], case['SLOPE']
+        H0, Q0, SLOPE = (
+            case["H0"],
+            case["Q0"],
+            case["SLOPE"],
+        )
         xc, yc = channel_length, channel_width
         bc, hc = SLOPE * xc, H0
         uc = Q0 / (H0 * yc)
 
         return {
-            'H*': case['H'] / hc,
-            'U*': case['U'] / uc,
-            'V*': case['V'] / uc,
-            'B*': case['B'] / bc,
+            "H*": case["H"] / hc,
+            "U*": case["U"] / uc,
+            "V*": case["V"] / uc,
+            "B*": case["B"] / bc,
         }
 
     overall_stats = {}
@@ -56,7 +58,7 @@ def process_and_save(
                 os.path.join(base_dir, "results", result_file), engine="selafin"
             )
             logger.debug(f"Opened {result_file} successfully")
-            
+
             # Dynamically construct the path for the geometry file to fetch variable B
             bottom_type = parameters.iloc[i]["BOTTOM"]
             geometry_path = os.path.join(
@@ -73,7 +75,9 @@ def process_and_save(
             variable_stats = {}
             for variable_name, variable_data in result.items():
                 if variable_name in variable_names:
-                    simulation_group.create_dataset(variable_name, data=variable_data[-1])
+                    simulation_group.create_dataset(
+                        variable_name, data=variable_data[-1]
+                    )
                     variable_stats[variable_name] = calculate_statistics(
                         pd.Series(variable_data[-1].values)
                     )
@@ -95,17 +99,18 @@ def process_and_save(
                 "B": variable_B.values,
             }
 
-            
             # Compute and save adimensional numbers
             adimensional_numbers = _compute_adimensional_numbers(case)
-            
+
             # Define adimensional numbers to be added as groups
             grouped_adim_numbers = {"B*", "H*", "U*", "V*"}
             for adim_name, adim_value in adimensional_numbers.items():
                 if adim_name in grouped_adim_numbers:
                     # Add specific adimensional numbers as datasets
                     simulation_group.create_dataset(adim_name, data=adim_value)
-                    variable_stats[adim_name] = calculate_statistics(pd.Series(adim_value))
+                    variable_stats[adim_name] = calculate_statistics(
+                        pd.Series(adim_value)
+                    )
                 else:
                     # Add other adimensional numbers as simulation attributes
                     simulation_group.attrs[adim_name] = adim_value
@@ -155,7 +160,7 @@ def process_and_save_normalized(
     variable_names,
     result_files,
 ):
-    for idx, result_file in enumerate(tqdm(result_files, desc="Normalizing files")):
+    for _idx, result_file in enumerate(tqdm(result_files, desc="Normalizing files")):
         try:
             i = int(re.split(r"_|\.", result_file)[0])
 
@@ -175,7 +180,7 @@ def process_and_save_normalized(
                 base_dir, "geometry", f"3x3_{bottom_type}_{i}.slf"
             )
             logger.debug(f"Constructed path for geometry of {result_file} succesfully")
-            
+
             # Open the geometry file and extract variable B
             geometry_data = xr.open_dataset(geometry_path, engine="selafin")
             variable_B = geometry_data["B"]

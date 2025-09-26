@@ -1,20 +1,14 @@
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
-
-import yaml
 
 import h5py
 import pandas as pd
+import yaml
 from loguru import logger
 
 from modules.file_processing import process_and_save, process_and_save_normalized
-from modules.statistics import (
-    calculate_statistics,
-    combine_statistics,
-    normalize_statistics,
-)
+
 
 @dataclass
 class ProcessingConfig:
@@ -23,17 +17,19 @@ class ProcessingConfig:
     separate_critical_states: bool = False
     channel_length: float = 12
     channel_width: float = 0.3
-    bottom_types: Optional[List[str]] = None
-    parameter_names: Optional[List[str]] = None
-    variable_names: Optional[List[str]] = None
+    bottom_types: list[str] | None = None
+    parameter_names: list[str] | None = None
+    variable_names: list[str] | None = None
 
-def load_yaml_config(file_path: str) -> Dict:
+
+def load_yaml_config(file_path: str) -> dict:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Configuration file not found: {file_path}")
-    with open(file_path, "r") as yaml_file:
+    with open(file_path) as yaml_file:
         return yaml.safe_load(yaml_file)
 
-def get_output_files(config: ProcessingConfig) -> Dict[str, Dict[str, str]]:
+
+def get_output_files(config: ProcessingConfig) -> dict[str, dict[str, str]]:
     base_path = os.path.join(config.base_dir, "ML")
     os.makedirs(base_path, exist_ok=True)
 
@@ -60,9 +56,10 @@ def get_output_files(config: ProcessingConfig) -> Dict[str, Dict[str, str]]:
 
     return files
 
+
 def load_and_validate_data(
     config: ProcessingConfig,
-) -> Tuple[pd.DataFrame, List[str], List[str]]:
+) -> tuple[pd.DataFrame, list[str], list[str]]:
     parameters_file = os.path.join(config.base_dir, "parameters.csv")
     results_dir = os.path.join(config.base_dir, "results")
 
@@ -91,10 +88,12 @@ def load_and_validate_data(
             "Fr": uc / (g * hc) ** 0.5,
             "Hr": bc / hc,
             "Re": (uc * xc) / nut,
-            "M": g * row["n"]**2 * xc / (hc ** (4 / 3)),
+            "M": g * row["n"] ** 2 * xc / (hc ** (4 / 3)),
         }
 
-    adim_params = parameters.apply(compute_adimensional_numbers, axis=1, result_type="expand")
+    adim_params = parameters.apply(
+        compute_adimensional_numbers, axis=1, result_type="expand"
+    )
     parameters = pd.concat([parameters, adim_params], axis=1)
     return (
         parameters,
@@ -102,9 +101,16 @@ def load_and_validate_data(
         config.variable_names or ["H", "U", "V"],
     )
 
-def prepare_parameter_table(parameters: pd.DataFrame, parameter_names: List[str], config: ProcessingConfig) -> pd.DataFrame:
+
+def prepare_parameter_table(
+    parameters: pd.DataFrame, parameter_names: list[str], config: ProcessingConfig
+) -> pd.DataFrame:
     # Compute stats for all parameters (including adimensional)
-    parameter_stats = {param: parameters[param].describe() for param in parameters.columns if param in parameter_names}
+    parameter_stats = {
+        param: parameters[param].describe()
+        for param in parameters.columns
+        if param in parameter_names
+    }
     parameter_table = (
         pd.DataFrame(parameter_stats)
         .T.reset_index()
@@ -116,11 +122,11 @@ def prepare_parameter_table(parameters: pd.DataFrame, parameter_names: List[str]
 
 def process_data(
     config: ProcessingConfig,
-    files: Dict[str, Dict[str, str]],
+    files: dict[str, dict[str, str]],
     parameters: pd.DataFrame,
-    result_files: List[str],
-    variable_names: List[str],
-    parameter_names: List[str],
+    result_files: list[str],
+    variable_names: list[str],
+    parameter_names: list[str],
 ):
     parameter_table = prepare_parameter_table(parameters, parameter_names, config)
     bottom_types = config.bottom_types or ["NOISE", "SLOPE", "BUMP", "BARS"]
@@ -134,7 +140,9 @@ def process_data(
                     else ~parameters["subcritical"]
                 )
                 filtered_parameters = parameters[mask]
-                filtered_result_files = [f for f, m in zip(result_files, mask) if m]
+                filtered_result_files = [
+                    f for f, m in zip(result_files, mask, strict=False) if m
+                ]
 
                 with h5py.File(
                     files[bottom_type][f"main_{critical_state}"], "w"
@@ -198,7 +206,8 @@ def process_data(
                         result_files,
                     )
 
-def process_simulation_results(config: ProcessingConfig, yaml_config: Dict) -> None:
+
+def process_simulation_results(config: ProcessingConfig, yaml_config: dict) -> None:
     logger.info("Processing started")
 
     try:
@@ -209,7 +218,7 @@ def process_simulation_results(config: ProcessingConfig, yaml_config: Dict) -> N
             "parameter_names", ["H0", "Q0", "SLOPE", "n"]
         )
         config.variable_names = yaml_config.get("variable_names", ["H", "U", "V"])
-        
+
         config.channel_length = yaml_config.get("channel_length", 12)
 
         config.channel_width = yaml_config.get("channel_width", 12)
@@ -230,7 +239,8 @@ def process_simulation_results(config: ProcessingConfig, yaml_config: Dict) -> N
     except Exception as e:
         logger.error(f"An error occurred during processing: {str(e)}")
 
-def parse_args() -> Tuple[ProcessingConfig, str]:
+
+def parse_args() -> tuple[ProcessingConfig, str]:
     parser = argparse.ArgumentParser(description="Process simulation data.")
     parser.add_argument(
         "--base_dir",
@@ -268,6 +278,7 @@ def parse_args() -> Tuple[ProcessingConfig, str]:
         args.config_file,
     )
 
+
 if __name__ == "__main__":
     logger.remove()
     logger.add(
@@ -275,7 +286,7 @@ if __name__ == "__main__":
         format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name} | {function} | {line} | {message}",
         level="DEBUG",
         rotation="00:00",  # Rotate the log file at midnight
-        retention= 1,  # Keep only the most recent log file
+        retention=1,  # Keep only the most recent log file
     )
 
     config, config_file = parse_args()

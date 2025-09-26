@@ -1,7 +1,9 @@
 import os
 import platform
 import subprocess
+
 from loguru import logger
+
 
 def run_telemac2d(filename: str, output_dir: str) -> None:
     """
@@ -23,7 +25,11 @@ def run_telemac2d(filename: str, output_dir: str) -> None:
     --------
     >>> run_telemac2d('input_file.txt', '/path/to/output/dir')
     """
-    command = ["telemac2d.py"] if platform.system() == "Linux" else ["python", "-m", "telemac2d"]
+    command = (
+        ["telemac2d.py"]
+        if platform.system() == "Linux"
+        else ["python", "-m", "telemac2d"]
+    )
     name, ext = os.path.splitext(filename)
     output_file = os.path.join(output_dir, f"{name}.txt")
 

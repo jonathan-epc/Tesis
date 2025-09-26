@@ -1,42 +1,27 @@
-import os
 import random
-import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
 import optuna
 import pandas as pd
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from cmap import Colormap
-from config import get_config
-from matplotlib import gridspec
-from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-from torch.amp import autocast
+from matplotlib.colors import LinearSegmentedColormap
 from torch.utils.data import DataLoader, random_split
-from torcheval.metrics.functional import r2_score
 
 from modules.data import HDF5Dataset
-from modules.models import *
-from modules.utils import denormalize_outputs_and_targets, get_hparams, set_seed
-
-
 from modules.plots import (
     PlotManager,
     calculate_field_analysis_metrics,
     plot_field_analysis,
     plot_field_comparisons,
-    plot_field_fourier,
     plot_scatter,
 )
+from modules.utils import denormalize_outputs_and_targets, set_seed
+from nconfig import get_config
 
 
-def calculate_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:
+def calculate_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
     """Calculate regression metrics between prediction and target tensors."""
     # Flatten tensors to handle both 2D and 4D inputs
     pred_flat = pred.reshape(-1)
@@ -86,13 +71,13 @@ def calculate_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, flo
 
 
 def evaluate_predictions(
-    field_predictions: Optional[torch.Tensor],
-    field_targets: Optional[torch.Tensor],
-    scalar_predictions: Optional[torch.Tensor],
-    scalar_targets: Optional[torch.Tensor],
+    field_predictions: torch.Tensor | None,
+    field_targets: torch.Tensor | None,
+    scalar_predictions: torch.Tensor | None,
+    scalar_targets: torch.Tensor | None,
     config,
-    csv_output_path: Optional[str] = None,
-) -> Tuple[Dict[str, Dict[str, float]], pd.DataFrame]:
+    csv_output_path: str | None = None,
+) -> tuple[dict[str, dict[str, float]], pd.DataFrame]:
     """
     Calculate combined metrics for both field and scalar predictions.
     Args:
@@ -213,10 +198,8 @@ def evaluate_predictions(
 def evaluate_model(model, test_dataloader, config, dataset):
     with torch.no_grad():
         model.eval()
-        total_loss = 0.0
         all_field_outputs, all_scalar_outputs = [], []
         all_field_targets, all_scalar_targets = [], []
-        all_field_inputs, all_scalar_inputs = [], []
 
         for batch in test_dataloader:
             inputs, targets = batch
@@ -286,7 +269,8 @@ def evaluate_model(model, test_dataloader, config, dataset):
             all_scalar_targets,
         )
 
-def get_input_output_counts(config: Any) -> Dict[str, int]:
+
+def get_input_output_counts(config: Any) -> dict[str, int]:
     """Calculate input and output dimensions based on configuration."""
     return {
         "field_inputs": len(
@@ -304,7 +288,7 @@ def get_input_output_counts(config: Any) -> Dict[str, int]:
     }
 
 
-def get_output_names(config: Any) -> Dict[str, List[str]]:
+def get_output_names(config: Any) -> dict[str, list[str]]:
     """Get lists of field and scalar output variable names."""
     return {
         "field": [var for var in config.data.outputs if var in config.data.non_scalars],
@@ -313,11 +297,11 @@ def get_output_names(config: Any) -> Dict[str, List[str]]:
 
 
 def setup_datasets(
-    config: Any, hparams: Dict
-) -> Tuple[DataLoader, List[str], List[str]]:
+    config: Any, hparams: dict
+) -> tuple[DataLoader, list[str], list[str]]:
     """Initialize and split datasets, create data loader."""
     full_dataset = HDF5Dataset(
-        file_path=config.data.file_name,
+        file_path=config.data.file_path,
         input_vars=config.data.inputs,
         output_vars=config.data.outputs,
         numpoints_x=config.data.numpoints_x,
@@ -347,7 +331,7 @@ def setup_datasets(
 
 
 def load_model(
-    config: Any, hparams: Dict, io_counts: Dict[str, int], model_name: str
+    config: Any, hparams: dict, io_counts: dict[str, int], model_name: str
 ) -> torch.nn.Module:
     """Initialize and load the model."""
     # Ensure the model class (FNOnet) is available in the scope.
@@ -522,10 +506,16 @@ def configure_study(config, study_type: str):
     )
 
 
-def main(study_type: str = "ddb", bottom_type: str = "barsa", language: str = "en", detailed: bool = True, data_percentile: int = 99) -> None:
+def main(
+    study_type: str = "ddb",
+    bottom_type: str = "barsa",
+    language: str = "en",
+    detailed: bool = True,
+    data_percentile: int = 99,
+) -> None:
     """Main function to run the evaluation pipeline with study-specific configuration."""
     # Initial setup
-    config = get_config()
+    config = get_config("nconfig.yml")
     set_seed(config.seed)
 
     # Define and create a custom colormap
@@ -542,7 +532,7 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa", language: str = "e
     study = optuna.create_study(
         study_name=config.optuna.study_name,
         load_if_exists=True,
-        storage=config.optuna.storage,
+        storage=config.optuna_storage_url,
     )
     specific_trial_params = study.trials[trial_number].params
     print(
@@ -558,7 +548,7 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa", language: str = "e
     config.training.use_physics_loss = hparams["use_physics_loss"]
     # config.data.normalize_output = hparams["normalize_output"]
     config.data.normalize_output = True
-    config.data.file_name = "data/" + bottom_type + ".hdf5"
+    config.data.file_path = "data/" + bottom_type + ".hdf5"
 
     # Setup model and data
     model = load_model(config, hparams, io_counts, model_name)
@@ -624,7 +614,6 @@ def main(study_type: str = "ddb", bottom_type: str = "barsa", language: str = "e
         "Ar": {"en": "Aspect ratio", "es": "Relación de aspecto"},
         "Vr": {"en": "Velocity ratio", "es": "Relación de velocidad"},
     }
-    
 
     random_idx = random.randint(0, len(all_field_outputs) - 1)
     plot_manager = PlotManager(base_dir=f"plots/{language}/{study_type}_{bottom_type}")
@@ -817,13 +806,17 @@ def run_all_evaluations():
         for current_study_type in all_study_types:
             for current_bottom_type in all_bottom_types:
                 print(
-                    f"\n\n{'='*30} PROCESSING STUDY TYPE: {current_study_type.upper()} {'='*30}\n"
+                    f"\n\n{'=' * 30} PROCESSING STUDY TYPE: {current_study_type.upper()} {'=' * 30}\n"
                 )
                 try:
                     # Call your existing main function with the current study type
-                    main(study_type=current_study_type, bottom_type=current_bottom_type, language=current_language)
+                    main(
+                        study_type=current_study_type,
+                        bottom_type=current_bottom_type,
+                        language=current_language,
+                    )
                     print(
-                        f"\n{'='*30} SUCCESSFULLY COMPLETED STUDY TYPE: {current_study_type.upper()} in {current_bottom_type.upper()} {'='*30}\n"
+                        f"\n{'=' * 30} SUCCESSFULLY COMPLETED STUDY TYPE: {current_study_type.upper()} in {current_bottom_type.upper()} {'=' * 30}\n"
                     )
                 except Exception as e:
                     print(
@@ -831,9 +824,9 @@ def run_all_evaluations():
                     )
                     print(f"Error details: {e}")
                     import traceback
-    
+
                     traceback.print_exc()  # Print the full traceback for debugging
-                    print(f"!!!!!! SKIPPING TO NEXT STUDY TYPE (IF ANY) !!!!!!\n")
+                    print("!!!!!! SKIPPING TO NEXT STUDY TYPE (IF ANY) !!!!!!\n")
 
 
 if __name__ == "__main__":

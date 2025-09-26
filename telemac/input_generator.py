@@ -1,108 +1,90 @@
+# telemac/input_generator.py
+
 import argparse
-import os
+import random
 from datetime import datetime
 from pathlib import Path
+
 import numpy as np
-import random
-
-from logger_config import setup_logger
 from loguru import logger
-from tqdm.autonotebook import tqdm
+from tqdm import tqdm
 
-from modules.boundary_conditions import BoundaryConditions
+from common.utils import setup_logger
 from modules.environment_setup import EnvironmentSetup
-from modules.geometry_generator import GeometryGenerator
 from modules.parameter_manager import ParameterManager
-from modules.steering_file_generator import SteeringFileGenerator
+from nconfig import get_config
 
-def process_case(index, case, setup_data, overwrite=False):
-    adimensional = setup_data['constants']['adimensional']
-    steering_file_path = Path(f"steering/{index}.cas")
-    geometry_file = f"geometry/3x3_{case['BOTTOM']}_{index}.slf"
 
-    if steering_file_path.exists() and not overwrite:
-        logger.info(f"Steering file for case {index} already exists. Skipping processing.")
+def process_case(case, flat_mesh, overwrite=False):
+    """
+    Processes a single TelemacCase by generating its geometry and steering file.
+    """
+    if case.steering_file_path.exists() and not overwrite:
+        logger.info(f"Skipping case {case.case_id}: steering file exists.")
         return
 
     try:
-        logger.debug(f"Processing case {index}")
-        
-        geometry_generator = GeometryGenerator()
-        borders = geometry_generator.generate_geometry(
-            index,
-            case["SLOPE"],
-            case["BOTTOM"],
-            setup_data["flat_mesh"],
-            setup_data["constants"]["mesh"]["num_points_x"],
-            setup_data["constants"]["mesh"]["num_points_y"],
-            case["L"],
-            case["W"],
-            h0=case["H0"],
-            adimensional=adimensional
-        )
+        logger.debug(f"Processing case {case.case_id}...")
+        # 1. Generate geometry and get the border elevations
+        borders = case.generate_geometry(flat_mesh)
 
-        boundary_file, prescribed_elevations = BoundaryConditions.get_boundary_and_elevations(
-            case["direction"], case["H0"], case["BOTTOM"], borders
-        )
+        # 2. Generate the steering file using the border elevations
+        case.generate_steering_file(borders)
 
-        steering_generator = SteeringFileGenerator()
-        
-        steering_file_content = steering_generator.generate_steering_file(
-            geometry_file=geometry_file,
-            boundary_file=boundary_file,
-            results_file=f"results/{index}.slf",
-            title=f"Case {index}",
-            duration=30,
-            time_step=0.02,
-            initial_depth=case["H0"],
-            prescribed_flowrates=(0.0, case["Q0"]),
-            prescribed_elevations=prescribed_elevations,
-            friction_coefficient=case["n"],
-            viscosity=case["nut"]+1e-6
-        )
-
-        steering_file_path.parent.mkdir(parents=True, exist_ok=True)
-        steering_file_path.write_text(steering_file_content)
-        logger.debug(f"Wrote steering file for case {index}")
-
+        logger.debug(f"Successfully generated files for case {case.case_id}.")
     except Exception as e:
-        logger.error(f"Error processing case {index}: {str(e)}")
+        logger.exception(f"Error processing case {case.case_id}: {e}")
 
-def main(param_mode="add", sample_size=179**2, overwrite=False) -> None:
-    logger.info(f"Starting main process with parameter mode: {param_mode}, overwrite: {overwrite}")
 
-    env_setup = EnvironmentSetup()
+def main(param_mode="add", sample_size=100, overwrite=False):
+    logger.info("Starting input generation process...")
+
+    config = get_config("nconfig.yml")
+
+    env_setup = EnvironmentSetup(config)
     setup_data = env_setup.get_setup_data()
-    seed = setup_data["constants"]["seed"]
-    random.seed(seed)
-    np.random.seed(seed)
 
-    param_manager = ParameterManager(setup_data["constants"], mode=param_mode, sample_size=sample_size)
-    parameters_df = param_manager.get_parameters()
-    
-    subcritical_counts = parameters_df["subcritical"].value_counts()
-    logger.info(f"Subcritical cases: {subcritical_counts.get(True, 0)}")
-    logger.info(f"Supercritical cases: {subcritical_counts.get(False, 0)}")
+    # Seed for reproducibility
+    np.random.seed(config.seed)
+    random.seed(config.seed)
 
-    for index, case in tqdm(parameters_df.iterrows(), total=len(parameters_df), desc="Processing cases"):
-        process_case(index, case, setup_data, overwrite)
+    param_manager = ParameterManager(config, mode=param_mode, sample_size=sample_size)
 
-    logger.info("Main process completed")
+    # ParameterManager now returns a list of TelemacCase objects
+    cases_to_process = param_manager.create_cases()
+
+    for case in tqdm(cases_to_process, desc="Generating simulation cases"):
+        process_case(case, setup_data["flat_mesh"], overwrite)
+
+    logger.info("Input generation process completed.")
+
 
 if __name__ == "__main__":
     script_name = Path(__file__).stem
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    process_id = os.getpid()
-    log_name = f"{script_name}_{timestamp}_{process_id}"
+    log_name = f"{script_name}_{timestamp}"
     logger = setup_logger(log_name)
 
-    parser = argparse.ArgumentParser(description="Run the main process with specified parameters.")
-    parser.add_argument("--mode", choices=["new", "read", "add"], default="add",
-                        help="Mode for parameter management: 'new' to generate new, 'read' to only read existing, 'add' to add to existing")
-    parser.add_argument("--sample_size", type=int, default=179,
-                        help="Sample size to be used, will be squared to get the total number of samples.")
-    parser.add_argument("--overwrite", action="store_true",
-                        help="Overwrite existing files instead of skipping them.")
+    parser = argparse.ArgumentParser(
+        description="Generate TELEMAC-2D simulation input files."
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["new", "read", "add"],
+        default="add",
+        help="Parameter file handling mode.",
+    )
+    parser.add_argument(
+        "--sample_size",
+        type=int,
+        default=100,
+        help="Number of new samples to generate (if applicable).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing geometry and steering files.",
+    )
     args = parser.parse_args()
 
-    main(param_mode=args.mode, sample_size=args.sample_size**2, overwrite=args.overwrite)
+    main(param_mode=args.mode, sample_size=args.sample_size, overwrite=args.overwrite)

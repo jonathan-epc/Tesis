@@ -1,6 +1,9 @@
 import os
-from modules.file_utils import move_file
+
 from loguru import logger
+
+from modules.file_utils import move_file
+
 
 def add_continuation_lines(steering_file, i):
     """
@@ -17,23 +20,24 @@ def add_continuation_lines(steering_file, i):
     --------
     >>> add_continuation_lines('steering.txt', 1)
     """
-    with open(steering_file, 'r') as f:
+    with open(steering_file) as f:
         content = f.readlines()
 
     continuation_lines = [
         "\nCOMPUTATION CONTINUED = YES",
-        f"\nPREVIOUS COMPUTATION FILE = 'results/results_{i}.slf'\n"
+        f"\nPREVIOUS COMPUTATION FILE = 'results/results_{i}.slf'\n",
     ]
 
     # Add lines after the last non-empty line
     for idx in range(len(content) - 1, -1, -1):
         if content[idx].strip():
-            content.insert(idx + 1, '\n'.join(continuation_lines))
+            content.insert(idx + 1, "\n".join(continuation_lines))
             break
 
-    with open(steering_file, 'w') as f:
+    with open(steering_file, "w") as f:
         f.writelines(content)
     logger.info(f"Continuation lines added to file {steering_file}")
+
 
 def update_duration(steering_file):
     """
@@ -48,7 +52,7 @@ def update_duration(steering_file):
     --------
     >>> update_duration('steering.txt')
     """
-    with open(steering_file, 'r') as f:
+    with open(steering_file) as f:
         content = f.readlines()
 
     for idx, line in enumerate(content):
@@ -58,9 +62,10 @@ def update_duration(steering_file):
             content[idx] = f"DURATION = {new_duration}\n"
             break
 
-    with open(steering_file, 'w') as f:
+    with open(steering_file, "w") as f:
         f.writelines(content)
     logger.info(f"Duration updated to {new_duration} s in file {steering_file}")
+
 
 def prepare_steering_file(src_file, dst_file, result_file, i, continue_simulation):
     """

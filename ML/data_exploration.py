@@ -1,12 +1,15 @@
 import os
+
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import torch
 from scipy import stats
-from config import get_config
+
 from modules.data import HDF5Dataset
+from nconfig import get_config
+
 
 def load_dataset(config, file_path):
     """Load the dataset based on the given configuration."""
@@ -26,6 +29,7 @@ def load_dataset(config, file_path):
         preload=True,
     )
 
+
 def extract_data(dataset, config):
     """Extract input and output data from the dataset."""
     input_data = {key: [] for key in config.data.inputs}
@@ -36,15 +40,20 @@ def extract_data(dataset, config):
         field_inputs, scalar_inputs = inputs
         field_outputs, scalar_outputs = outputs
 
-        for key, value in zip(config.data.inputs, field_inputs + scalar_inputs):
+        for key, value in zip(
+            config.data.inputs, field_inputs + scalar_inputs, strict=False
+        ):
             input_data[key].append(value)
-        for key, value in zip(config.data.outputs, field_outputs + scalar_outputs):
+        for key, value in zip(
+            config.data.outputs, field_outputs + scalar_outputs, strict=False
+        ):
             output_data[key].append(value)
 
     # Convert lists to tensors
     input_data = {key: torch.stack(values) for key, values in input_data.items()}
     output_data = {key: torch.stack(values) for key, values in output_data.items()}
     return input_data, output_data
+
 
 def compute_statistics(data):
     """Compute statistical measures for the given data."""
@@ -61,12 +70,14 @@ def compute_statistics(data):
         "percentile_75": np.percentile(numpy_data, 75),
     }
 
+
 def check_missing_values(input_data, output_data):
     """Check for missing or NaN values in input and output data."""
     return {
         key: (data.isnan().sum().item(), data.numel())
         for key, data in {**input_data, **output_data}.items()
     }
+
 
 def create_summary_plot(data_dict, title_prefix, output_file, plot_type="histogram"):
     """Create and save a summary plot for all variables."""
@@ -92,15 +103,24 @@ def create_summary_plot(data_dict, title_prefix, output_file, plot_type="histogr
         ax.set_ylabel("Density")
 
         # Add statistics to the plot
-        stat_text = (f"Mean: {stats['mean']:.2f}\n"
-                     f"Std: {stats['std']:.2f}\n"
-                     f"Min: {stats['min']:.2f}\n"
-                     f"Max: {stats['max']:.2f}\n"
-                     f"Skew: {stats['skewness']:.2f}\n"
-                     f"Kurt: {stats['kurtosis']:.2f}")
-        ax.text(0.95, 0.95, stat_text, transform=ax.transAxes, fontsize=10,
-                verticalalignment='top', horizontalalignment='right',
-                bbox=dict(boxstyle="round,pad=0.3", edgecolor="gray", facecolor="white"))
+        stat_text = (
+            f"Mean: {stats['mean']:.2f}\n"
+            f"Std: {stats['std']:.2f}\n"
+            f"Min: {stats['min']:.2f}\n"
+            f"Max: {stats['max']:.2f}\n"
+            f"Skew: {stats['skewness']:.2f}\n"
+            f"Kurt: {stats['kurtosis']:.2f}"
+        )
+        ax.text(
+            0.95,
+            0.95,
+            stat_text,
+            transform=ax.transAxes,
+            fontsize=10,
+            verticalalignment="top",
+            horizontalalignment="right",
+            bbox=dict(boxstyle="round,pad=0.3", edgecolor="gray", facecolor="white"),
+        )
 
     # Hide unused subplots
     for ax in axes[num_vars:]:
@@ -111,8 +131,9 @@ def create_summary_plot(data_dict, title_prefix, output_file, plot_type="histogr
     plt.savefig(output_file, dpi=300, bbox_inches="tight")
     plt.show()
 
+
 def main():
-    config = get_config()
+    config = get_config("nconfig.yml")
     dataset = load_dataset(config, "data/barsa.hdf5")
     print(dataset)
 
@@ -124,8 +145,13 @@ def main():
 
     # Compute statistics
     stats_dict = {
-        **{f"input_{key}": compute_statistics(data) for key, data in input_data.items()},
-        **{f"output_{key}": compute_statistics(data) for key, data in output_data.items()},
+        **{
+            f"input_{key}": compute_statistics(data) for key, data in input_data.items()
+        },
+        **{
+            f"output_{key}": compute_statistics(data)
+            for key, data in output_data.items()
+        },
     }
 
     # Check for missing values
@@ -135,13 +161,24 @@ def main():
         print(f"{var}: {missing}/{total} missing ({100 * missing / total:.2f}%)")
 
     # Save summary plots
-    create_summary_plot(input_data, "Input Parameter:", "plots/exploration/adim_input_summary.png", plot_type="histogram")
-    create_summary_plot(output_data, "Output Variable:", "plots/exploration/adim_output_summary.png", plot_type="histogram")
+    create_summary_plot(
+        input_data,
+        "Input Parameter:",
+        "plots/exploration/adim_input_summary.png",
+        plot_type="histogram",
+    )
+    create_summary_plot(
+        output_data,
+        "Output Variable:",
+        "plots/exploration/adim_output_summary.png",
+        plot_type="histogram",
+    )
 
     # Convert statistics to a DataFrame and print
     stats_df = pd.DataFrame(stats_dict).T
     print("\nStatistics Table:")
     print(stats_df)
+
 
 if __name__ == "__main__":
     main()

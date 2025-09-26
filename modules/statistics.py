@@ -1,5 +1,7 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+
 def calculate_statistics(variable_data: pd.Series) -> pd.Series:
     """
     Calculate statistics for a variable.
@@ -14,6 +16,7 @@ def calculate_statistics(variable_data: pd.Series) -> pd.Series:
     variable_stats.rename({"std": "variance"}, inplace=True)
     variable_stats["variance"] = variable_stats["variance"] ** 2
     return variable_stats
+
 
 def combine_statistics(stats1: pd.Series, stats2: pd.Series) -> pd.Series:
     """
@@ -33,14 +36,13 @@ def combine_statistics(stats1: pd.Series, stats2: pd.Series) -> pd.Series:
         + (stats2["count"] - 1) * stats2["variance"]
     ) / (count - 1) + (
         stats1["count"] * stats2["count"] * (stats1["mean"] - stats2["mean"]) ** 2
-    ) / (
-        count * (count - 1)
-    )
+    ) / (count * (count - 1))
     min_ = np.min([stats1["min"], stats2["min"]])
     max_ = np.max([stats1["max"], stats2["max"]])
     return pd.Series(
         {"count": count, "mean": mean, "variance": var, "min": min_, "max": max_}
     )
+
 
 def normalize_statistics(stat_value, stat_name, table):
     """

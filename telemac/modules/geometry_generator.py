@@ -1,11 +1,12 @@
+import hashlib
+import math
+from pathlib import Path
+
 import numpy as np
 import xarray as xr
-from typing import Tuple, List
-from scipy.ndimage import gaussian_filter
-from scipy.interpolate import RegularGridInterpolator
 from loguru import logger
-import math
-import hashlib
+from scipy.ndimage import gaussian_filter
+
 
 class GeometryGenerator:
     """
@@ -27,49 +28,62 @@ class GeometryGenerator:
         num_points_y: int,
         channel_length: float,
         channel_width: float,
-        **kwargs
-    ) -> Tuple[List[float], List[float]]:
-        
+        **kwargs,
+    ) -> tuple[list[float], list[float]]:
         """
         Generate channel geometry based on specified parameters.
-
-        Args:
-            bottom_type (str): Type of channel bottom ('NOISE', 'HYBRID', 'BUMP2D', 'BUMP', 'STEP', 'SMOOTH_STEP', 'SINUSOIDAL_X', 'SINUSOIDAL_Y', 'BARS')
-            slope (float): Channel slope
-            channel_length (float): Length of the channel
-            channel_width (float): Width of the channel
-            num_points_x (int): Number of points along x-axis
-            num_points_y (int): Number of points along y-axis
-            **kwargs: Additional parameters for specific bottom types
-
-        Returns:
-            np.ndarray: 2D array representing the channel geometry
         """
-        adimensional = kwargs.get("adimensional", False)
-        file_name=f"geometry/3x3_{bottom_type}_{idx}.slf"
+        # --- ROBUST PATH HANDLING ---
+        # Create a Path object for the output file
+        file_path = Path(f"telemac/geometry/3x3_{bottom_type}_{idx}.slf")
+
+        # Ensure the parent directory exists before trying to write
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        # --- END OF FIX ---
+
+        # The old file_name string is replaced by our Path object
+        # file_name=f"geometry/3x3_{bottom_type}_{idx}.slf"
+
         x = np.linspace(0, channel_length, num_points_x)
         y = np.linspace(0, channel_width, num_points_y)
         xv, yv = np.meshgrid(x, y, indexing="ij")
 
         z = slope * (channel_length - xv)
 
-        variation_function = getattr(GeometryGenerator, f"_{bottom_type.lower()}_variation", None)
+        variation_function = getattr(
+            GeometryGenerator, f"_{bottom_type.lower()}_variation", None
+        )
         if variation_function:
-            variation = variation_function(xv, yv, channel_length, channel_width, idx=idx, **kwargs)
-            z += GeometryGenerator._normalize_variation(variation, kwargs.get('variation_min', 0.0), kwargs.get('variation_max', 0.1))
+            variation = variation_function(
+                xv, yv, channel_length, channel_width, idx=idx, **kwargs
+            )
+            z += GeometryGenerator._normalize_variation(
+                variation,
+                kwargs.get("variation_min", 0.0),
+                kwargs.get("variation_max", 0.1),
+            )
+
         geometry_hash = hashlib.md5(z.tobytes()).hexdigest()
-        logger.debug(f"Geometry hash for idx {idx}, bottom_type {bottom_type}: {geometry_hash}")
+        logger.debug(
+            f"Geometry hash for idx {idx}, bottom_type {bottom_type}: {geometry_hash}"
+        )
+
         # Save the generated geometry to file
         flat_mesh_copy = flat_mesh.copy(deep=True)
         flat_mesh_copy["x"].values = flat_mesh_copy["x"].values / 12 * channel_length
         flat_mesh_copy["y"].values = flat_mesh_copy["y"].values / 0.3 * channel_width
         flat_mesh_copy["B"].values = z.T.reshape(1, flat_mesh_copy.y.shape[0])
-        flat_mesh_copy.selafin.write(file_name)
+
+        # Use the Path object to write the file
+        flat_mesh_copy.selafin.write(file_path)
+
         z_left = z[0::num_points_x].max()
         z_right = z[num_points_x - 1 :: num_points_x].max()
-        # Check for NaN values
+
         if any(math.isnan(x) for x in [z_left, z_right]):
-            raise ValueError(f"NaN value encountered in elevation calculations. z={z_left, z_right}")
+            raise ValueError(
+                f"NaN value encountered in elevation calculations. z={z_left, z_right}"
+            )
         return [z_left, z_right]
 
     @staticmethod
@@ -160,9 +174,11 @@ class GeometryGenerator:
         )
 
         step_index = int(step_position * xv.shape[0])
-        step_finish = step_index+int(np.ceil(step_length * xv.shape[0]/channel_length))
+        step_finish = step_index + int(
+            np.ceil(step_length * xv.shape[0] / channel_length)
+        )
         step = np.zeros_like(xv)
-        step[step_index:step_finish] = step[step_index]+step_height
+        step[step_index:step_finish] = step[step_index] + step_height
         return step
 
     @staticmethod

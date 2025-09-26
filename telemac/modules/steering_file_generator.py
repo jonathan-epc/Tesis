@@ -1,5 +1,3 @@
-from typing import List
-
 class SteeringFileGenerator:
     """
     A class used to generate steering files for hydraulic simulations.
@@ -19,8 +17,8 @@ class SteeringFileGenerator:
         duration: float,
         time_step: float,
         initial_depth: float,
-        prescribed_flowrates: List[float] = None,
-        prescribed_elevations: List[float] = None,
+        prescribed_flowrates: list[float] = None,
+        prescribed_elevations: list[float] = None,
         friction_coefficient: float = 0.0025,
         viscosity: float = 0.00001,
     ) -> str:
@@ -77,16 +75,21 @@ class SteeringFileGenerator:
                 "prescribed_flowrates and prescribed_elevations must have at least two elements"
             )
 
-        if duration < 0 or time_step < 0 or initial_depth < 0 or friction_coefficient < 0:
+        if (
+            duration < 0
+            or time_step < 0
+            or initial_depth < 0
+            or friction_coefficient < 0
+        ):
             raise ValueError(
                 "duration, time_step, initial_depth, and friction_coefficient must be non-negative"
             )
 
         try:
-            with open("steering_template.txt", "r") as f:
+            with open("steering_template.txt") as f:
                 template_text = f.read()
         except FileNotFoundError:
-            raise FileNotFoundError("steering_template.txt not found")
+            raise FileNotFoundError("steering_template.txt not found") from None
 
         steering_text = template_text.format(
             geometry_file=geometry_file,

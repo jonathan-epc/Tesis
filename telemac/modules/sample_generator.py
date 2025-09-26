@@ -1,6 +1,6 @@
 import pandas as pd
 from scipy.stats import qmc
-from typing import Dict
+
 
 class SampleGenerator:
     """
@@ -13,7 +13,7 @@ class SampleGenerator:
     """
 
     @staticmethod
-    def sample_combinations(n: int, param_ranges: Dict[str, tuple]) -> pd.DataFrame:
+    def sample_combinations(n: int, param_ranges: dict[str, tuple]) -> pd.DataFrame:
         """
         Generates a DataFrame of sampled combinations for the specified parameter ranges.
 

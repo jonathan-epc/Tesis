@@ -1,0 +1,41 @@
+# pyproject.toml
+[project]
+name = "fno_channel_flow"
+version = "0.1.0"
+description = "Surrogate Modeling of Channel Flow using Fourier Neural Operators"
+authors = [
+    { name = "Jonathan Poblete", email = "jonathan.poblete@ing.uchile.cl" },
+]
+requires-python = ">=3.11"
+# Configuration for Black code formatter
+[tool.black]
+line-length = 88
+target-version = ['py311'] # Ensures formatting is compatible with Python 3.11
+
+# Configuration for Ruff linter, formatter, and import sorter
+[tool.ruff]
+line-length = 88 # Must match Black's line length
+target-version = "py311" # Target Python version
+
+# --- Ruff's Linter Configuration ---
+[tool.ruff.lint]
+# Select the rule sets to enable.
+# E, F: Standard pyflakes/pycodestyle errors (essential)
+# W: Pycodestyle warnings (essential)
+# I: Isort (for import sorting)
+# UP: Pyupgrade (modernizes Python syntax)
+# B: Flake8-bugbear (finds likely bugs)
+# SIM: Flake8-simplify (suggests simpler code constructs)
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+# Ignore specific rules if needed. E501 (line too long) is handled by the formatter.
+ignore = ["E501"]
+
+# --- Ruff's Import Sorting (isort) Configuration ---
+[tool.ruff.lint.isort]
+# Tell Ruff about your project's own source folders.
+# This ensures your local imports are grouped correctly.
+known-first-party = ["ML", "telemac", "modules", "website"]
+
+[tool.setuptools]
+packages = ["ML", "common", "telemac"]
