@@ -58,4 +58,4 @@ ignore = ["E501"]
 [tool.ruff.lint.isort]
 # Tell Ruff about your project's own source folders.
 # This ensures your local imports are grouped correctly.
-known-first-party = ["ML", "telemac", "modules", "website"]
+known-first-party = ["ML", "telemac", "common", "website"]

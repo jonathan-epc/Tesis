@@ -2,9 +2,9 @@
 
 import sys
 
-from common.utils import set_seed, setup_logger
 from nconfig import get_config
 
+from common.utils import set_seed, setup_logger
 from ML.core.optimizer import HyperparameterOptimizer
 
 

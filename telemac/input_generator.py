@@ -6,11 +6,11 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from common.utils import setup_logger
 from loguru import logger
 from nconfig import get_config
 from tqdm import tqdm
 
+from common.utils import setup_logger
 from modules.environment_setup import EnvironmentSetup
 from modules.parameter_manager import ParameterManager
 

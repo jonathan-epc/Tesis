@@ -4,9 +4,9 @@
 from pathlib import Path
 
 import torch
-from common.utils import set_seed, setup_logger
 from nconfig import get_config
 
+from common.utils import set_seed, setup_logger
 from ML.core.finetuner import (
     GEOM_NAMES,
     GEOMETRY_FILES,

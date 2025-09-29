@@ -3,9 +3,10 @@
 
 import optuna
 import torch
-from common.utils import setup_logger
 from nconfig import Config
 from torch.utils.data import random_split
+
+from common.utils import setup_logger
 
 from ..modules.data import HDF5Dataset
 from ..modules.models import FNOnet
