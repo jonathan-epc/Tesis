@@ -38,6 +38,7 @@ target-version = ['py311'] # Ensures formatting is compatible with Python 3.11
 [tool.ruff]
 line-length = 88 # Must match Black's line length
 target-version = "py311" # Target Python version
+src = ["ML", "telemac", "common", "tests"]
 
 # --- Ruff's Linter Configuration ---
 [tool.ruff.lint]

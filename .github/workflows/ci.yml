@@ -57,18 +57,45 @@ jobs:
       # ---------------------------------
       # --- Step 3: Lint & Format Check ---
       # ---------------------------------
-      # This step doesn't change files, it just checks if they are formatted correctly.
-      # The `--check` flag makes the step fail if any file needs reformatting.
-      - name: Lint and check formatting with Ruff
-        shell: bash -l {0} # Important: use a login shell to access the activated Conda env
+      - name: Check formatting with Ruff
+        shell: bash -l {0}
         run: |
-          echo "--- Checking formatting ---"
           ruff format . --check
-          echo "--- Linting code ---"
+
+      - name: Lint with Ruff
+        shell: bash -l {0}
+        run: |
           ruff check .
 
+      # ----------------------------------------------------
+      # --- Step 4 (Optional but recommended): Auto-fix ---
+      # ----------------------------------------------------
+      # If the above steps fail, you can uncomment this job to have the CI
+      # automatically commit the fixes back to your branch.
+      # For now, we will leave it commented out and fix it manually.
+      # If you want to enable it, create a Personal Access Token (PAT)
+      # and add it as a repository secret called GH_PAT.
+      # - name: Auto-fix and commit
+      #   if: failure() # Only run this step if the previous ones failed
+      #   shell: bash -l {0}
+      #   run: |
+      #     ruff format .
+      #     ruff check . --fix
+      #     git config --global user.name 'github-actions[bot]'
+      #     git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+      #     git add .
+      #     # Check if there are changes to commit
+      #     if ! git diff-index --quiet HEAD; then
+      #       git commit -m "style: Auto-format and lint files"
+      #       git push
+      #     else
+      #       echo "No changes to commit."
+      #     fi
+      #   env:
+      #     GH_PAT: ${{ secrets.GH_PAT }}
+
       # ---------------------------------
-      # --- Step 4: Run Tests with Pytest ---
+      # --- Step 5: Run Tests with Pytest ---
       # ---------------------------------
       - name: Run test suite with Pytest
         shell: bash -l {0}
