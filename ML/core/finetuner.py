@@ -5,11 +5,11 @@ from typing import Any
 
 import optuna
 import torch
+from nconfig import Config
 from torch.cuda import empty_cache
 from torch.utils.data import DataLoader, random_split
 
 import wandb
-from nconfig import Config
 
 from ..modules.data import HDF5Dataset
 from ..modules.loss import PhysicsInformedLoss

@@ -4,15 +4,15 @@
 from pathlib import Path
 
 import torch
-
 from common.utils import set_seed, setup_logger
+from nconfig import get_config
+
 from ML.core.finetuner import (
     GEOM_NAMES,
     GEOMETRY_FILES,
     TRAINED_MODELS_INFO,
     ModelFineTuner,
 )
-from nconfig import get_config
 
 project_root = Path(__file__).resolve().parents[2]
 

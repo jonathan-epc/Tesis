@@ -15,7 +15,6 @@ Dependencies:
 import numpy as np
 import pandas as pd
 from loguru import logger
-
 from nconfig import Config
 
 from .hydraulic_calculations import HydraulicCalculations

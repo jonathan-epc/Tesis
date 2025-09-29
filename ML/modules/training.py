@@ -7,6 +7,9 @@ import numpy as np
 import optuna
 import torch
 import torch.nn as nn
+
+# Correct import for the root-level config
+from nconfig import Config
 from sklearn.model_selection import KFold, train_test_split
 from torch.amp import GradScaler, autocast
 from torch.nn.utils import clip_grad_norm_
@@ -14,9 +17,6 @@ from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler
 from tqdm.autonotebook import tqdm
 
 import wandb
-
-# Correct import for the root-level config
-from nconfig import Config
 
 # Corrected relative imports
 from .data import HDF5Dataset

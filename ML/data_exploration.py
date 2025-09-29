@@ -5,10 +5,10 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
+from nconfig import get_config
 from scipy import stats
 
 from modules.data import HDF5Dataset
-from nconfig import get_config
 
 
 def load_dataset(config, file_path):

@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from matplotlib.colors import LinearSegmentedColormap
+from nconfig import get_config
 from torch.utils.data import DataLoader, random_split
 
 from modules.data import HDF5Dataset
@@ -18,7 +19,6 @@ from modules.plots import (
     plot_scatter,
 )
 from modules.utils import denormalize_outputs_and_targets, set_seed
-from nconfig import get_config
 
 
 def calculate_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[str, float]:

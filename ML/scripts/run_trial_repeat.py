@@ -4,8 +4,9 @@ import argparse
 import sys
 
 from common.utils import set_seed, setup_logger
-from ML.core.repeater import TrialRepeater
 from nconfig import get_config
+
+from ML.core.repeater import TrialRepeater
 
 
 def main():
