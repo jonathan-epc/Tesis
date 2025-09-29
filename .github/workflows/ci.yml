@@ -51,7 +51,7 @@ jobs:
           # Activate the environment for subsequent steps
           activate-environment: ML-Tesis
           # Use Mamba for much faster environment creation
-          miniforge-variant: Mambaforge
+          miniforge-variant: miniforge3
           miniforge-version: latest
 
       # ---------------------------------
