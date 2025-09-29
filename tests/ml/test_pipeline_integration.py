@@ -44,6 +44,7 @@ def override_config():
         return d
 
     updated_config_data = update_dict(config_data, test_overrides)
+    updated_config_data["data"]["file_path"] = "data/test_data.hdf5"
 
     from nconfig import Config
 
