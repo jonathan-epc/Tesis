@@ -34,14 +34,11 @@ jobs:
 
       # 3. Lint and Format Check with Ruff
       # This step doesn't change files, it just checks if they are formatted correctly.
-      - name: Lint and Format Check
-        shell: bash -l {0} # Important: use a login shell for conda
+      - name: Lint and Format Check with pre-commit
+        shell: bash -l {0}
         run: |
-          echo "--- Checking formatting with Ruff ---"
-          ruff format . --check
-          echo "--- Linting with Ruff ---"
-          ruff check .
-
+          pip install pre-commit
+          pre-commit run --all-files
       # 4. Run Tests with Pytest
       - name: Run Pytest
         shell: bash -l {0} # Use a login shell for conda
