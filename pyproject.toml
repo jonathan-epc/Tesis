@@ -35,3 +35,7 @@ ignore = ["E501"] # Handled by the formatter
 # Define the root of our local packages.
 # Combined with the `src` option above, this removes all ambiguity.
 known-first-party = ["ML", "telemac", "common", "modules", "website", "nconfig", "simulation_data_processor"]
+
+[tool.pytest.ini_options]
+# Add the 'src' directory to Python's path so that tests can find the code.
+pythonpath = ["src"]
