@@ -33,6 +33,7 @@ ML/runs/*
 ML/runs.old/*
 ML/wandb/*
 ML/metrics
+fno_channel_flow.egg-info/*
 /savepoints/
 /studies/
 /plots/
