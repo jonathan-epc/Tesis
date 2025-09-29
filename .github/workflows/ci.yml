@@ -19,7 +19,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Conda
+      - name: Set up Conda Environment
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
@@ -30,35 +30,13 @@ jobs:
           mamba-version: '*'
           cache-env: true
 
-      - name: Install pre-commit
-        shell: bash -l {0}
-        run: pip install pre-commit
-
-      - name: Run pre-commit hooks
-        id: precommit # Give the step an ID so we can refer to its outcome
-        shell: bash -l {0}
-        # Continue on error so the next step can run
-        continue-on-error: true
-        run: pre-commit run --all-files
-
-      # This step will ONLY run if the pre-commit step failed
-      - name: Show diff on failure
-        if: steps.precommit.outcome == 'failure'
+      - name: Lint and Format Check
         shell: bash -l {0}
         run: |
-          echo "::error::Pre-commit hooks failed. See the diff below for auto-fixes that were applied."
-          git diff --exit-code
-
-      # This step checks the outcome of the pre-commit run and fails the job if needed
-      - name: Verify pre-commit status
-        if: steps.precommit.outcome == 'failure'
-        shell: bash -l {0}
-        run: |
-          echo "Pre-commit hooks modified files. Please run 'pre-commit run --all-files' locally, commit the changes, and push again."
-          exit 1
+          # The correct pre-commit version is now installed via environment.yml
+          # This command will use the same hook versions as your local machine
+          pre-commit run --all-files
 
       - name: Run Pytest
         shell: bash -l {0}
-        run: |
-          echo "--- Running Pytest ---"
-          pytest
+        run: pytest
