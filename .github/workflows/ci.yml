@@ -1,42 +1,76 @@
 # .github/workflows/ci.yml
 
-name: Python Project CI
+name: Python CI Pipeline
 
+# ------------------
+# --- Triggers ---
+# ------------------
+# This workflow runs on pushes to the 'main' branch and any pull requests targeting 'main'.
+# It also runs on pushes to your 'refactor' branch so we can test it now.
 on:
   push:
-    branches: [ main, refactor ]
+    branches:
+      - main
+      - refactor # Run on our current branch for testing
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
+# ------------------
+# --- Jobs ---
+# ------------------
 jobs:
-  build-and-test:
+  test-and-lint:
+    # Define the runner environment. 'ubuntu-latest' is a standard, fast choice.
     runs-on: ubuntu-latest
+
+    # Define the Python versions to test against.
+    # For this project, testing against our target version is sufficient.
     strategy:
       matrix:
         python-version: ["3.11"]
 
     steps:
-      - name: Check out repository
+      # ---------------------------------
+      # --- Step 1: Checkout Code ---
+      # ---------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Conda Environment
+      # ---------------------------------
+      # --- Step 2: Set up Conda Env ---
+      # ---------------------------------
+      # Uses a community action to set up Miniconda.
+      - name: Set up Conda environment
         uses: conda-incubator/setup-miniconda@v3
         with:
-          auto-update-conda: true
-          python-version: ${{ matrix.python-version }}
+          # Use the environment file from our repository
           environment-file: environment.yml
-          channel-priority: 'flexible'
-          use-mamba: 'true'
-          mamba-version: '*'
-          cache-env: true
+          # Specify the Python version from the matrix above
+          python-version: ${{ matrix.python-version }}
+          # Activate the environment for subsequent steps
+          activate-environment: ML-Tesis
+          # Use Mamba for much faster environment creation
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
 
-      - name: Lint and Format Check
+      # ---------------------------------
+      # --- Step 3: Lint & Format Check ---
+      # ---------------------------------
+      # This step doesn't change files, it just checks if they are formatted correctly.
+      # The `--check` flag makes the step fail if any file needs reformatting.
+      - name: Lint and check formatting with Ruff
+        shell: bash -l {0} # Important: use a login shell to access the activated Conda env
+        run: |
+          echo "--- Checking formatting ---"
+          ruff format . --check
+          echo "--- Linting code ---"
+          ruff check .
+
+      # ---------------------------------
+      # --- Step 4: Run Tests with Pytest ---
+      # ---------------------------------
+      - name: Run test suite with Pytest
         shell: bash -l {0}
         run: |
-          # The correct pre-commit version is now installed via environment.yml
-          # This command will use the same hook versions as your local machine
-          pre-commit run --all-files
-
-      - name: Run Pytest
-        shell: bash -l {0}
-        run: pytest
+          pytest
