@@ -1,61 +1,22 @@
 # pyproject.toml
+
 [project]
-name = "fno_channel_flow"
-version = "1.0.0"
-description = "Surrogate Modeling of Channel Flow using Fourier Neural Operators"
-readme = "README.md"
-authors = [
-    { name = "Jonathan Poblete", email = "jonathan.poblete@ing.uchile.cl" },
-]
-requires-python = ">=3.11"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Topic :: Scientific/Engineering",
-    "Intended Audience :: Science/Research",
-]
+name = "tesis_fno_surrogate"
+version = "0.1.0"
 
-[project.optional-dependencies]
-dev = [
-    "black",
-    "ruff",
-    "pytest",
-    "pytest-mock",
-    "pre-commit",
-]
-[project.urls]
-Repository = "https://github.com/jonathan-epc/Tesis"
+[tool.setuptools.packages.find]
+where = ["src"] # <-- Tells setuptools to find packages in src/
 
-[tool.setuptools]
-packages = ["ML", "common", "telemac"]
-# Configuration for Black code formatter
-[tool.black]
-line-length = 88
-target-version = ['py311'] # Ensures formatting is compatible with Python 3.11
+# ... (keep the [project.optional-dependencies] and [project.urls] sections if you have them) ...
 
-# Configuration for Ruff linter, formatter, and import sorter
 [tool.ruff]
-line-length = 88 # Must match Black's line length
-target-version = "py311" # Target Python version
-src = ["ML", "telemac", "common", "tests"]
+line-length = 88
+target-version = "py311"
 
-# --- Ruff's Linter Configuration ---
 [tool.ruff.lint]
-# Select the rule sets to enable.
-# E, F: Standard pyflakes/pycodestyle errors (essential)
-# W: Pycodestyle warnings (essential)
-# I: Isort (for import sorting)
-# UP: Pyupgrade (modernizes Python syntax)
-# B: Flake8-bugbear (finds likely bugs)
-# SIM: Flake8-simplify (suggests simpler code constructs)
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
-
-# Ignore specific rules if needed. E501 (line too long) is handled by the formatter.
 ignore = ["E501"]
 
-# --- Ruff's Import Sorting (isort) Configuration ---
 [tool.ruff.lint.isort]
-# Tell Ruff about your project's own source folders.
-# This ensures your local imports are grouped correctly.
-known-first-party = ["ML", "telemac", "common", "website"]
+# Now that everything is in src/, our first-party packages are unambiguous
+known-first-party = ["ML", "telemac", "common", "modules", "website", "nconfig", "simulation_data_processor"]

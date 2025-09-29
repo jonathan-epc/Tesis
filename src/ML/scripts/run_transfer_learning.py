@@ -4,7 +4,6 @@
 from pathlib import Path
 
 import torch
-from nconfig import get_config
 
 from common.utils import set_seed, setup_logger
 from ML.core.finetuner import (
@@ -13,6 +12,7 @@ from ML.core.finetuner import (
     TRAINED_MODELS_INFO,
     ModelFineTuner,
 )
+from nconfig import get_config
 
 project_root = Path(__file__).resolve().parents[2]
 

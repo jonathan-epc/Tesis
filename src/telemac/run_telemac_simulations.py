@@ -4,12 +4,12 @@ import sys
 from datetime import datetime
 
 import pandas as pd
+from run_configurations import OUTPUT_FOLDER, PARAMETERS_FILE, STEERING_FOLDER
 
 from common.utils import setup_logger
 from modules.flux_checker import check_flux_boundaries, is_flux_balanced
 from modules.param_utils import load_parameters
 from modules.simulation_runner import run_telemac2d_on_files
-from run_configurations import OUTPUT_FOLDER, PARAMETERS_FILE, STEERING_FOLDER
 
 
 def main():

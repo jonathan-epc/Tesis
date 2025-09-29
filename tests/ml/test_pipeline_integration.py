@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 import yaml
-from nconfig import _config as global_config
-from nconfig import get_config
 
 from ML.core.optimizer import HyperparameterOptimizer
 from ML.core.trainer import ModelTrainer
+from nconfig import _config as global_config
+from nconfig import get_config
 
 project_root = Path(__file__).resolve().parents[2]
 

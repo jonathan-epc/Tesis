@@ -5,17 +5,17 @@ from typing import Any
 
 import optuna
 import torch
-from nconfig import Config
 from torch.cuda import empty_cache
 from torch.utils.data import DataLoader, random_split
 
 import wandb
-
-from ..modules.data import HDF5Dataset
-from ..modules.loss import PhysicsInformedLoss
-from ..modules.models import FNOnet
-from ..modules.training import Trainer, cross_validation_procedure
-from ..modules.utils import seed_worker, setup_logger
+from common.utils import setup_logger
+from ML.modules.data import HDF5Dataset
+from ML.modules.loss import PhysicsInformedLoss
+from ML.modules.models import FNOnet
+from ML.modules.training import Trainer, cross_validation_procedure
+from ML.modules.utils import seed_worker
+from nconfig import Config
 
 # --- Authoritative Information for Pre-trained Models and Datasets ---
 
