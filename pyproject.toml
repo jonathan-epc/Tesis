@@ -1,22 +1,37 @@
-# pyproject.toml
-
 [project]
 name = "tesis_fno_surrogate"
 version = "0.1.0"
 
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools.packages.find]
-where = ["src"] # <-- Tells setuptools to find packages in src/
+where = ["src"]
 
-# ... (keep the [project.optional-dependencies] and [project.urls] sections if you have them) ...
-
+# ===================================================================
+# Ruff Configuration - SINGLE SOURCE OF TRUTH FOR LINTING/FORMATTING
+# ===================================================================
 [tool.ruff]
 line-length = 88
 target-version = "py311"
 
+# Point to the source directory. This is crucial for the src-layout.
+src = ["src", "tests"]
+
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM"]
-ignore = ["E501"]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # Pyflakes
+    "W",  # pycodestyle warnings
+    "I",  # isort (import sorting)
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
+    "SIM",# flake8-simplify
+]
+ignore = ["E501"] # Handled by the formatter
 
 [tool.ruff.lint.isort]
-# Now that everything is in src/, our first-party packages are unambiguous
+# Define the root of our local packages.
+# Combined with the `src` option above, this removes all ambiguity.
 known-first-party = ["ML", "telemac", "common", "modules", "website", "nconfig", "simulation_data_processor"]

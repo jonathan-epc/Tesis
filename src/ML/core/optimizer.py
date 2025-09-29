@@ -7,10 +7,10 @@ from typing import Any
 
 import optuna
 import torch
+import wandb
 from torch.cuda import empty_cache
 from torch.utils.data import DataLoader, random_split
 
-import wandb
 from common.utils import setup_logger
 from ML.modules.data import HDF5Dataset
 from ML.modules.loss import PhysicsInformedLoss

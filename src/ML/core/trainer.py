@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import wandb
 from torch.utils.data import DataLoader, random_split
 
-import wandb
 from common.utils import setup_logger
 from ML.modules.data import HDF5Dataset
 from ML.modules.loss import PhysicsInformedLoss
