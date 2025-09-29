@@ -31,6 +31,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           environment-file: environment.yml
           channel-priority: 'flexible'
+          use-mamba: 'true'
+          mamba-version: '*'
+          cache-env: true
 
       # 3. Lint and Format Check with Ruff
       # This step doesn't change files, it just checks if they are formatted correctly.
