@@ -1,0 +1,23 @@
+# .gitattributes
+
+# Set default behavior for all files to handle line endings automatically.
+* text=auto eol=lf
+
+# Explicitly declare text files to always use LF line endings in the repo.
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+
+# Declare files that should be treated as binary and left alone.
+*.pth binary
+*.db binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.slf binary

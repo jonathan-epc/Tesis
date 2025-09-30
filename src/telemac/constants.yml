@@ -1,0 +1,35 @@
+channel:
+  width: 0.3  # in m
+  length: 12  # in m
+  depth: 0.3  # in m
+  wall_thickness: 0.00  # in m
+
+mesh:
+  num_points_y: 11
+  num_points_x: 401
+
+seed: 43
+
+parameters:
+  slope_min: 0.000003
+  slope_max: 0.1
+  n_min: 0.001
+  n_max: 0.2
+  q0_min: 0.005
+  q0_max: 0.02
+  h0_min: 0.01
+  h0_max: 0.25
+  Ar_min: 1
+  Ar_max: 40
+  Hr_min: 0.001
+  Hr_max: 30
+  Fr_min: 0.001
+  Fr_max: 10
+  M_min: 0.001
+  M_max: 500
+  Re_min: 100
+  Re_max: 75000
+  bottom_values: ["BARS", "SLOPE", "NOISE"]
+
+adimensional: true
+gravity: 9.81

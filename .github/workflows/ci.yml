@@ -1,0 +1,103 @@
+# .github/workflows/ci.yml
+
+name: Python CI Pipeline
+
+# ------------------
+# --- Triggers ---
+# ------------------
+# This workflow runs on pushes to the 'main' branch and any pull requests targeting 'main'.
+# It also runs on pushes to your 'refactor' branch so we can test it now.
+on:
+  push:
+    branches:
+      - main
+      - refactor # Run on our current branch for testing
+  pull_request:
+    branches:
+      - main
+
+# ------------------
+# --- Jobs ---
+# ------------------
+jobs:
+  test-and-lint:
+    # Define the runner environment. 'ubuntu-latest' is a standard, fast choice.
+    runs-on: ubuntu-latest
+
+    # Define the Python versions to test against.
+    # For this project, testing against our target version is sufficient.
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      # ---------------------------------
+      # --- Step 1: Checkout Code ---
+      # ---------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------
+      # --- Step 2: Set up Conda Env ---
+      # ---------------------------------
+      # Uses a community action to set up Miniconda.
+      - name: Set up Conda environment
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          # Use the environment file from our repository
+          environment-file: environment.yml
+          # Specify the Python version from the matrix above
+          python-version: ${{ matrix.python-version }}
+          # Activate the environment for subsequent steps
+          activate-environment: ML-Tesis
+          # Use Mamba for much faster environment creation
+          miniforge-variant: miniforge3
+          miniforge-version: latest
+
+      # ---------------------------------
+      # --- Step 3: Lint & Format Check ---
+      # ---------------------------------
+      - name: Check formatting with Ruff
+        shell: bash -l {0}
+        run: |
+          ruff format . --check
+
+      - name: Lint with Ruff
+        shell: bash -l {0}
+        run: |
+          ruff check .
+
+      # ----------------------------------------------------
+      # --- Step 4 (Optional but recommended): Auto-fix ---
+      # ----------------------------------------------------
+      # If the above steps fail, you can uncomment this job to have the CI
+      # automatically commit the fixes back to your branch.
+      # For now, we will leave it commented out and fix it manually.
+      # If you want to enable it, create a Personal Access Token (PAT)
+      # and add it as a repository secret called GH_PAT.
+      # - name: Auto-fix and commit
+      #   if: failure() # Only run this step if the previous ones failed
+      #   shell: bash -l {0}
+      #   run: |
+      #     ruff format .
+      #     ruff check . --fix
+      #     git config --global user.name 'github-actions[bot]'
+      #     git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+      #     git add .
+      #     # Check if there are changes to commit
+      #     if ! git diff-index --quiet HEAD; then
+      #       git commit -m "style: Auto-format and lint files"
+      #       git push
+      #     else
+      #       echo "No changes to commit."
+      #     fi
+      #   env:
+      #     GH_PAT: ${{ secrets.GH_PAT }}
+
+      # ---------------------------------
+      # --- Step 5: Run Tests with Pytest ---
+      # ---------------------------------
+      - name: Run test suite with Pytest
+        shell: bash -l {0}
+        run: |
+          pytest
