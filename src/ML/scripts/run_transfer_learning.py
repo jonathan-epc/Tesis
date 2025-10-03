@@ -57,7 +57,7 @@ def main():
             finetune_run_name = f"ft_{model_key}_from_{base_model_name}_on_{GEOM_NAMES[target_geom_char]}"
 
             # Create a deep copy of the base config for this specific job
-            current_job_config = base_config_template.copy(deep=True)
+            current_job_config = base_config_template.model_copy(deep=True)
 
             # OPTIONAL: You can override fine-tuning parameters here if desired
             # e.g., use a smaller learning rate for fine-tuning
