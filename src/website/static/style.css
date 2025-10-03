@@ -1,0 +1,6 @@
+body { font-family: sans-serif; margin: 20px; }
+.container { max-width: 600px; margin: auto; }
+label { display: block; margin-top: 10px; }
+input[type="text"], textarea { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
+button { margin-top: 15px; padding: 10px 15px; cursor: pointer; }
+#results { margin-top: 20px; padding: 10px; border: 1px solid #ccc; background-color: #f9f9f9; white-space: pre-wrap;}
