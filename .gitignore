@@ -120,4 +120,4 @@ src/ML/runs.old/*
 src/ML/wandb/*
 src/ML/metrics/
 
-/website/
+src/website/
