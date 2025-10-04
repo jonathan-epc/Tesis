@@ -1,3 +1,5 @@
+# src/telemac/modules/parameter_manager.py
+
 """ParameterManager Module
 
 This module provides the `ParameterManager` class for managing parameters used
@@ -97,14 +99,20 @@ class ParameterManager:
             if self.config.simulation_params.adimensional_generation:
                 # Generate a sampling of the nondimensional numbers
                 new_params = self._generate_adimensional_parameters()
-                # Invert them to obtain the physical parameters.
+                # Invert them to obtain the physical parameters, including nut
                 new_params = self._calculate_from_adimensionals(new_params)
+                # Calculate remaining hydraulic properties
                 new_params = self._calculate_hydraulic_properties(new_params)
             else:
-                # Generate base parameters and then calculate hydraulic and adimensional properties.
+                # Generate base parameters
                 new_params = self._generate_base_parameters()
+                # Calculate hydraulic properties (yn, yc) first
                 new_params = self._calculate_hydraulic_properties(new_params)
+                # **FIX**: Estimate nut based on calculated hydraulic properties
+                new_params = self._estimate_turbulent_viscosity(new_params)
+                # Balance samples after all physical properties are known
                 new_params = self._balance_samples(new_params)
+                # Calculate adimensional numbers as the final step
                 new_params = self._calculate_adimensionals(new_params)
 
             # Here, add a simple direction flag based on a comparison of two hydraulic depths.
@@ -142,7 +150,11 @@ class ParameterManager:
                 self.config.simulation_params.parameter_ranges["h0_max"],
             ),
         }
-        return SampleGenerator.sample_combinations(self.sample_size, param_ranges)
+        # **FIX**: Add channel dimensions directly to the dataframe
+        df = SampleGenerator.sample_combinations(self.sample_size, param_ranges)
+        df["L"] = self.config.channel.length
+        df["W"] = self.config.channel.width
+        return df
 
     def _generate_adimensional_parameters(self) -> pd.DataFrame:
         """Generate adimensional parameters using configured ranges.
@@ -204,7 +216,8 @@ class ParameterManager:
         params["Vr"] = uc / vc
         params["Hr"] = bc / hc
         params["Fr"] = uc / (np.sqrt(g * hc))
-        params["Re"] = uc * xc / (params["nut"])
+        # **FIX**: Ensure Re is calculated correctly for the dimensional case
+        params["Re"] = (uc * xc) / (params["nut"])
         params["M"] = g * (params["n"] ** 2) * xc / (hc ** (4 / 3))
         return params
 
@@ -215,24 +228,31 @@ class ParameterManager:
             params: DataFrame containing adimensional parameters.
 
         Returns:
-            DataFrame with calculated physical parameters (W, H0, Vr, L, Q0, SLOPE, n).
+            DataFrame with calculated physical parameters.
 
         Note:
-            Uses fixed reference values for width (1.0) and height (0.1) to
-            establish dimensional scaling.
+            Uses configured characteristic scales to derive dimensional values.
+            **FIX**: This now correctly calculates `nut` from the sampled `Re`.
         """
         g = self.config.simulation_params.gravity
-        params["W"] = 1.0
-        params["H0"] = 0.1
-        params["Vr"] = params["Ar"]
-        params["L"] = params["Ar"]
-        params["Q0"] = (
-            params["Fr"] * params["H0"] * params["W"] * np.sqrt(g * params["H0"])
-        )
-        params["SLOPE"] = (params["Hr"] * params["H0"]) / (params["Ar"] * params["W"])
-        params["n"] = (params["H0"] ** (2 / 3) * np.sqrt(params["M"])) / (
-            np.sqrt(params["Ar"]) * np.sqrt(g) * np.sqrt(params["W"])
-        )
+        # Use characteristic scales from the config
+        xc = self.config.channel.length
+        yc = self.config.channel.width
+        hc = self.config.channel.depth  # A reference scale
+
+        # Calculate dimensional parameters from non-dimensional ones
+        params["L"] = xc
+        params["W"] = yc
+        params["H0"] = hc  # Use reference h_c as H0
+
+        uc = params["Fr"] * np.sqrt(g * hc)
+        params["Q0"] = uc * hc * yc
+        params["SLOPE"] = (params["Hr"] * hc) / xc
+        params["n"] = np.sqrt(params["M"] * (hc ** (4 / 3)) / (g * xc))
+
+        # **FIX**: Calculate nut from the sampled Reynolds number
+        params["nut"] = (uc * xc) / params["Re"]
+
         return params
 
     def _calculate_hydraulic_properties(self, params: pd.DataFrame) -> pd.DataFrame:
@@ -243,8 +263,8 @@ class ParameterManager:
 
         Returns:
             DataFrame with calculated hydraulic properties including normal depth (yn),
-            critical depth (yc), flow regime classification (subcritical), and
-            turbulent viscosity (nut).
+            critical depth (yc), and flow regime classification (subcritical).
+            **FIX**: This method no longer calculates `nut`.
         """
         params["yn"] = HydraulicCalculations.normal_depth_simple(
             params["Q0"],
@@ -256,10 +276,23 @@ class ParameterManager:
             params["Q0"], params["W"]
         )
         params["subcritical"] = params["yn"] > params["yc"]
+        return params
 
-        # Calculate turbulent viscosity from Reynolds number
-        uc = params["Q0"] / (params["H0"] * params["W"])
-        params["nut"] = uc * params["L"] / params["Re"]
+    def _estimate_turbulent_viscosity(self, params: pd.DataFrame) -> pd.DataFrame:
+        """
+        **FIX (New Method)**: Estimate turbulent viscosity for the dimensional case.
+        Uses a physics-based formula based on shear velocity and normal depth.
+        """
+        g = self.config.simulation_params.gravity
+        kappa = 0.41  # Von Kármán constant
+
+        # Approximate hydraulic radius R_h with normal depth yn (wide channel assumption)
+        shear_velocity_sq = g * params["yn"] * params["SLOPE"]
+        shear_velocity = np.sqrt(shear_velocity_sq.clip(min=0))  # Avoid negative sqrt
+
+        # Estimate eddy viscosity
+        params["nut"] = (kappa / 6) * shear_velocity * params["yn"]
+        logger.info("Estimated turbulent viscosity for dimensional samples.")
         return params
 
     def _balance_samples(self, params: pd.DataFrame) -> pd.DataFrame:
@@ -278,6 +311,13 @@ class ParameterManager:
         """
         subcritical = params[params["subcritical"]]
         supercritical = params[~params["subcritical"]]
+
+        if len(subcritical) == 0 or len(supercritical) == 0:
+            logger.warning(
+                "One flow regime has zero samples. Cannot balance. Returning original dataframe."
+            )
+            return params
+
         required_samples = min(len(subcritical), len(supercritical))
 
         logger.info(
