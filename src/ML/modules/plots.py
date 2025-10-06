@@ -9,7 +9,7 @@ from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
-# --- PlotManager Class ---
+# --- PlotManager Class (No changes needed here) ---
 class PlotManager:
     """Enhanced plot manager for saving figures."""
 
@@ -32,8 +32,7 @@ class PlotManager:
         plt.close(fig)
 
 
-# --- Translation and Naming Dictionaries ---
-# This is our single source of truth for plot labels
+# --- Translation and Naming Dictionaries (No changes needed) ---
 UNITS = {
     "H": "m",
     "U": "m/s",
@@ -132,6 +131,7 @@ def _get_unit(var):
     return f" [{UNITS.get(var, '')}]"
 
 
+# --- plot_scatter_predictions (No changes needed, it already subsamples) ---
 def plot_scatter_predictions(
     predictions,
     targets,
@@ -143,8 +143,6 @@ def plot_scatter_predictions(
     language,
 ):
     lang_text = TRANSLATIONS[language]
-    # ... (The scatter plot logic is good as is, so we can keep it the same as the last version) ...
-    # (Pasting it here for completeness)
     all_preds, all_targs, all_names = [], [], []
     if predictions[0] is not None:
         all_preds.extend(torch.unbind(predictions[0], dim=1))
@@ -197,10 +195,12 @@ def plot_scatter_predictions(
         ax.set_ylabel(lang_text["pred"])
 
         var_metrics = metrics.get(name, {})
-        r2 = var_metrics.get("r2", float("nan"))
-        rmse = var_metrics.get("rmse", float("nan"))
-        mae = var_metrics.get("mae", float("nan"))
-        smape = var_metrics.get("smape", float("nan"))
+        r2, rmse, mae, smape = (
+            var_metrics.get("r2", float("nan")),
+            var_metrics.get("rmse", float("nan")),
+            var_metrics.get("mae", float("nan")),
+            var_metrics.get("smape", float("nan")),
+        )
         stats_text = f"$R^2 = {r2:.3f}$\nRMSE = {rmse:.4f}\nMAE = {mae:.4f}\nSMAPE = {smape:.2f}%"
         ax.text(
             0.05,
@@ -216,6 +216,7 @@ def plot_scatter_predictions(
     plot_manager.save_plot(fig, "scatter_predictions")
 
 
+# --- plot_field_comparison (No changes needed) ---
 def plot_field_comparison(
     prediction, target, variable_name, plot_manager, case_id, title_prefix, language
 ):
@@ -223,10 +224,7 @@ def plot_field_comparison(
     pred_np, targ_np = prediction.numpy(), target.numpy()
     diff_np = targ_np - pred_np
 
-    vmin, vmax = (
-        np.percentile(targ_np, 2),
-        np.percentile(targ_np, 98),
-    )  # Use percentiles for robust color limits
+    vmin, vmax = np.percentile(targ_np, 2), np.percentile(targ_np, 98)
     diff_lim = np.percentile(np.abs(diff_np), 98)
 
     fig, axes = plt.subplots(3, 1, figsize=(15, 7), sharex=True, sharey=True)
@@ -252,19 +250,17 @@ def plot_field_comparison(
         ax.set_title(title)
         ax.set_ylabel(lang_text["y_axis"])
         divider = make_axes_locatable(ax)
-        cax = divider.append_axes(
-            "bottom", size="25%", pad=0.6
-        )  # Thin, horizontal colorbar
+        cax = divider.append_axes("bottom", size="25%", pad=0.6)
         fig.colorbar(im, cax=cax, orientation="horizontal")
 
-    axes[-1].set_xlabel(lang_text["x_axis"])  # Label only the last x-axis
-
+    axes[-1].set_xlabel(lang_text["x_axis"])
     plt.tight_layout(rect=[0, 0, 1, 0.92])
     plot_manager.save_plot(
         fig, f"field_comparison_{variable_name.replace(' ', '_')}_case_{case_id}"
     )
 
 
+# --- plot_error_analysis (THE CRITICAL CHANGE IS HERE) ---
 def plot_error_analysis(
     predictions, targets, field_names, plot_manager, title_prefix, language
 ):
@@ -276,13 +272,21 @@ def plot_error_analysis(
 
     for i, name in enumerate(field_names):
         pred_np, targ_np = field_preds[:, i].numpy(), field_targs[:, i].numpy()
-        errors_np = targ_np - pred_np
 
-        # 1. Error Histogram
+        # 1. Error Histogram (Memory-Efficient Subsampling)
         fig_hist, ax_hist = plt.subplots(figsize=(8, 6))
-        ax_hist.hist(
-            errors_np.flatten(), bins=100, density=True, color=plt.cm.turbo(0.3)
-        )
+
+        # --- MEMORY FIX 1: Subsample for Histogram ---
+        # Instead of flattening the entire error array, which could be huge,
+        # we calculate errors on a large but manageable random sample.
+        num_total_points = pred_np.size
+        sample_size = min(
+            num_total_points, 2_000_000
+        )  # Cap at 2 million points for histogram
+        indices = np.random.choice(num_total_points, sample_size, replace=False)
+        errors_sample = targ_np.flatten()[indices] - pred_np.flatten()[indices]
+
+        ax_hist.hist(errors_sample, bins=100, density=True, color=plt.cm.turbo(0.3))
         ax_hist.set_title(
             f"{title_prefix}\n{_get_name(name, language)} - Error Histogram"
         )
@@ -292,18 +296,24 @@ def plot_error_analysis(
         plt.tight_layout()
         plot_manager.save_plot(fig_hist, f"error_histogram_{name}")
 
-        # 2. Spatial Error Distribution (Mean Absolute Error)
-        fig_spatial, ax_spatial = plt.subplots(figsize=(15, 4))  # Wide aspect ratio
-        spatial_mae = np.mean(np.abs(errors_np), axis=0)
+        # 2. Spatial Error Distribution (Memory-Efficient Iterative Calculation)
+        fig_spatial, ax_spatial = plt.subplots(figsize=(15, 4))
+
+        # --- MEMORY FIX 2: Iterative Mean Calculation ---
+        # Instead of creating a massive `errors_np` array, we initialize a sum array
+        # and add the absolute error of each case one by one.
+        spatial_mae_sum = np.zeros_like(targ_np[0], dtype=np.float32)
+        for j in range(targ_np.shape[0]):
+            spatial_mae_sum += np.abs(targ_np[j] - pred_np[j])
+        spatial_mae = spatial_mae_sum / targ_np.shape[0]
+
         im = ax_spatial.imshow(spatial_mae, aspect="auto", cmap="turbo")
         ax_spatial.set_title(
             f"{title_prefix}\n{_get_name(name, language)} - Spatial Mean Absolute Error"
         )
 
         divider = make_axes_locatable(ax_spatial)
-        cax = divider.append_axes(
-            "bottom", size="20%", pad=0.7
-        )  # Thin, horizontal colorbar
+        cax = divider.append_axes("bottom", size="20%", pad=0.7)
         cbar = fig_spatial.colorbar(im, cax=cax, orientation="horizontal")
         cbar.set_label(f"Mean Absolute Error{_get_unit(name)}")
 
