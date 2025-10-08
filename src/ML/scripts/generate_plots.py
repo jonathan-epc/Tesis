@@ -31,11 +31,65 @@ project_root = Path(__file__).resolve().parents[3]
 logger = setup_logger()
 
 
-def run_single_job(model_key: str, data_key: str, lang: str):
+# --- NEW: Helper function for filtering ---
+def filter_variables_and_data(original_names, data_tensor, include_list, exclude_list):
+    """
+    Filters variable names and corresponding data tensors based on include/exclude lists.
+
+    Returns:
+        tuple: (filtered_names, filtered_data_tensor)
+    """
+    if not original_names or data_tensor is None:
+        return original_names, data_tensor
+
+    if include_list:
+        indices_to_keep = []
+        filtered_names = []
+        for name in include_list:
+            try:
+                idx = original_names.index(name)
+                indices_to_keep.append(idx)
+                filtered_names.append(name)
+            except ValueError:
+                logger.warning(
+                    f"Variable '{name}' in --include-vars not found in model outputs. Skipping."
+                )
+
+        if not indices_to_keep:
+            return None, None  # Return None if no requested variables were found
+
+        return filtered_names, data_tensor[:, indices_to_keep]
+
+    if exclude_list:
+        indices_to_keep = [
+            i for i, name in enumerate(original_names) if name not in exclude_list
+        ]
+        filtered_names = [original_names[i] for i in indices_to_keep]
+        return filtered_names, data_tensor[:, indices_to_keep]
+
+    # If no filtering is specified, return original data
+    return original_names, data_tensor
+
+
+# --- MODIFIED: `run_single_job` now accepts filter arguments ---
+def run_single_job(
+    model_key: str,
+    data_key: str,
+    lang: str,
+    include_vars: list | None,
+    exclude_vars: list | None,
+    is_publication: bool,
+):
     """
     This is the core "worker" function. It runs ONE evaluation and plotting job
     and then exits. It is designed to be called in a completely isolated process.
     """
+    if include_vars and exclude_vars:
+        logger.error(
+            "Cannot use --include-vars and --exclude-vars simultaneously. Please choose one."
+        )
+        sys.exit(1)
+
     try:
         dataset_name = GEOM_NAMES[data_key]
         logger.info("=" * 80)
@@ -112,36 +166,62 @@ def run_single_job(model_key: str, data_key: str, lang: str):
             torch.cat(all_scalar_targs) if all_scalar_targs else None,
         )
 
-        # 4. Calculate Metrics & Setup Plotting
+        # --- NEW: Apply filtering based on command-line arguments ---
+        output_fields, fields_tensor_pred = filter_variables_and_data(
+            config.data.output_fields, predictions[0], include_vars, exclude_vars
+        )
+        _, fields_tensor_targ = filter_variables_and_data(
+            config.data.output_fields, targets[0], include_vars, exclude_vars
+        )
+
+        output_scalars, scalars_tensor_pred = filter_variables_and_data(
+            config.data.output_scalars, predictions[1], include_vars, exclude_vars
+        )
+        _, scalars_tensor_targ = filter_variables_and_data(
+            config.data.output_scalars, targets[1], include_vars, exclude_vars
+        )
+
+        # Re-assemble the filtered predictions and targets tuples
+        filtered_predictions = (fields_tensor_pred, scalars_tensor_pred)
+        filtered_targets = (fields_tensor_targ, scalars_tensor_targ)
+
+        logger.info(f"Original fields: {config.data.output_fields}")
+        logger.info(f"Plotting for fields: {output_fields}")
+        logger.info(f"Original scalars: {config.data.output_scalars}")
+        logger.info(f"Plotting for scalars: {output_scalars}")
+
+        # 4. Calculate Metrics & Setup Plotting (using filtered data)
         metrics, per_case_df = evaluate_predictions(
-            predictions, targets, config.data.output_fields, config.data.output_scalars
+            filtered_predictions, filtered_targets, output_fields, output_scalars
         )
         plot_dir_name = f"{lang}/model_{model_key}_on_data_{dataset_name}"
         plot_manager = PlotManager(base_dir=str(project_root / "plots" / plot_dir_name))
         title_prefix = f"Model: {model_key.upper()} | Data: {dataset_name}"
 
-        # 5. Generate Plots
+        # 5. Generate Plots (using filtered data and names)
         plot_scatter_predictions(
-            predictions,
-            targets,
-            config.data.output_fields,
-            config.data.output_scalars,
+            filtered_predictions,
+            filtered_targets,
+            output_fields,
+            output_scalars,
             plot_manager,
             metrics,
             title_prefix,
             lang,
+            publication=is_publication,
         )
         plot_error_analysis(
-            predictions,
-            targets,
-            config.data.output_fields,
+            filtered_predictions,
+            filtered_targets,
+            output_fields,
             plot_manager,
             title_prefix,
             lang,
+            publication=is_publication,
         )
 
-        if not per_case_df.empty and config.data.output_fields:
-            for field_idx, field_name in enumerate(config.data.output_fields):
+        if not per_case_df.empty and output_fields:
+            for field_idx, field_name in enumerate(output_fields):
                 field_df = per_case_df[per_case_df["variable"] == field_name]
                 if not field_df.empty:
                     cases_to_plot = {
@@ -159,13 +239,14 @@ def run_single_job(model_key: str, data_key: str, lang: str):
                     }
                     for name, case_id in cases_to_plot.items():
                         plot_field_comparison(
-                            prediction=predictions[0][case_id, field_idx],
-                            target=targets[0][case_id, field_idx],
+                            prediction=filtered_predictions[0][case_id, field_idx],
+                            target=filtered_targets[0][case_id, field_idx],
                             variable_name=f"{field_name} ({name})",
                             plot_manager=plot_manager,
                             case_id=case_id,
                             title_prefix=title_prefix,
                             language=lang,
+                            publication=is_publication,
                         )
 
         logger.info(
@@ -176,7 +257,6 @@ def run_single_job(model_key: str, data_key: str, lang: str):
         logger.exception(
             f"FATAL ERROR in worker for job ({model_key}, {data_key}, {lang}): {e}"
         )
-        # Exit with a non-zero status code to signal failure to the manager process
         sys.exit(1)
 
 
@@ -202,23 +282,43 @@ def main():
         default="all",
         help="Language for plots (e.g., 'en', or 'all').",
     )
+    parser.add_argument(
+        "--include-vars",
+        nargs="+",  # Accepts one or more arguments
+        default=None,
+        help="Space-separated list of variables to plot. Only these will be plotted.",
+    )
+    parser.add_argument(
+        "--exclude-vars",
+        nargs="+",
+        default=None,
+        help="Space-separated list of variables to exclude from plotting.",
+    )
+    parser.add_argument(
+        "--publication",
+        action="store_true",  # This makes it a flag, e.g., --publication
+        help="Generate plots in publication mode (no titles, panel labels).",
+    )
+
     args = parser.parse_args()
 
     # --- SCRIPT BEHAVIOR SWITCH ---
-    # If specific arguments are given, run as a WORKER.
-    # Otherwise, run as the MANAGER.
-
     is_worker = args.model != "all" and args.data != "all" and args.lang != "all"
 
     if is_worker:
         # --- WORKER LOGIC ---
-        # This code runs inside the separate subprocess.
         set_plotting_style()
-        run_single_job(args.model, args.data, args.lang)
+        run_single_job(
+            args.model,
+            args.data,
+            args.lang,
+            args.include_vars,
+            args.exclude_vars,
+            args.publication,
+        )
 
     else:
         # --- MANAGER LOGIC ---
-        # This code runs only once to orchestrate the subprocesses.
         logger.info(
             "--- Running as MANAGER: Spawning worker processes for each job ---"
         )
@@ -244,10 +344,9 @@ def main():
                     f"Job: {model_key.upper()} on {GEOM_NAMES[data_key]} ({lang})"
                 )
 
-                # Construct the command to call this script on itself
                 command = [
-                    sys.executable,  # The path to the current Python interpreter
-                    __file__,  # The full path to this script
+                    sys.executable,
+                    __file__,
                     "--model",
                     model_key,
                     "--data",
@@ -256,14 +355,18 @@ def main():
                     lang,
                 ]
 
-                # Run the command in a separate process.
-                # stdout and stderr are captured to prevent cluttering the main progress bar.
+                if args.publication:
+                    command.append("--publication")
+                if args.include_vars:
+                    command.extend(["--include-vars"] + args.include_vars)
+                if args.exclude_vars:
+                    command.extend(["--exclude-vars"] + args.exclude_vars)
+
                 result = subprocess.run(command, capture_output=True, text=True)
 
                 if result.returncode == 0:
                     success_count += 1
                 else:
-                    # If a worker fails, log its output for debugging
                     logger.error(
                         f"--- Worker FAILED for job ({model_key}, {data_key}, {lang}) ---"
                     )

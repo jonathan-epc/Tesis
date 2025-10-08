@@ -5,25 +5,52 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, TwoSlopeNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
-# --- PlotManager Class (No changes needed here) ---
 class PlotManager:
-    """Enhanced plot manager for saving figures."""
+    """Enhanced plot manager for saving and styling figures."""
 
-    def __init__(self, base_dir: str = "plots"):
+    def __init__(self, base_dir: str = "plots", publication_style: bool = True):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.publication_style = publication_style
+        if publication_style:
+            self.enable_publication_style()
+
+    def enable_publication_style(self):
+        """Apply consistent, publication-quality Matplotlib style."""
+        plt.style.use("default")
+        plt.rcParams.update(
+            {
+                "font.family": "serif",
+                "font.serif": ["Times New Roman", "Palatino", "Computer Modern Roman"],
+                "font.size": 12,
+                "axes.labelsize": 12,
+                "axes.titlesize": 13,
+                "axes.linewidth": 1.0,
+                "axes.grid": True,
+                "axes.grid.which": "major",
+                "grid.alpha": 0.3,
+                "xtick.labelsize": 10,
+                "ytick.labelsize": 10,
+                "legend.fontsize": 10,
+                "figure.dpi": 300,
+                "savefig.dpi": 300,
+                "pdf.fonttype": 42,
+                "ps.fonttype": 42,
+            }
+        )
 
     def save_plot(self, fig, plot_name: str, subdirectory: str | None = None):
+        """Save figure in multiple formats (PNG, PDF, SVG)."""
         save_dir = self.base_dir
         if subdirectory:
             save_dir = self.base_dir / subdirectory
             save_dir.mkdir(parents=True, exist_ok=True)
         sanitized_name = re.sub(r'[<>:"/\\|?*\0]', "_", plot_name).strip(". ")
-        for fmt in ["png", "pdf"]:
+        for fmt in ["png", "pdf", "svg"]:
             filepath = save_dir / f"{sanitized_name}.{fmt}"
             try:
                 fig.savefig(filepath, dpi=300, bbox_inches="tight", facecolor="white")
@@ -32,7 +59,7 @@ class PlotManager:
         plt.close(fig)
 
 
-# --- Translation and Naming Dictionaries (No changes needed) ---
+# --- Translation and Naming Dictionaries (unchanged) ---
 UNITS = {
     "H": "m",
     "U": "m/s",
@@ -128,10 +155,13 @@ def _get_name(var, lang):
 
 
 def _get_unit(var):
-    return f" [{UNITS.get(var, '')}]"
+    unit = UNITS.get(var, "")
+    return f" [{unit}]" if unit else ""
 
 
-# --- plot_scatter_predictions (No changes needed, it already subsamples) ---
+# ------------------------------------------------------------------------------
+#                               SCATTER PLOTS
+# ------------------------------------------------------------------------------
 def plot_scatter_predictions(
     predictions,
     targets,
@@ -141,6 +171,7 @@ def plot_scatter_predictions(
     metrics,
     title_prefix,
     language,
+    publication=False,
 ):
     lang_text = TRANSLATIONS[language]
     all_preds, all_targs, all_names = [], [], []
@@ -161,12 +192,17 @@ def plot_scatter_predictions(
     fig, axes = plt.subplots(
         rows, cols, figsize=(cols * 5.5, rows * 4.5), squeeze=False
     )
-    fig.suptitle(f"{title_prefix}\n{lang_text['scatter_title']}", fontsize=18)
+
+    if not publication:
+        fig.suptitle(f"{title_prefix}\n{lang_text['scatter_title']}", fontsize=15)
+
+    panel_labels = [f"({chr(65 + i)})" for i in range(num_plots)]
 
     for i, ax in enumerate(axes.flat):
         if i >= num_plots:
             ax.axis("off")
             continue
+
         pred, targ, name = (
             all_preds[i].numpy().flatten(),
             all_targs[i].numpy().flatten(),
@@ -178,19 +214,33 @@ def plot_scatter_predictions(
             pred, targ = pred[indices], targ[indices]
 
         hb = ax.hexbin(targ, pred, gridsize=50, cmap="turbo", mincnt=1, norm=LogNorm())
-        cbar = fig.colorbar(hb, ax=ax)
+        cbar = fig.colorbar(hb, ax=ax, format="%.2f")
         cbar.set_label(lang_text["count"])
 
         lims = [
             min(ax.get_xlim()[0], ax.get_ylim()[0]),
             max(ax.get_xlim()[1], ax.get_ylim()[1]),
         ]
-        ax.plot(lims, lims, "r--", linewidth=2, label=lang_text["identity"])
+        ax.plot(lims, lims, "r--", linewidth=1.5, label=lang_text["identity"])
+        ax.legend(loc="lower right", frameon=False)
         ax.set_xlim(lims)
         ax.set_ylim(lims)
         ax.set_aspect("equal", adjustable="box")
 
-        ax.set_title(f"{_get_name(name, language)}{_get_unit(name)}")
+        if not publication:
+            ax.set_title(f"{_get_name(name, language)}{_get_unit(name)}")
+        else:
+            ax.text(
+                0.02,
+                0.94,
+                panel_labels[i],
+                transform=ax.transAxes,
+                fontsize=12,
+                fontweight="bold",
+                va="top",
+                ha="left",
+            )
+
         ax.set_xlabel(lang_text["truth"])
         ax.set_ylabel(lang_text["pred"])
 
@@ -202,13 +252,20 @@ def plot_scatter_predictions(
             var_metrics.get("smape", float("nan")),
         )
         stats_text = f"$R^2 = {r2:.3f}$\nRMSE = {rmse:.4f}\nMAE = {mae:.4f}\nSMAPE = {smape:.2f}%"
+
+        if publication:
+            text_x, text_y, ha_align = 0.95, 0.95, "right"
+        else:
+            text_x, text_y, ha_align = 0.05, 0.95, "left"
+
         ax.text(
-            0.05,
-            0.95,
+            text_x,
+            text_y,
             stats_text,
             transform=ax.transAxes,
             fontsize=10,
             va="top",
+            ha=ha_align,  # Add horizontal alignment
             bbox=dict(boxstyle="round", fc="white", alpha=0.8),
         )
 
@@ -216,53 +273,104 @@ def plot_scatter_predictions(
     plot_manager.save_plot(fig, "scatter_predictions")
 
 
-# --- plot_field_comparison (No changes needed) ---
+# ------------------------------------------------------------------------------
+#                               FIELD COMPARISON
+# ------------------------------------------------------------------------------
 def plot_field_comparison(
-    prediction, target, variable_name, plot_manager, case_id, title_prefix, language
+    prediction,
+    target,
+    variable_name,
+    plot_manager,
+    case_id,
+    title_prefix,
+    language,
+    publication=False,
 ):
     lang_text = TRANSLATIONS[language]
     pred_np, targ_np = prediction.numpy(), target.numpy()
-    diff_np = targ_np - pred_np
+    epsilon = 1e-9
+    diff_np = (targ_np - pred_np) / (targ_np + np.sign(targ_np) * epsilon) * 100
 
-    vmin, vmax = np.percentile(targ_np, 2), np.percentile(targ_np, 98)
-    diff_lim = np.percentile(np.abs(diff_np), 98)
+    vmin, vmax = np.percentile(targ_np, [2, 98])
+    diff_lim = max(1, np.percentile(np.abs(diff_np), 98))
 
     fig, axes = plt.subplots(3, 1, figsize=(15, 7), sharex=True, sharey=True)
     full_var_name = variable_name.split(" ")[0]
-    fig.suptitle(
-        f"{title_prefix}\n{_get_name(full_var_name, language)} ({lang_text['case']} #{case_id})"
-    )
+
+    if not publication:
+        fig.suptitle(
+            f"{title_prefix}\n{_get_name(full_var_name, language)} ({lang_text['case']} #{case_id})"
+        )
+
+    unit_str = _get_unit(full_var_name)
+    panel_labels = ["(A)", "(B)", "(C)"]
 
     plots_data = [
-        (axes[0], targ_np, lang_text["truth"], "turbo", {"vmin": vmin, "vmax": vmax}),
-        (axes[1], pred_np, lang_text["pred"], "turbo", {"vmin": vmin, "vmax": vmax}),
+        (
+            axes[0],
+            targ_np,
+            lang_text["truth"],
+            "turbo",
+            dict(vmin=vmin, vmax=vmax),
+            unit_str,
+        ),
+        (
+            axes[1],
+            pred_np,
+            lang_text["pred"],
+            "turbo",
+            dict(vmin=vmin, vmax=vmax),
+            unit_str,
+        ),
         (
             axes[2],
             diff_np,
             lang_text["diff"],
-            "seismic",
-            {"vmin": -diff_lim, "vmax": diff_lim},
+            "coolwarm",
+            dict(norm=TwoSlopeNorm(vcenter=0, vmin=-diff_lim, vmax=diff_lim)),
+            " [%]",
         ),
     ]
 
-    for ax, data, title, cmap, norm_kwargs in plots_data:
+    for ax, data, title, cmap, norm_kwargs, cbar_unit in plots_data:
         im = ax.imshow(data, aspect="auto", cmap=cmap, **norm_kwargs)
-        ax.set_title(title)
-        ax.set_ylabel(lang_text["y_axis"])
+        if not publication:
+            ax.set_title(title)
+        ax.set_xticks([])
+        ax.set_yticks([])
         divider = make_axes_locatable(ax)
-        cax = divider.append_axes("bottom", size="25%", pad=0.6)
-        fig.colorbar(im, cax=cax, orientation="horizontal")
+        cax = divider.append_axes("bottom", size="20%", pad=0.3)
+        cbar = fig.colorbar(im, cax=cax, orientation="horizontal", format="%.2f")
+        cbar.set_label(cbar_unit)
+        if publication:
+            ax.text(
+                0.02,
+                0.94,
+                panel_labels.pop(0),
+                transform=ax.transAxes,
+                fontsize=12,
+                fontweight="bold",
+                va="top",
+                ha="left",
+            )
 
-    axes[-1].set_xlabel(lang_text["x_axis"])
     plt.tight_layout(rect=[0, 0, 1, 0.92])
     plot_manager.save_plot(
         fig, f"field_comparison_{variable_name.replace(' ', '_')}_case_{case_id}"
     )
 
 
-# --- plot_error_analysis (THE CRITICAL CHANGE IS HERE) ---
+# ------------------------------------------------------------------------------
+#                               ERROR ANALYSIS
+# ------------------------------------------------------------------------------
 def plot_error_analysis(
-    predictions, targets, field_names, plot_manager, title_prefix, language
+    predictions,
+    targets,
+    field_names,
+    plot_manager,
+    title_prefix,
+    language,
+    publication=False,
 ):
     lang_text = TRANSLATIONS[language]
     field_preds, _ = predictions
@@ -273,48 +381,60 @@ def plot_error_analysis(
     for i, name in enumerate(field_names):
         pred_np, targ_np = field_preds[:, i].numpy(), field_targs[:, i].numpy()
 
-        # 1. Error Histogram (Memory-Efficient Subsampling)
+        # --- Error Histogram ---
         fig_hist, ax_hist = plt.subplots(figsize=(8, 6))
-
-        # --- MEMORY FIX 1: Subsample for Histogram ---
-        # Instead of flattening the entire error array, which could be huge,
-        # we calculate errors on a large but manageable random sample.
-        num_total_points = pred_np.size
-        sample_size = min(
-            num_total_points, 2_000_000
-        )  # Cap at 2 million points for histogram
-        indices = np.random.choice(num_total_points, sample_size, replace=False)
+        sample_size = min(pred_np.size, 2_000_000)
+        indices = np.random.choice(pred_np.size, sample_size, replace=False)
         errors_sample = targ_np.flatten()[indices] - pred_np.flatten()[indices]
 
-        ax_hist.hist(errors_sample, bins=100, density=True, color=plt.cm.turbo(0.3))
-        ax_hist.set_title(
-            f"{title_prefix}\n{_get_name(name, language)} - Error Histogram"
+        ax_hist.hist(errors_sample, bins=100, density=True, color=plt.cm.turbo(0.6))
+        mu, sigma = np.mean(errors_sample), np.std(errors_sample)
+        stats_text = f"$\\mu = {mu:.3f}$\n$\\sigma = {sigma:.3f}$"
+        ax_hist.text(
+            0.05,
+            0.95,
+            stats_text,
+            transform=ax_hist.transAxes,
+            fontsize=10,
+            va="top",
+            bbox=dict(boxstyle="round", fc="white", alpha=0.8),
         )
+
+        ax_hist.axvline(mu, color="red", linestyle="--", label=f"mean ({mu:.3f})")
+        ax_hist.axvline(
+            mu + sigma, color="gray", linestyle=":", label=f"±1σ ({sigma:.3f})"
+        )
+        ax_hist.axvline(mu - sigma, color="gray", linestyle=":")
+        ax_hist.legend(frameon=False)
+
+        if not publication:
+            ax_hist.set_title(
+                f"{title_prefix}\n{_get_name(name, language)} - Error Histogram"
+            )
         ax_hist.set_xlabel(f"{lang_text['error']}{_get_unit(name)}")
         ax_hist.set_ylabel(lang_text["frequency"])
         ax_hist.grid(True, linestyle="--", alpha=0.6)
         plt.tight_layout()
         plot_manager.save_plot(fig_hist, f"error_histogram_{name}")
 
-        # 2. Spatial Error Distribution (Memory-Efficient Iterative Calculation)
+        # --- Spatial Error Distribution ---
         fig_spatial, ax_spatial = plt.subplots(figsize=(15, 4))
-
-        # --- MEMORY FIX 2: Iterative Mean Calculation ---
-        # Instead of creating a massive `errors_np` array, we initialize a sum array
-        # and add the absolute error of each case one by one.
         spatial_mae_sum = np.zeros_like(targ_np[0], dtype=np.float32)
         for j in range(targ_np.shape[0]):
             spatial_mae_sum += np.abs(targ_np[j] - pred_np[j])
         spatial_mae = spatial_mae_sum / targ_np.shape[0]
 
         im = ax_spatial.imshow(spatial_mae, aspect="auto", cmap="turbo")
-        ax_spatial.set_title(
-            f"{title_prefix}\n{_get_name(name, language)} - Spatial Mean Absolute Error"
-        )
+        if not publication:
+            ax_spatial.set_title(
+                f"{title_prefix}\n{_get_name(name, language)} - Spatial Mean Absolute Error"
+            )
 
         divider = make_axes_locatable(ax_spatial)
         cax = divider.append_axes("bottom", size="20%", pad=0.7)
-        cbar = fig_spatial.colorbar(im, cax=cax, orientation="horizontal")
+        cbar = fig_spatial.colorbar(
+            im, cax=cax, orientation="horizontal", format="%.2f"
+        )
         cbar.set_label(f"Mean Absolute Error{_get_unit(name)}")
 
         ax_spatial.set_xlabel(lang_text["x_axis"])

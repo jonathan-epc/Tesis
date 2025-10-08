@@ -92,7 +92,7 @@ data:
   # --- CRITICAL: Define the model's inputs and outputs for this experiment ---
   # Example: Inverse Dimensional on BARSa geometry
   inputs: ['U', 'V']
-  outputs: ['H0', 'Q0', 'n', 'nut', 'B', 'H']
+  outputs: ['H0','Q0', 'n', 'nut', 'B', 'H']
 
   # Static Reference Lists (used by code to categorize variables)
   all_field_vars: ['B', 'F', 'H', 'Q', 'S', 'U', 'V', 'D', 'B*', 'H*', 'U*', 'V*']
