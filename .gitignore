@@ -1,50 +1,123 @@
+# ===================================================================
+# Python & Development Tooling
+# ===================================================================
+# Byte-compiled / optimized / C extensions
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+eggs/
+*.egg-info/
+*.egg
+
+# Test reports and caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor and OS-specific files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.pdm-python
+
+# ===================================================================
+# Project-Specific Generated Artifacts
+# ===================================================================
+
+# Directories for generated output (leading '/' ignores only at root)
+/logs/
+/plots/
+/savepoints/
+/studies/
+
+# Specific generated files
+*.db
+*.db-journal
+*.ipynb
+.ipynb_checkpoints/
+project_summary.txt
+parameters.csv
+wandb.csv
+wandb_export.csv
+
+# Ignore local wandb runs directory
+wandb/
+
+# ===================================================================
+# TELEMAC Simulation Files
+# ===================================================================
+# Ignore the directories that hold generated simulation files
+/src/telemac/steering/
+/src/telemac/geometry/
+/src/telemac/results/
+/src/telemac/logs/
+
+# Ignore specific TELEMAC file types if they appear elsewhere
 *.cas
 *.slf
-*.txt
-*.jpg
+*.lis
+
+# ===================================================================
+# LaTeX / Article Artifacts
+# ===================================================================
+# Ignore the entire directory for papers and thesis drafts
+/docs/
+
+# Ignore common LaTeX auxiliary files by extension
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.out
+*.toc
+*.run.xml
+*.synctex.gz
+
+# ===================================================================
+# Large Files & Output Formats
+# ===================================================================
+# Note: test_data.hdf5 is intentionally NOT ignored so CI can use it.
+# If you don't want to track any HDF5 files, uncomment the next line.
+# *.hdf5
+/data/
+
+# Ignore common output and archive formats
 *.png
+*.jpg
+*.jpeg
+*.gif
 *.pdf
-*.pptx
-*.indd
-*.ai
+*.svg
+*.mp4
 *.7z
 *.zip
 *.tar.gz
-*.log
-*.pyc
-*.psd
-*.indd
-*.svg
-*.idlk
-*.hdf5
+
+# Ignore model checkpoints
 *.pth
-*.env
-*.gif
-*.mp4
-*.db
-*.db-journal
-*.csv
-*.xlsx
-*.ipynb
-.ipynb_checkpoints/
-blender/*
-src/ML/studies
+
+# ===================================================================
+# Obsolete Paths (from old structure)
+# ===================================================================
+# These are kept for safety to clean up old tracked files if needed,
+# but are not strictly necessary for the new structure.
+ML/data/*
 src/ML/runs/*
 src/ML/runs.old/*
 src/ML/wandb/*
-src/ML/metrics
-src/tesis_fno_surrogate.egg-info
-fno_channel_flow.egg-info/*
-src/savepoints/
-/studies/
-/plots/
-/logs/
-/data/
+src/ML/metrics/
+
 src/website/
-wandb/*
-Articulos/*
-ML/data/*
-**/__pycache__/
-*steering*/
-*checkpoint*
-*sync-conflict*

@@ -1,0 +1,71 @@
+/-------------------------------------------------------------------/
+/                        TELEMAC-2D                                 /
+/-------------------------------------------------------------------/
+/
+/----------------------------------------------
+/  COMPUTER INFORMATIONS
+/----------------------------------------------
+/
+GEOMETRY FILE                   = '{geometry_file}'
+BOUNDARY CONDITIONS FILE        = '{boundary_file}'
+RESULTS FILE                    = '{results_file}'
+/
+/----------------------------------------------
+/  GENERAL INFORMATIONS - OUTPUTS
+/----------------------------------------------
+/
+TITLE = '{title}'
+/
+VARIABLES FOR GRAPHIC PRINTOUTS = 'U,V,H,D'
+NUMBER OF PRIVATE ARRAYS        = 4
+/
+GRAPHIC PRINTOUT PERIOD         = 10000
+LISTING PRINTOUT PERIOD         = 10000
+/
+DURATION                        = {duration}
+/TIME STEP                       = {time_step}
+VARIABLE TIME-STEP              = YES
+DESIRED COURANT NUMBER          = 0.9
+MASS-BALANCE                    = YES
+/STOP IF A STEADY STATE IS REACHED = YES
+/STOP CRITERIA                   = 1e-5; 1e-5; 1e-5
+/
+/----------------------------------------------
+/  INITIAL CONDITIONS
+/----------------------------------------------
+/
+INITIAL CONDITIONS               = 'CONSTANT DEPTH'
+INITIAL DEPTH                    = {initial_depth}
+/
+/----------------------------------------------
+/  BOUNDARY CONDITIONS
+/----------------------------------------------
+/
+PRESCRIBED FLOWRATES            = {prescribed_flowrates[0]} ; {prescribed_flowrates[1]}
+PRESCRIBED ELEVATIONS           = {prescribed_elevations[0]} ; {prescribed_elevations[1]}
+/
+/----------------------------------------------
+/  PHYSICAL PARAMETERS
+/----------------------------------------------
+/
+LAW OF BOTTOM FRICTION          = 4
+FRICTION COEFFICIENT            = {friction_coefficient}
+TURBULENCE MODEL                = 1
+VELOCITY DIFFUSIVITY            = {viscosity}
+/
+/----------------------------------------------
+/  NUMERICAL PARAMETERS
+/----------------------------------------------
+/SCHEMES
+EQUATIONS                       = 'SAINT-VENANT FV'
+TREATMENT OF THE LINEAR SYSTEM  = 2
+/
+DISCRETIZATIONS IN SPACE        = 11 ; 11
+/
+SOLVER                          = 1
+SOLVER ACCURACY                 = 1.E-8
+/
+FREE SURFACE GRADIENT COMPATIBILITY = 0.9
+SCHEME FOR ADVECTION OF VELOCITIES : 1
+SCHEME FOR ADVECTION OF TRACERS : 5
+SCHEME FOR ADVECTION OF K-EPSILON : 4

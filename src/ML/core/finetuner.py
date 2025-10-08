@@ -17,102 +17,6 @@ from ML.modules.training import Trainer, cross_validation_procedure
 from ML.modules.utils import seed_worker
 from nconfig import Config
 
-# --- Authoritative Information for Pre-trained Models and Datasets ---
-
-TRAINED_MODELS_INFO = {
-    "ddb": {
-        "trial_number": 161,
-        "study_name": "study28ddb",
-        "source_geom": "b",
-        "inputs": ["H0", "Q0", "n", "nut", "B"],
-        "outputs": ["H", "U", "V"],
-    },
-    "idb": {
-        "trial_number": 57,
-        "study_name": "study25idb",
-        "source_geom": "b",
-        "inputs": ["U", "V"],
-        "outputs": ["H0", "Q0", "n", "nut", "B", "H"],
-    },
-    "dab": {
-        "trial_number": 35,
-        "study_name": "study26dab",
-        "source_geom": "b",
-        "inputs": ["Hr", "Fr", "M", "Re", "B*", "Ar", "Vr"],
-        "outputs": ["H*", "U*", "V*"],
-    },
-    "iab": {
-        "trial_number": 157,
-        "study_name": "study36iab",
-        "source_geom": "b",
-        "inputs": ["U*", "V*"],
-        "outputs": ["Hr", "Fr", "M", "Re", "B*", "H*", "Ar", "Vr"],
-    },
-    "dds": {
-        "trial_number": 93,
-        "study_name": "study30dds",
-        "source_geom": "s",
-        "inputs": ["H0", "Q0", "n", "nut", "B"],
-        "outputs": ["H", "U", "V"],
-    },
-    "ids": {
-        "trial_number": 63,
-        "study_name": "study34ids",
-        "source_geom": "s",
-        "inputs": ["U", "V"],
-        "outputs": ["H0", "Q0", "n", "nut", "B", "H"],
-    },
-    "das": {
-        "trial_number": 26,
-        "study_name": "study31das",
-        "source_geom": "s",
-        "inputs": ["Hr", "Fr", "M", "Re", "B*", "Ar", "Vr"],
-        "outputs": ["H*", "U*", "V*"],
-    },
-    "ias": {
-        "trial_number": 36,
-        "study_name": "study35ias",
-        "source_geom": "s",
-        "inputs": ["U*", "V*"],
-        "outputs": ["Hr", "Fr", "M", "Re", "B*", "H*", "Ar", "Vr"],
-    },
-    "ddn": {
-        "trial_number": 194,
-        "study_name": "study29ddn",
-        "source_geom": "n",
-        "inputs": ["H0", "Q0", "n", "nut", "B"],
-        "outputs": ["H", "U", "V"],
-    },
-    "idn": {
-        "trial_number": 94,
-        "study_name": "study33idn",
-        "source_geom": "n",
-        "inputs": ["U", "V"],
-        "outputs": ["H0", "Q0", "n", "nut", "B", "H"],
-    },
-    "dan": {
-        "trial_number": 195,
-        "study_name": "study32dan",
-        "source_geom": "n",
-        "inputs": ["Hr", "Fr", "M", "Re", "B*", "Ar", "Vr"],
-        "outputs": ["H*", "U*", "V*"],
-    },
-    "ian": {
-        "trial_number": 88,
-        "study_name": "study37ian",
-        "source_geom": "n",
-        "inputs": ["U*", "V*"],
-        "outputs": ["Hr", "Fr", "M", "Re", "B*", "H*", "Ar", "Vr"],
-    },
-}
-
-GEOMETRY_FILES = {
-    "b": "data/BARSa.hdf5",
-    "s": "data/SLOPEa.hdf5",
-    "n": "data/NOISEa.hdf5",
-}
-GEOM_NAMES = {"b": "BARSa", "s": "SLOPEa", "n": "NOISEa"}
-
 
 class ModelFineTuner:
     def __init__(
@@ -204,7 +108,7 @@ class ModelFineTuner:
         try:
             source_hparams, source_io_counts = self._load_source_model_hparams()
 
-            ft_config = self.base_config.copy(deep=True)
+            ft_config = self.base_config.model_copy(deep=True)
             ft_config.training.pretrained_model_name = self.pretrained_model_name_stem
             ft_config.data.file_path = self.target_dataset_path
 

@@ -72,7 +72,7 @@ The project uses Conda for environment management. To set up the environment, fo
     cd Tesis
     ```
 
-2.  **Create the Conda environment:** All required packages are listed in `environment.yml`.
+2.  **Create the Conda environment:**
     ```bash
     conda env create -f environment.yml
     ```
@@ -81,7 +81,13 @@ The project uses Conda for environment management. To set up the environment, fo
     ```bash
     conda activate ML-Tesis
     ```
-4.  **(Optional) Set up WandB:** If you wish to use Weights & Biases for logging, set your API key as an environment variable. The project will automatically detect and use it.
+
+4.  **Perform an "Editable Install":** This crucial step makes your project's source code in the `src/` directory importable by Python. **You must run this command from the project root.**
+    ```bash
+    pip install -e .
+    ```
+
+5.  **(Optional) Set up WandB:** If you wish to use Weights & Biases for logging, set your API key as an environment variable.
     ```bash
     export WANDB_API_KEY="your_key_here"
     ```
