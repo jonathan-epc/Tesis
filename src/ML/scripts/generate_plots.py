@@ -71,7 +71,6 @@ def filter_variables_and_data(original_names, data_tensor, include_list, exclude
     return original_names, data_tensor
 
 
-# --- MODIFIED: `run_single_job` now accepts filter arguments ---
 def run_single_job(
     model_key: str,
     data_key: str,
@@ -79,6 +78,7 @@ def run_single_job(
     include_vars: list | None,
     exclude_vars: list | None,
     is_publication: bool,
+    separate_plots: bool,
 ):
     """
     This is the core "worker" function. It runs ONE evaluation and plotting job
@@ -194,8 +194,12 @@ def run_single_job(
         metrics, per_case_df = evaluate_predictions(
             filtered_predictions, filtered_targets, output_fields, output_scalars
         )
-        plot_dir_name = f"{lang}/model_{model_key}_on_data_{dataset_name}"
-        plot_manager = PlotManager(base_dir=str(project_root / "plots" / plot_dir_name))
+        output_dir = (
+            project_root / "publication_figures" / lang / model_key / dataset_name
+        )
+        plot_manager = PlotManager(
+            output_path=output_dir, publication_style=is_publication
+        )
         title_prefix = f"Model: {model_key.upper()} | Data: {dataset_name}"
 
         # 5. Generate Plots (using filtered data and names)
@@ -209,6 +213,7 @@ def run_single_job(
             title_prefix,
             lang,
             publication=is_publication,
+            separate_plots=separate_plots,
         )
         plot_error_analysis(
             filtered_predictions,
@@ -237,21 +242,20 @@ def run_single_job(
                             ]["case_id"]
                         ),
                     }
-                    for name, case_id in cases_to_plot.items():
+                    for case_type, case_id in cases_to_plot.items():
                         plot_field_comparison(
                             prediction=filtered_predictions[0][case_id, field_idx],
                             target=filtered_targets[0][case_id, field_idx],
-                            variable_name=f"{field_name} ({name})",
+                            variable_name=field_name,
                             plot_manager=plot_manager,
                             case_id=case_id,
                             title_prefix=title_prefix,
                             language=lang,
                             publication=is_publication,
+                            case_type=case_type,  # Pass the new argument
                         )
 
-        logger.info(
-            f"SUCCESS: Plots for '{model_key}' on '{dataset_name}' saved in: {plot_manager.base_dir}"
-        )
+        logger.info(f"SUCCESS: Plots saved in: {plot_manager.output_path}")
 
     except Exception as e:
         logger.exception(
@@ -299,6 +303,11 @@ def main():
         action="store_true",  # This makes it a flag, e.g., --publication
         help="Generate plots in publication mode (no titles, panel labels).",
     )
+    parser.add_argument(
+        "--separate-plots",
+        action="store_true",
+        help="Generate each variable's plot as a separate file, not in subplots.",
+    )
 
     args = parser.parse_args()
 
@@ -315,6 +324,7 @@ def main():
             args.include_vars,
             args.exclude_vars,
             args.publication,
+            args.separate_plots,
         )
 
     else:
@@ -357,6 +367,8 @@ def main():
 
                 if args.publication:
                     command.append("--publication")
+                if args.separate_plots:
+                    command.append("--separate-plots")
                 if args.include_vars:
                     command.extend(["--include-vars"] + args.include_vars)
                 if args.exclude_vars:
