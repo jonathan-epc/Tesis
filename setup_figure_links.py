@@ -1,27 +1,46 @@
 # Tesis/setup_figure_links.py
 
+import os  # Import the os module
 from pathlib import Path
 
 # --- CONFIGURATION ---
 
 # 1. Define the root of your project
+# This path points to the 'Tesis/' directory
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 # 2. Define the single source folder where plots are generated
+# This path is inside your code repo: 'Tesis/publication_figures'
 SOURCE_FIGURES_DIR = PROJECT_ROOT / "publication_figures"
 
-# 3. Define all the LaTeX projects where you want to use these figures
-#    This is a dictionary mapping the project path to the desired name
-#    of the symlink inside that project.
+# 3. NEW: Define the path to your separate paper repository.
+# This assumes 'Tesis-Paper/' and 'Tesis/' are in the same parent folder.
+# e.g., YourProjects/Tesis/ and YourProjects/Tesis-Paper/
+try:
+    PAPER_REPO_ROOT = PROJECT_ROOT.parent / "Tesis-Paper"
+    # Check if the directory actually exists
+    if not PAPER_REPO_ROOT.is_dir():
+        raise FileNotFoundError
+except FileNotFoundError:
+    print(f"[ERROR] Paper repository not found at expected location: {PAPER_REPO_ROOT}")
+    print(
+        "Please make sure your 'Tesis-Paper' directory is next to your 'Tesis' directory."
+    )
+    # You can also hardcode the path if you prefer:
+    # PAPER_REPO_ROOT = Path("/path/to/your/Tesis-Paper")
+    exit()
+
+
+# 4. Define all the LaTeX projects where you want to use these figures.
+# The paths now point to the new, separate paper repository.
 LATEX_PROJECTS = {
-    PROJECT_ROOT / "docs/Articulos/article": "figures",
-    PROJECT_ROOT / "docs/Articulos/sochid": "figures",
-    PROJECT_ROOT / "docs/Articulos/thesis": "images",  # Thesis might use 'images'
+    PAPER_REPO_ROOT / "Articulos/article": "figures",
+    PAPER_REPO_ROOT / "Articulos/sochid": "figures",
+    PAPER_REPO_ROOT / "Articulos/thesis": "images",  # Thesis might use 'images'
 }
 
-# --- SCRIPT LOGIC ---
 
-
+# --- SCRIPT LOGIC (No changes needed below this line) ---
 def create_symlinks():
     """
     Creates symbolic links from the central publication_figures directory
@@ -35,7 +54,9 @@ def create_symlinks():
         return
 
     for project_path, link_name in LATEX_PROJECTS.items():
-        print(f"\nProcessing LaTeX project: {project_path.name}")
+        print(
+            f"\nProcessing LaTeX project: {os.path.relpath(project_path, PAPER_REPO_ROOT)}"
+        )
 
         if not project_path.is_dir():
             print(f"  [WARNING] Project directory not found. Skipping: {project_path}")
@@ -43,7 +64,6 @@ def create_symlinks():
 
         target_link = project_path / link_name
 
-        # Check if a file/directory/link already exists at the target
         if target_link.exists() or target_link.is_symlink():
             if (
                 target_link.is_symlink()
@@ -56,17 +76,9 @@ def create_symlinks():
                     f"  [WARNING] A file or directory named '{link_name}' already exists and is NOT the correct symlink."
                 )
                 print("  Please remove it manually and re-run this script.")
-                # To be safe, we don't automatically delete user files.
-                # If you are confident, you can uncomment the next lines:
-                # if target_link.is_dir():
-                #     shutil.rmtree(target_link)
-                # else:
-                #     target_link.unlink()
-                # print(f"  [ACTION] Removed existing '{link_name}'.")
-                continue  # Skip to next project after warning
+                continue
 
         try:
-            # On Windows, target_is_directory=True is needed for directory links
             target_link.symlink_to(SOURCE_FIGURES_DIR, target_is_directory=True)
             print(
                 f"  [SUCCESS] Created link: '{target_link}' -> '{SOURCE_FIGURES_DIR}'"

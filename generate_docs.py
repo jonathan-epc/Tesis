@@ -23,6 +23,7 @@ PATHS_TO_EXCLUDE: set[str] = {
     "savepoints",  # Exclude saved models
     "logs",
     "plots",
+    "publication_figures",
     "wandb",
     # Exclude old/temporary/generated files if any
     "wandb.xlsx",

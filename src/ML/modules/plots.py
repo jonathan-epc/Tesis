@@ -8,7 +8,11 @@ import torch
 from matplotlib.colors import LogNorm, TwoSlopeNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from common.utils import setup_logger
+
 from .plot_config import LONG_NAMES, SYMBOLS, TRANSLATIONS, UNITS
+
+logger = setup_logger()
 
 
 class PlotManager:
@@ -46,9 +50,9 @@ class PlotManager:
         if publication_style:
             self.enable_publication_style()
 
-    def enable_publication_style(self):
+    def enable_publication_style(self, base_style="seaborn-v0_8-whitegrid"):
         """Apply consistent, publication-quality Matplotlib style."""
-        plt.style.use("default")
+        plt.style.use(base_style)
 
         base_size = self.font_sizes["base"]
         small_size = self.font_sizes["small"]
@@ -82,11 +86,13 @@ class PlotManager:
         for fmt in self.formats:
             filepath = self.output_path / f"{sanitized_stem}.{fmt}"
             try:
-                facecolor = "white" if fmt != "png" else "auto"
-                fig.savefig(filepath, dpi=300, bbox_inches="tight", facecolor=facecolor)
-                print(f"Saved figure: {filepath}")
+                # facecolor = "white" if fmt != "png" else "auto"
+                fig.savefig(
+                    filepath, dpi=300, bbox_inches="tight", transparent=(fmt == "png")
+                )
+                logger.info(f"Saved figure: {filepath}")
             except Exception as e:
-                print(f"Failed to save {filepath}: {e}")
+                logger.error(f"Failed to save {filepath}: {e}")
 
         plt.close(fig)
 
@@ -353,6 +359,7 @@ def plot_field_comparison(
                 fontweight="bold",
                 va="top",
                 ha="left",
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.8),
             )
 
     plt.tight_layout(rect=[0, 0, 1, 0.92])
