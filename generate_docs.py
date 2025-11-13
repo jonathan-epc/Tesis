@@ -7,7 +7,15 @@ ROOT_FOLDER: Path = Path.cwd()
 OUTPUT_FILENAME: str = "project_summary.txt"
 
 # Extensions to include for content extraction
-EXTENSIONS_TO_INCLUDE: set[str] = {".py", ".yaml", ".yml", ".toml", ".gitattributes"}
+EXTENSIONS_TO_INCLUDE: set[str] = {
+    ".py",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".md",
+    ".gitignore",
+    ".gitattributes",
+}
 
 # Directories/files to completely exclude from both structure and content
 # Updated for the refactored project structure.

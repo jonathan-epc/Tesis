@@ -36,7 +36,7 @@ except FileNotFoundError:
 LATEX_PROJECTS = {
     PAPER_REPO_ROOT / "Articulos/article": "figures",
     PAPER_REPO_ROOT / "Articulos/sochid": "figures",
-    PAPER_REPO_ROOT / "Articulos/thesis": "images",  # Thesis might use 'images'
+    PAPER_REPO_ROOT / "Articulos/thesis": "figures",  # Thesis might use 'images'
 }
 
 
