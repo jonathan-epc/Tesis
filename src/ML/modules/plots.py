@@ -23,7 +23,7 @@ class PlotManager:
         output_path: str | Path,
         publication_style: bool = True,
         formats: list[str] = None,
-        base_font_size: int = 16,
+        base_font_size: int = 20,
     ):
         """
         Initializes the PlotManager.
@@ -131,7 +131,9 @@ def _plot_single_scatter_ax(
     hb = ax.hexbin(targ, pred, gridsize=50, cmap="viridis", mincnt=1, norm=LogNorm())
 
     fig = ax.get_figure()
-    cbar = fig.colorbar(hb, ax=ax, format="%g")
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.1)
+    cbar = fig.colorbar(hb, cax=cax, format="%g")
     cbar.set_label(lang_text["count"])
 
     lims = [
@@ -158,8 +160,9 @@ def _plot_single_scatter_ax(
             ha="left",
         )
 
-    ax.set_xlabel(lang_text["truth"])
-    ax.set_ylabel(lang_text["pred"])
+    unit_str = _get_unit(name)
+    ax.set_xlabel(f"{lang_text['truth']}{unit_str}")
+    ax.set_ylabel(f"{lang_text['pred']}{unit_str}")
 
     var_metrics = metrics.get(name, {})
     r2 = var_metrics.get("r2", float("nan"))
@@ -218,7 +221,7 @@ def plot_scatter_predictions(
     if separate_plots:
         # MODE 1: Generate one plot per file
         for i, name in enumerate(all_names):
-            fig, ax = plt.subplots(figsize=(6, 5))  # Good size for a single panel
+            fig, ax = plt.subplots(figsize=(6, 5), constrained_layout=True)
             pred, targ = all_preds[i].numpy().flatten(), all_targs[i].numpy().flatten()
 
             # For separate plots, panel labels don't make sense, so pass None.
@@ -235,7 +238,6 @@ def plot_scatter_predictions(
                 panel_label=None,
                 plot_manager=plot_manager,
             )
-            plt.tight_layout()
             # Save each figure with a unique name
             plot_manager.save_plot(fig, f"scatter_{name}")
 
@@ -245,7 +247,11 @@ def plot_scatter_predictions(
         cols = min(3, num_plots)
         rows = (num_plots + cols - 1) // cols
         fig, axes = plt.subplots(
-            rows, cols, figsize=(cols * 5.5, rows * 4.5), squeeze=False
+            rows,
+            cols,
+            figsize=(cols * 5.5, rows * 4.5),
+            squeeze=False,
+            constrained_layout=True,
         )
 
         if not publication:
@@ -275,7 +281,6 @@ def plot_scatter_predictions(
                 plot_manager=plot_manager,
             )
 
-        plt.tight_layout(rect=[0, 0, 1, 0.95] if not publication else [0, 0, 1, 1])
         plot_manager.save_plot(fig, "scatter_composite")
 
 

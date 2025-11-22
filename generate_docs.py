@@ -15,6 +15,7 @@ EXTENSIONS_TO_INCLUDE: set[str] = {
     ".md",
     ".gitignore",
     ".gitattributes",
+    ".txt",
 }
 
 # Directories/files to completely exclude from both structure and content
