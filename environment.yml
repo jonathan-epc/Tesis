@@ -21,7 +21,7 @@ dependencies:
 
   # --- PyTorch & GPU ---
   - pytorch
-  - pytorch-cuda=12.4 # Specify CUDA version for reproducibility
+  # - pytorch-cuda=12.4 # Specify CUDA version for reproducibility
   - torchaudio
 
   # --- Machine Learning & Optuna ---
@@ -64,3 +64,8 @@ dependencies:
       - torcheval
       # Using the specific, reproducible commit for neuraloperator
       - git+https://github.com/NeuralOperator/neuraloperator.git@a9e63cbc859e7c5f01d82c4c1510b801f0211590
+      # --- Web App Dependencies ---
+      - fastapi
+      - uvicorn
+      - python-multipart # Good to have for form data/file uploads
+    

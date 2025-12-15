@@ -6,7 +6,7 @@
 
 project_name: "FNO-TELEMAC-Thesis"
 seed: 43
-device: "auto" # "auto" will use "cuda" if available, otherwise "cpu". Can be set to "cpu" manually.
+device: "cpu" # "auto" will use "cuda" if available, otherwise "cpu". Can be set to "cpu" manually.
 
 api_keys:
   wandb: "${WANDB_API_KEY}" # Loads from the WANDB_API_KEY environment variable for security.
@@ -80,7 +80,7 @@ paths:
 
 data:
   # The specific HDF5 dataset to use for this run.
-  file_path: "data/BARSa.hdf5"
+  file_path: "data/test_data.hdf5"
 
   # Preprocessing flags. `normalize_output` is often a hyperparameter.
   normalize_input: true
@@ -116,13 +116,13 @@ model:
 # These are base values for a single run; Optuna will override these during a search.
 training:
   kfolds: 1             # Use 5 for final cross-validation runs.
-  batch_size: 16
-  num_epochs: 512
+  batch_size: 4
+  num_epochs: 2
   num_workers: 0
   accumulation_steps: 1
   learning_rate: 0.0001
-  test_frac: 0.2
-  validation_frac: 0.2
+  test_frac: 0.8
+  validation_frac: 0.5
   early_stopping_patience: 64
   early_stopping_delta: 0.0
   clip_grad_value: 1.0
@@ -132,7 +132,7 @@ training:
 
 # --- Logging ---
 logging:
-  use_wandb: true
+  use_wandb: false
   wandb_project: "Tesis" # Use a new project name to keep results clean
   plot_enabled: false
 
