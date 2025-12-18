@@ -20,8 +20,13 @@ from nconfig import Config
 # Corrected relative imports
 from .data import HDF5Dataset
 from .loss import PhysicsInformedLoss
-from .utils import (EarlyStopping, compute_metrics,
-                    denormalize_outputs_and_targets, seed_worker, setup_logger)
+from .utils import (
+    EarlyStopping,
+    compute_metrics,
+    denormalize_outputs_and_targets,
+    seed_worker,
+    setup_logger,
+)
 
 # Get a logger instance at the module level
 logger = setup_logger()

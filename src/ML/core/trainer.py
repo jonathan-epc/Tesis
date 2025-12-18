@@ -53,7 +53,9 @@ class ModelTrainer:
             model_class = getattr(model_zoo, model_name)
             return model_class
         except AttributeError:
-            raise ValueError(f"Model class '{model_name}' not found in 'src/ML/modules/models.py'")   
+            raise ValueError(
+                f"Model class '{model_name}' not found in 'src/ML/modules/models.py'"
+            )
 
     def train(self) -> float | None:
         """Loads data, splits it, and runs the full training and evaluation procedure.
