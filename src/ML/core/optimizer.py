@@ -91,7 +91,7 @@ class HyperparameterOptimizer:
         except AttributeError:
             raise ValueError(
                 f"Model class '{model_name}' not found in 'src/ML/modules/models.py'"
-            )
+            ) from None
 
     def objective(self, trial: optuna.Trial) -> float:
         hparams = self.create_hparams(trial)

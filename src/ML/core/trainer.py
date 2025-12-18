@@ -8,9 +8,9 @@ import wandb
 from torch.utils.data import DataLoader, random_split
 
 from common.utils import setup_logger
+from ML.modules import models as model_zoo
 from ML.modules.data import HDF5Dataset
 from ML.modules.loss import PhysicsInformedLoss
-from ML.modules import models as model_zoo
 from ML.modules.training import Trainer, cross_validation_procedure
 from ML.modules.utils import seed_worker
 from nconfig import Config
@@ -55,7 +55,7 @@ class ModelTrainer:
         except AttributeError:
             raise ValueError(
                 f"Model class '{model_name}' not found in 'src/ML/modules/models.py'"
-            )
+            ) from None
 
     def train(self) -> float | None:
         """Loads data, splits it, and runs the full training and evaluation procedure.
