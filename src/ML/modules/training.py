@@ -20,13 +20,8 @@ from nconfig import Config
 # Corrected relative imports
 from .data import HDF5Dataset
 from .loss import PhysicsInformedLoss
-from .utils import (
-    EarlyStopping,
-    compute_metrics,
-    denormalize_outputs_and_targets,
-    seed_worker,
-    setup_logger,
-)
+from .utils import (EarlyStopping, compute_metrics,
+                    denormalize_outputs_and_targets, seed_worker, setup_logger)
 
 # Get a logger instance at the module level
 logger = setup_logger()
@@ -864,9 +859,19 @@ def cross_validation_procedure(
     """
     Orchestrates K-fold cross-validation on the provided train_val_dataset.
 
+    Args:
+        name (str): The base name for the experiment run (e.g., for logging and model saving).
+        model_class (type[nn.Module]): The model class to be instantiated (e.g., FNOnet).
+        kfolds (int): The number of folds for cross-validation. If 1, a single train/validation split is performed.
+        hparams (dict[str, Any]): A dictionary of hyperparameters for this specific trial.
+        is_sweep (bool): True if this run is part of an Optuna sweep, False otherwise.
+        trial (optuna.Trial | None): The Optuna trial object, used for reporting progress and pruning.
+        config (Config): The main project configuration object.
+        train_val_dataset (Dataset): The dataset containing all samples for training and validation.
+        full_dataset_for_stats (HDF5Dataset): The full dataset instance used to get normalization statistics.
+
     Returns:
-        float: The average validation loss (or other primary metric) across all folds.
-               This value should be used by Optuna for optimization.
+        float: The average validation loss across all folds. This value is used by Optuna for optimization.
     """
     # --- Setup ---
     if config is None:

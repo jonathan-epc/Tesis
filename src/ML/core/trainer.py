@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, random_split
 from common.utils import setup_logger
 from ML.modules.data import HDF5Dataset
 from ML.modules.loss import PhysicsInformedLoss
-from ML.modules.models import FNOnet
+from ML.modules import models as model_zoo
 from ML.modules.training import Trainer, cross_validation_procedure
 from ML.modules.utils import seed_worker
 from nconfig import Config
@@ -45,6 +45,16 @@ class ModelTrainer:
         hparams["normalize_output"] = self.config.data.normalize_output
         return hparams
 
+    def _get_model_class(self):
+        """Gets the model class from the config file using its name."""
+        model_name = self.config.model.class_name
+        try:
+            # getattr will find the class by its string name in the models.py module
+            model_class = getattr(model_zoo, model_name)
+            return model_class
+        except AttributeError:
+            raise ValueError(f"Model class '{model_name}' not found in 'src/ML/modules/models.py'")   
+
     def train(self) -> float | None:
         """Loads data, splits it, and runs the full training and evaluation procedure.
 
@@ -69,7 +79,7 @@ class ModelTrainer:
             )
 
             # 2. Get Model and Hyperparameters
-            model_class = FNOnet  # Assuming FNOnet is the primary model
+            model_class = self._get_model_class()
             hparams = self._get_default_hparams()
 
             # 3. Run Training

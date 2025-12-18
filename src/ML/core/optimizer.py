@@ -12,9 +12,9 @@ from torch.cuda import empty_cache
 from torch.utils.data import DataLoader, random_split
 
 from common.utils import setup_logger
+from ML.modules import models as model_zoo
 from ML.modules.data import HDF5Dataset
 from ML.modules.loss import PhysicsInformedLoss
-from ML.modules.models import FNOnet
 from ML.modules.training import Trainer, cross_validation_procedure
 from ML.modules.utils import seed_worker
 from nconfig import Config
@@ -82,8 +82,16 @@ class HyperparameterOptimizer:
         return hparams
 
     def _get_model_class(self):
-        # This assumes FNOnet is the primary model. Can be made more dynamic if needed.
-        return FNOnet
+        """Gets the model class from the config file using its name."""
+        model_name = self.config.model.class_name
+        try:
+            # getattr will find the class by its string name in the models.py module
+            model_class = getattr(model_zoo, model_name)
+            return model_class
+        except AttributeError:
+            raise ValueError(
+                f"Model class '{model_name}' not found in 'src/ML/modules/models.py'"
+            )
 
     def objective(self, trial: optuna.Trial) -> float:
         hparams = self.create_hparams(trial)
@@ -112,9 +120,26 @@ class HyperparameterOptimizer:
         except optuna.exceptions.TrialPruned as e:
             self.logger.warning(f"Trial {trial.number} pruned: {e}")
             raise
-        except Exception as e:
-            self.logger.exception(f"Trial {trial.number} failed with error: {str(e)}")
-            raise optuna.exceptions.TrialPruned(f"Trial failed: {str(e)}") from e
+        except (ValueError, FileNotFoundError) as config_error:
+            # These are critical config errors, don't prune, just fail loudly.
+            self.logger.error(
+                f"Trial {trial.number} failed due to a configuration or data error: {config_error}"
+            )
+            raise config_error  # Re-raise to stop the whole study
+        except RuntimeError as cuda_error:
+            # Often related to CUDA memory issues
+            self.logger.error(
+                f"Trial {trial.number} failed with a runtime error (possibly CUDA OOM): {cuda_error}"
+            )
+            # Pruning is appropriate here, as a different batch size might fix it.
+            raise optuna.exceptions.TrialPruned(
+                f"Runtime error: {cuda_error}"
+            ) from cuda_error
+        except Exception as e:  # Keep this as a last resort catch-all
+            self.logger.exception(
+                f"An unexpected error occurred in trial {trial.number}: {e}"
+            )
+            raise optuna.exceptions.TrialPruned(f"Unexpected error: {e}") from e
         finally:
             empty_cache()
 
