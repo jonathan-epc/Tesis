@@ -59,7 +59,7 @@ async def predict(data: ModelInput):
         return ModelOutput(**results)
 
     except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
     except Exception as e:
         import traceback
 
@@ -67,7 +67,7 @@ async def predict(data: ModelInput):
         traceback.print_exc()
         raise HTTPException(
             status_code=500, detail=f"An internal error occurred: {str(e)}"
-        )
+        ) from e
 
 
 @app.get("/health")
