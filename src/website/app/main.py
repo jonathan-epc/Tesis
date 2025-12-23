@@ -1,8 +1,6 @@
 # src/website/app/main.py
-import os
 from pathlib import Path
 
-import torch
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -45,11 +43,11 @@ async def predict(model_key: str, data: ModelInput):
         results = model_handler.predict(model_key, data.dict())
         return ModelOutput(**results)
     except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
     except KeyError:
         raise HTTPException(
             status_code=404, detail=f"Model key '{model_key}' not found."
-        )
+        ) from None
     except Exception as e:
         import traceback
 
@@ -57,7 +55,7 @@ async def predict(model_key: str, data: ModelInput):
         traceback.print_exc()
         raise HTTPException(
             status_code=500, detail=f"An internal error occurred: {str(e)}"
-        )
+        ) from e
 
 
 @app.get("/health")

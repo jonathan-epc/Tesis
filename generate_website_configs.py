@@ -215,7 +215,7 @@ DESCRIPTIONS = {
 
 def main():
     models_store_dir = Path("src/website/models_store")
-    for model_key in IO_CONFIGS.keys():
+    for model_key in IO_CONFIGS:
         model_dir = models_store_dir / model_key
         if not model_dir.exists():
             continue
