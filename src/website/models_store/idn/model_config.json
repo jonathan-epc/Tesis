@@ -1,0 +1,31 @@
+{
+  "model_key": "idn",
+  "description": "Inverse Dimensional (NOISE)",
+  "input_fields": [
+    "U",
+    "V"
+  ],
+  "input_scalars": [],
+  "output_fields": [
+    "B",
+    "H"
+  ],
+  "output_scalars": [
+    "H0",
+    "Q0",
+    "n",
+    "nut"
+  ],
+  "grid_dims": {
+    "height": 11,
+    "width": 401
+  },
+  "model_hparams": {
+    "n_layers": 2,
+    "n_modes_x": 2,
+    "n_modes_y": 10,
+    "hidden_channels": 149,
+    "lifting_channels": 148,
+    "projection_channels": 196
+  }
+}

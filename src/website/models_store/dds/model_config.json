@@ -1,0 +1,55 @@
+{
+  "model_key": "dds",
+  "description": "Direct Dimensional (SLOPE)",
+  "input_fields": [
+    "B"
+  ],
+  "input_scalars": [
+    {
+      "name": "H0",
+      "min": 0.01,
+      "max": 0.25,
+      "step": 0.001,
+      "default": 0.15
+    },
+    {
+      "name": "Q0",
+      "min": 0.005,
+      "max": 0.02,
+      "step": 0.001,
+      "default": 0.01
+    },
+    {
+      "name": "n",
+      "min": 0.01,
+      "max": 0.2,
+      "step": 0.001,
+      "default": 0.025
+    },
+    {
+      "name": "nut",
+      "min": 1e-06,
+      "max": 0.001,
+      "step": 1e-06,
+      "default": 1e-05
+    }
+  ],
+  "output_fields": [
+    "H",
+    "U",
+    "V"
+  ],
+  "output_scalars": [],
+  "grid_dims": {
+    "height": 11,
+    "width": 401
+  },
+  "model_hparams": {
+    "n_layers": 9,
+    "n_modes_x": 382,
+    "n_modes_y": 2,
+    "hidden_channels": 57,
+    "lifting_channels": 166,
+    "projection_channels": 63
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "model_key": "iab",
+  "description": "Inverse Adimensional (BARS)",
+  "input_fields": [
+    "U*",
+    "V*"
+  ],
+  "input_scalars": [],
+  "output_fields": [
+    "B*",
+    "H*"
+  ],
+  "output_scalars": [
+    "Hr",
+    "Fr",
+    "M",
+    "Re",
+    "Ar",
+    "Vr"
+  ],
+  "grid_dims": {
+    "height": 11,
+    "width": 401
+  },
+  "model_hparams": {
+    "n_layers": 15,
+    "n_modes_x": 212,
+    "n_modes_y": 4,
+    "hidden_channels": 103,
+    "lifting_channels": 26,
+    "projection_channels": 152
+  }
+}

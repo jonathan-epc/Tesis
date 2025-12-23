@@ -1,0 +1,33 @@
+{
+  "model_key": "ian",
+  "description": "Inverse Adimensional (NOISE)",
+  "input_fields": [
+    "U*",
+    "V*"
+  ],
+  "input_scalars": [],
+  "output_fields": [
+    "B*",
+    "H*"
+  ],
+  "output_scalars": [
+    "Hr",
+    "Fr",
+    "M",
+    "Re",
+    "Ar",
+    "Vr"
+  ],
+  "grid_dims": {
+    "height": 11,
+    "width": 401
+  },
+  "model_hparams": {
+    "n_layers": 8,
+    "n_modes_x": 156,
+    "n_modes_y": 6,
+    "hidden_channels": 154,
+    "lifting_channels": 193,
+    "projection_channels": 205
+  }
+}

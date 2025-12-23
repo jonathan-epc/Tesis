@@ -1,0 +1,31 @@
+{
+  "model_key": "idb",
+  "description": "Inverse Dimensional (BARS)",
+  "input_fields": [
+    "U",
+    "V"
+  ],
+  "input_scalars": [],
+  "output_fields": [
+    "B",
+    "H"
+  ],
+  "output_scalars": [
+    "H0",
+    "Q0",
+    "n",
+    "nut"
+  ],
+  "grid_dims": {
+    "height": 11,
+    "width": 401
+  },
+  "model_hparams": {
+    "n_layers": 1,
+    "n_modes_x": 384,
+    "n_modes_y": 2,
+    "hidden_channels": 111,
+    "lifting_channels": 133,
+    "projection_channels": 154
+  }
+}

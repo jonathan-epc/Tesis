@@ -4,31 +4,38 @@
     <meta charset="UTF-8">
     <title>FNO Surrogate Model</title>
     <link rel="stylesheet" href="/static/style.css">
-    <!-- ADD THIS LINE to include the Plotly.js library -->
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 </head>
 <body>
     <h1>FNO Surrogate Model Interface</h1>
 
     <div class="container">
         <div class="input-section">
-            <h2>Model Inputs</h2>
-            <label for="scalar_features">Scalar Features (H₀, Q₀, n, νₜ):</label>
-            <input type="text" id="scalar_features" placeholder="e.g., 0.15, 0.01, 0.025, 0.001">
+            <h2>Model Selector</h2>
+            <select id="model-selector" onchange="updateUIForSelectedModel()"></select>
 
-            <label for="field_data_flat">Field Data (Bed Geometry 'B' - flattened 11x401):</label>
-            <textarea id="field_data_flat" rows="5" placeholder="Paste 4411 comma-separated values, or use a helper button."></textarea>
-            <button onclick="generateFlatBed()">Generate Flat Bed (B=0)</button>
+            <div id="inputs-container">
+                <div id="scalar-inputs-wrapper">
+                    <h3>Scalar Inputs</h3>
+                    <div id="scalar-inputs-container"></div>
+                </div>
 
-            <button onclick="sendPredictionRequest()">Predict</button>
+                <div id="field-inputs-wrapper">
+                    <h3>Field Inputs</h3>
+                    <div id="field-inputs-container">
+                        <label id="field-label" for="field_data_flat">Field Data:</label>
+                        <textarea id="field_data_flat" rows="5"></textarea>
+                        <button onclick="generatePlaceholderFieldData()">Generate Placeholder Field Data</button>
+                    </div>
+                </div>
+            </div>
+
+            <button id="predict-button" onclick="sendPredictionRequest()">Predict</button>
         </div>
 
         <div class="output-section">
             <h2>Prediction Results</h2>
-            <div id="loading" style="display: none;">Loading...</div>
-            <pre id="json-output"></pre>
-            
-            <!-- ADD THIS DIV as a container for our plots -->
+            <div id="loading" class="hidden">Loading...</div>
             <div id="plot-container"></div>
         </div>
     </div>
