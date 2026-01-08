@@ -51,7 +51,7 @@ dependencies:
   - pip
   - pip:
       - black==24.10.0
-      - ruff
+      - ruff==0.14.9
       - pre-commit
       - pytest
       - pytest-mock
