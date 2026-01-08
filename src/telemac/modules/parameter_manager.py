@@ -241,13 +241,13 @@ class ParameterManager:
         hc = self.config.channel.depth  # A reference scale
 
         # Calculate dimensional parameters from non-dimensional ones
-        params["L"] = xc
         params["W"] = yc
-        params["H0"] = hc  # Use reference h_c as H0
+        params["L"] = params["Ar"] * params["W"]
+        params["H0"] = hc
 
-        uc = params["Fr"] * np.sqrt(g * hc)
-        params["Q0"] = uc * hc * yc
-        params["SLOPE"] = (params["Hr"] * hc) / xc
+        uc = params["Fr"] * np.sqrt(g * params["H0"])
+        params["Q0"] = uc * params["H0"] * params["W"]
+        params["SLOPE"] = (params["Hr"] * params["H0"]) / params["L"]
         params["n"] = np.sqrt(params["M"] * (hc ** (4 / 3)) / (g * xc))
 
         # **FIX**: Calculate nut from the sampled Reynolds number
